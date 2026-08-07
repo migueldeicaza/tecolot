@@ -91,6 +91,21 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
                              themeStore: AppModel.shared.themes,
                              sessionThemeOverride: themeOverride,
                              to: terminal)
+        updateWindowTransparency()
+    }
+
+    /// A translucent terminal background only composites when the hosting
+    /// window is non-opaque; restore normal opacity otherwise
+    @MainActor
+    private func updateWindowTransparency() {
+        guard let window = terminal?.window else { return }
+        if profile.backgroundOpacity < 1.0 {
+            window.isOpaque = false
+            window.backgroundColor = .clear
+        } else if !window.isOpaque {
+            window.isOpaque = true
+            window.backgroundColor = nil
+        }
     }
 
     func attach(to terminal: LocalProcessTerminalView) {
@@ -291,6 +306,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
         TerminalSessionRegistry.shared.register(controller: self, for: window)
         installWindowCloseInterceptor(on: window)
+        updateWindowTransparency()
         if !NSApp.isActive {
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -305,6 +321,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         guard let window = terminal?.window else { return }
         TerminalSessionRegistry.shared.register(controller: self, for: window)
         installWindowCloseInterceptor(on: window)
+        updateWindowTransparency()
     }
 
     private func installWindowCloseInterceptor(on window: NSWindow) {

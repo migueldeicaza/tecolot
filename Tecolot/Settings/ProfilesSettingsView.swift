@@ -331,6 +331,13 @@ struct ProfileTextSettingsFields: View {
             get: { profile.useBrightColorsForBold },
             set: { newValue in update { $0.useBrightColorsForBold = newValue } }
         ))
+        LabeledContent("Background opacity:") {
+            Slider(value: Binding(
+                get: { profile.backgroundOpacity },
+                set: { newValue in update { $0.backgroundOpacity = newValue } }
+            ), in: 0.3...1.0)
+            .frame(maxWidth: 200)
+        }
     }
 }
 

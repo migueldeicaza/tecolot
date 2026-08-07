@@ -58,10 +58,9 @@ public enum ProfileApplier {
         }
         view.installColors (theme.ansi.map { $0.terminalColor })
 
-        let background = nativeColor (theme.background, alpha: opacity)
-        let foreground = nativeColor (theme.foreground)
-        view.nativeBackgroundColor = background
-        view.nativeForegroundColor = foreground
+        view.nativeBackgroundColor = nativeColor (theme.background)
+        view.nativeForegroundColor = nativeColor (theme.foreground)
+        view.backgroundOpacity = CGFloat (opacity)
 
         if let cursor = theme.cursor {
             view.caretColor = nativeColor (cursor)
