@@ -1,17 +1,39 @@
 {
   "fill" : {
-    "automatic-gradient" : "extended-srgb:0.00000,0.53333,1.00000,1.00000"
+    "linear-gradient" : [
+      "display-p3:0.32023,0.41637,0.31570,1.00000",
+      "display-p3:0.31966,0.25585,0.09552,1.00000"
+    ],
+    "orientation" : {
+      "start" : {
+        "x" : 0.5,
+        "y" : 0
+      },
+      "stop" : {
+        "x" : 0.5,
+        "y" : 0.7
+      }
+    }
   },
   "groups" : [
     {
       "layers" : [
+
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    },
+    {
+      "layers" : [
         {
-          "blend-mode" : "normal",
-          "fill" : "none",
-          "glass" : false,
-          "hidden" : false,
-          "image-name" : "tecolotl-textured.png",
-          "name" : "tecolotl-textured"
+          "image-name" : "tecolotl-textured-clear.png",
+          "name" : "tecolotl-textured-clear"
         }
       ],
       "shadow" : {
