@@ -174,26 +174,6 @@ struct TerminalCommands: Commands {
             .keyboardShortcut("k", modifiers: [.command])
             .disabled(!isEnabled)
 
-            Divider()
-
-            Button("Mark Line") {
-                controller?.terminal?.getTerminal().markCurrentLine()
-            }
-            .keyboardShortcut("m", modifiers: [.command, .shift])
-            .disabled(!isEnabled)
-
-            Button("Scroll to Previous Mark") {
-                controller?.terminal?.scrollToPreviousMark()
-            }
-            .keyboardShortcut(.upArrow, modifiers: [.command])
-            .disabled(!isEnabled)
-
-            Button("Scroll to Next Mark") {
-                controller?.terminal?.scrollToNextMark()
-            }
-            .keyboardShortcut(.downArrow, modifiers: [.command])
-            .disabled(!isEnabled)
-
             Button("Soft Reset") {
                 controller?.softReset()
             }
