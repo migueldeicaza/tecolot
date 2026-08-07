@@ -1,0 +1,25 @@
+{
+  "name": "Tomorrow",
+  "ansi": [
+    "#000000",
+    "#c82829",
+    "#718c00",
+    "#eab700",
+    "#4271ae",
+    "#8959a8",
+    "#3e999f",
+    "#bfbfbf",
+    "#000000",
+    "#c82829",
+    "#718c00",
+    "#eab700",
+    "#4271ae",
+    "#8959a8",
+    "#3e999f",
+    "#ffffff"
+  ],
+  "foreground": "#4d4d4c",
+  "background": "#ffffff",
+  "cursor": "#4d4d4c",
+  "selectionBackground": "#d6d6d6"
+}

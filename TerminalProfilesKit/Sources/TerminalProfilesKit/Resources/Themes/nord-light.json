@@ -1,0 +1,25 @@
+{
+  "name": "Nord Light",
+  "ansi": [
+    "#3b4252",
+    "#bf616a",
+    "#96b17f",
+    "#c5a565",
+    "#81a1c1",
+    "#b48ead",
+    "#7bb3c3",
+    "#a5abb6",
+    "#4c566a",
+    "#bf616a",
+    "#96b17f",
+    "#c5a565",
+    "#81a1c1",
+    "#b48ead",
+    "#82afae",
+    "#eceff4"
+  ],
+  "foreground": "#414858",
+  "background": "#e5e9f0",
+  "cursor": "#7bb3c3",
+  "selectionBackground": "#d8dee9"
+}

@@ -1,0 +1,25 @@
+{
+  "name": "Nvim Dark",
+  "ansi": [
+    "#07080d",
+    "#ffc0b9",
+    "#b3f6c0",
+    "#fce094",
+    "#a6dbff",
+    "#ffcaff",
+    "#8cf8f7",
+    "#eef1f8",
+    "#4f5258",
+    "#ffc0b9",
+    "#b3f6c0",
+    "#fce094",
+    "#a6dbff",
+    "#ffcaff",
+    "#8cf8f7",
+    "#eef1f8"
+  ],
+  "foreground": "#e0e2ea",
+  "background": "#14161b",
+  "cursor": "#9b9ea4",
+  "selectionBackground": "#4f5258"
+}

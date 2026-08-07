@@ -1,0 +1,25 @@
+{
+  "name": "Selenized Light",
+  "ansi": [
+    "#ece3cc",
+    "#d2212d",
+    "#489100",
+    "#ad8900",
+    "#0072d4",
+    "#ca4898",
+    "#009c8f",
+    "#53676d",
+    "#909995",
+    "#cc1729",
+    "#428b00",
+    "#a78300",
+    "#006dce",
+    "#c44392",
+    "#00978a",
+    "#3a4d53"
+  ],
+  "foreground": "#53676d",
+  "background": "#fbf3db",
+  "cursor": "#53676d",
+  "selectionBackground": "#ece3cc"
+}

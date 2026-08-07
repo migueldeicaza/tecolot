@@ -1,0 +1,25 @@
+{
+  "name": "Zenbones Dark",
+  "ansi": [
+    "#1c1917",
+    "#de6e7c",
+    "#819b69",
+    "#b77e64",
+    "#6099c0",
+    "#b279a7",
+    "#66a5ad",
+    "#b4bdc3",
+    "#4d4540",
+    "#e8838f",
+    "#8bae68",
+    "#d68c67",
+    "#61abda",
+    "#cf86c1",
+    "#65b8c1",
+    "#888f94"
+  ],
+  "foreground": "#b4bdc3",
+  "background": "#1c1917",
+  "cursor": "#c4cacf",
+  "selectionBackground": "#3d4042"
+}

@@ -1,0 +1,25 @@
+{
+  "name": "Retro",
+  "ansi": [
+    "#13a10e",
+    "#13a10e",
+    "#13a10e",
+    "#13a10e",
+    "#13a10e",
+    "#13a10e",
+    "#13a10e",
+    "#13a10e",
+    "#16ba10",
+    "#16ba10",
+    "#16ba10",
+    "#16ba10",
+    "#16ba10",
+    "#16ba10",
+    "#16ba10",
+    "#16ba10"
+  ],
+  "foreground": "#13a10e",
+  "background": "#000000",
+  "cursor": "#13a10e",
+  "selectionBackground": "#ffffff"
+}

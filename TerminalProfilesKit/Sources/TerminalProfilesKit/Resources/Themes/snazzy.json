@@ -1,0 +1,25 @@
+{
+  "name": "Snazzy",
+  "ansi": [
+    "#000000",
+    "#fc4346",
+    "#50fb7c",
+    "#f0fb8c",
+    "#49baff",
+    "#fc4cb4",
+    "#8be9fe",
+    "#ededec",
+    "#555555",
+    "#fc4346",
+    "#50fb7c",
+    "#f0fb8c",
+    "#49baff",
+    "#fc4cb4",
+    "#8be9fe",
+    "#ededec"
+  ],
+  "foreground": "#ebece6",
+  "background": "#1e1f29",
+  "cursor": "#e4e4e4",
+  "selectionBackground": "#81aec6"
+}
