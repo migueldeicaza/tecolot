@@ -10,6 +10,7 @@ import Darwin
 import Observation
 import SwiftTerm
 import SwiftUI
+import TerminalProfilesKit
 import UniformTypeIdentifiers
 
 @Observable
@@ -25,6 +26,64 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored weak var terminal: LocalProcessTerminalView?
     @ObservationIgnored private var isConfigured = false
     @ObservationIgnored private var didRequestFocus = false
+
+    /// The profile driving this session; replaced by applyProfile(_:)
+    private(set) var profile = TerminalProfile(name: "Untitled")
+    /// Per-tab theme override; nil follows the profile's theme
+    var themeOverride: String?
+    /// Drives the per-window theme picker popover
+    var showThemePicker = false
+    @ObservationIgnored private var launchDirectory: String?
+    @ObservationIgnored private var didResolveLaunch = false
+
+    /// Consumes the pending LaunchSpec exactly once, from the first view
+    /// attach; discarded controller instances never reach this point
+    @MainActor
+    func resolveLaunchIfNeeded() {
+        guard !didResolveLaunch else { return }
+        didResolveLaunch = true
+        let spec = AppModel.shared.takePendingLaunch()
+        profile = AppModel.shared.resolveProfile(for: spec)
+        launchDirectory = spec?.workingDirectory
+    }
+
+    /// The directory the shell reported via OSC 7, as a filesystem path
+    var currentWorkingDirectory: String? {
+        guard let posted = postedDirectory, let url = URL(string: posted) else {
+            return nil
+        }
+        return url.path
+    }
+
+    /// The theme currently in effect for this session
+    @MainActor
+    var effectiveTheme: TerminalTheme {
+        AppModel.shared.themes.theme(named: themeOverride ?? profile.themeName)
+    }
+
+    /// Applies a new profile to the running session (colors, font, cursor,
+    /// keyboard, scrollback); shell settings only affect future launches
+    @MainActor
+    func applyProfile(_ newProfile: TerminalProfile) {
+        profile = newProfile
+        applyAppearance()
+    }
+
+    /// Sets or clears (nil) the per-tab theme override and re-applies colors
+    @MainActor
+    func applyThemeOverride(_ name: String?) {
+        themeOverride = name
+        applyAppearance()
+    }
+
+    @MainActor
+    func applyAppearance() {
+        guard let terminal else { return }
+        ProfileApplier.apply(profile: profile,
+                             themeStore: AppModel.shared.themes,
+                             sessionThemeOverride: themeOverride,
+                             to: terminal)
+    }
 
     func attach(to terminal: LocalProcessTerminalView) {
         if self.terminal !== terminal {
@@ -56,12 +115,24 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
-        terminal?.window?.close()
-        if let exitCode = exitCode {
-            print("Process terminated with code: \(exitCode)")
-        } else {
-            print("Process vanished")
+        let exitedCleanly = (exitCode ?? 0) == 0
+        switch profile.whenShellExits {
+        case .closeWindow:
+            terminal?.window?.close()
+        case .closeIfExitedCleanly:
+            if exitedCleanly {
+                terminal?.window?.close()
+            } else {
+                showCompletionBanner(exitCode: exitCode)
+            }
+        case .keepOpen:
+            showCompletionBanner(exitCode: exitCode)
         }
+    }
+
+    private func showCompletionBanner(exitCode: Int32?) {
+        let status = exitCode.map { String($0) } ?? "?"
+        terminal?.feed(text: "\r\n\u{1b}[7m[Process completed — exit \(status)]\u{1b}[0m\r\n")
     }
 
     func exportBuffer() {
@@ -139,19 +210,25 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         guard let terminal else { return }
         let size = terminal.font.pointSize
         guard size < 72 else { return }
-        terminal.font = NSFont.monospacedSystemFont(ofSize: size + 1, weight: .regular)
+        setFontSize(size + 1, on: terminal)
     }
 
     func smallerFont() {
         guard let terminal else { return }
         let size = terminal.font.pointSize
         guard size > 5 else { return }
-        terminal.font = NSFont.monospacedSystemFont(ofSize: size - 1, weight: .regular)
+        setFontSize(size - 1, on: terminal)
     }
 
     func defaultFontSize() {
         guard let terminal else { return }
-        terminal.font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        setFontSize(CGFloat(profile.fontSize), on: terminal)
+    }
+
+    // Changes only the size, keeping the profile's font family
+    private func setFontSize(_ size: CGFloat, on terminal: LocalProcessTerminalView) {
+        terminal.font = NSFont(descriptor: terminal.font.fontDescriptor, size: size)
+            ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
     }
 
     func terminate() {
@@ -173,8 +250,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         } catch {
             print("METAL DISABLED: \(error)")
         }
-        terminal.caretColor = .systemGreen
-        terminal.getTerminal().setCursorStyle(.steadyBlock)
+        applyAppearance()
         terminal.processDelegate = self
 
         if zoomGesture == nil {
@@ -244,11 +320,12 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
         didStartProcess = true
 
-        terminal.feed(text: "Welcome to SwiftTerm")
-        let shell = getShell()
-        let shellIdiom = "-" + NSString(string: shell).lastPathComponent
-        FileManager.default.changeCurrentDirectoryPath(FileManager.default.homeDirectoryForCurrentUser.path)
-        terminal.startProcess(executable: shell, execName: shellIdiom)
+        let params = ProfileApplier.launchParameters(for: profile, initialDirectory: launchDirectory)
+        terminal.startProcess(executable: params.executable,
+                              args: params.args,
+                              environment: params.environment,
+                              execName: params.execName,
+                              currentDirectory: params.currentDirectory)
         terminal.sizeChanged(source: terminal.getTerminal())
     }
 
@@ -302,27 +379,17 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
     }
 
-    private func getShell() -> String {
-        let bufsize = sysconf(_SC_GETPW_R_SIZE_MAX)
-        guard bufsize != -1 else { return "/bin/bash" }
-
-        let buffer = UnsafeMutablePointer<Int8>.allocate(capacity: bufsize)
-        defer { buffer.deallocate() }
-        var pwd = passwd()
-        var result: UnsafeMutablePointer<passwd>? = nil
-
-        if getpwuid_r(getuid(), &pwd, buffer, bufsize, &result) != 0 || result == nil {
-            return "/bin/bash"
-        }
-        return String(cString: pwd.pw_shell)
-    }
 }
 
 struct TerminalSessionView: NSViewRepresentable {
     var controller: TerminalSessionController
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
-        let terminal = LocalProcessTerminalView(frame: .zero)
+        controller.resolveLaunchIfNeeded()
+        let options = ProfileApplier.terminalOptions(for: controller.profile)
+        let terminal = LocalProcessTerminalView(frame: .zero,
+                                                font: ProfileApplier.font(for: controller.profile),
+                                                options: options)
         controller.attach(to: terminal)
         return terminal
     }

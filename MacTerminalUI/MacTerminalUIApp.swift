@@ -34,34 +34,12 @@ struct TabCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("New Tab") {
-                openDocumentTab()
+                // Inherits working directory and profile from the current
+                // tab per the General settings
+                WindowOpener.openTab(spec: WindowOpener.inheritedTabSpec())
             }
             .keyboardShortcut("t", modifiers: [.command])
         }
-    }
-
-    private func openDocumentTab() {
-        let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
-        guard let document = try? NSDocumentController.shared.openUntitledDocumentAndDisplay(true) else {
-            return
-        }
-        guard let newWindow = document.windowControllers.first?.window else {
-            return
-        }
-
-        NSApp.activate(ignoringOtherApps: true)
-        newWindow.tabbingMode = .preferred
-        newWindow.tabbingIdentifier = "TerminalDocument"
-
-        guard let existingWindow = targetWindow, existingWindow != newWindow else {
-            return
-        }
-
-        existingWindow.tabbingMode = .preferred
-        existingWindow.tabbingIdentifier = "TerminalDocument"
-        existingWindow.addTabbedWindow(newWindow, ordered: .above)
-        newWindow.makeKeyAndOrderFront(nil)
-        existingWindow.makeKeyAndOrderFront(nil)
     }
 }
 
@@ -143,14 +121,25 @@ struct TerminalCommands: Commands {
 @main
 struct MacTerminalUIApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    private let model = AppModel.shared
 
     var body: some Scene {
         DocumentGroup(newDocument: TerminalDocument()) { file in
             ContentView(document: file.$document)
+                .environmentObject(model.profiles)
+                .environmentObject(model.themes)
         }
         .commands {
             TabCommands()
+            ProfileCommands(profiles: model.profiles)
             TerminalCommands()
+        }
+
+        // The Settings scene does not inherit the DocumentGroup environment
+        Settings {
+            SettingsView()
+                .environmentObject(model.profiles)
+                .environmentObject(model.themes)
         }
     }
 }

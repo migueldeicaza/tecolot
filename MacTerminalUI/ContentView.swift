@@ -7,14 +7,79 @@
 
 import AppKit
 import SwiftUI
+import TerminalProfilesKit
 
 struct ContentView: View {
     @Binding var document: TerminalDocument
     @State private var controller = TerminalSessionController()
+    @EnvironmentObject private var profiles: ProfileStore
+    @EnvironmentObject private var themes: ThemeStore
+
+    /// The store's current copy of this session's profile; editing it in
+    /// Settings changes this value, which onChange pushes into the session
+    private var storedProfile: TerminalProfile? {
+        profiles.profile(withID: controller.profile.id)
+    }
 
     var body: some View {
         TerminalSessionView(controller: controller)
             .background(WindowTabbingConfigurator())
+            .onChange(of: storedProfile) { _, newValue in
+                if let newValue, newValue != controller.profile {
+                    controller.applyProfile(newValue)
+                }
+            }
+            .onChange(of: themes.themes) {
+                // A user theme was edited/imported: re-resolve colors
+                controller.applyAppearance()
+            }
+            .toolbar {
+                ToolbarItem {
+                    Button {
+                        controller.showThemePicker.toggle()
+                    } label: {
+                        Label("Theme", systemImage: "paintbrush")
+                    }
+                    .help("Change the theme of this terminal")
+                    .popover(isPresented: Bindable(controller).showThemePicker, arrowEdge: .bottom) {
+                        ThemePickerPopover(controller: controller, themes: themes, profiles: profiles)
+                    }
+                }
+            }
+    }
+}
+
+/// The per-window theme picker: applies the selection to this session only,
+/// with escape hatches to make it the profile-wide theme or reset
+struct ThemePickerPopover: View {
+    var controller: TerminalSessionController
+    @ObservedObject var themes: ThemeStore
+    @ObservedObject var profiles: ProfileStore
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ThemeBrowserView(themes: themes,
+                             selectedThemeName: controller.effectiveTheme.name) { theme in
+                controller.applyThemeOverride(theme.name)
+            }
+            Divider()
+            HStack {
+                Button("Reset to Profile Theme") {
+                    controller.applyThemeOverride(nil)
+                }
+                .disabled(controller.themeOverride == nil)
+                Spacer()
+                Button("Use for All Windows") {
+                    var profile = controller.profile
+                    profile.themeName = controller.effectiveTheme.name
+                    controller.applyThemeOverride(nil)
+                    try? profiles.update(profile)
+                }
+                .help("Makes this theme the profile default, updating every window that uses the profile")
+            }
+            .padding(10)
+        }
+        .frame(width: 520, height: 420)
     }
 }
 

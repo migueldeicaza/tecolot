@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		49D265C52F180D680002314A /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 49D265C42F180D680002314A /* SwiftTerm */; };
+		49D265C82F180D680002314A /* TerminalProfilesKit in Frameworks */ = {isa = PBXBuildFile; productRef = 49D265C72F180D680002314A /* TerminalProfilesKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				49D265C52F180D680002314A /* SwiftTerm in Frameworks */,
+				49D265C82F180D680002314A /* TerminalProfilesKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -71,6 +73,7 @@
 			name = MacTerminalUI;
 			packageProductDependencies = (
 				49D265C42F180D680002314A /* SwiftTerm */,
+				49D265C72F180D680002314A /* TerminalProfilesKit */,
 			);
 			productName = MacTerminalUI;
 			productReference = 497C9E172E426320008DBCC0 /* MacTerminalUI.app */;
@@ -102,6 +105,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				49D265C32F180D680002314A /* XCLocalSwiftPackageReference "../SwiftTerm" */,
+				49D265C62F180D680002314A /* XCLocalSwiftPackageReference "TerminalProfilesKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 497C9E182E426320008DBCC0 /* Products */;
@@ -344,12 +348,20 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../SwiftTerm;
 		};
+		49D265C62F180D680002314A /* XCLocalSwiftPackageReference "TerminalProfilesKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = TerminalProfilesKit;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		49D265C42F180D680002314A /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SwiftTerm;
+		};
+		49D265C72F180D680002314A /* TerminalProfilesKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TerminalProfilesKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
