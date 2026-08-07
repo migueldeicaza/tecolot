@@ -1,6 +1,6 @@
 //
 //  AppModel.swift
-//  MacTerminalUI
+//  Tecolot
 //
 //  Application-wide anchor for the profile/theme stores and the handoff of
 //  launch parameters into new windows. The NSDocumentController-based window
@@ -34,7 +34,7 @@ final class AppModel {
             profiles = store
         } else {
             let fallback = FileManager.default.temporaryDirectory
-                .appendingPathComponent("MacTerminalUI-profiles-fallback")
+                .appendingPathComponent("Tecolot-profiles-fallback")
             profiles = try! ProfileStore(directory: fallback)
         }
         themes = ThemeStore()

@@ -1,6 +1,6 @@
 //
 //  ThemePreview.swift
-//  MacTerminalUI
+//  Tecolot
 //
 //  A miniature, purely synthetic terminal snippet rendered from a theme's
 //  colors, used as the card face in the theme browser and pickers.

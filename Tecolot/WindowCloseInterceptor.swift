@@ -1,6 +1,6 @@
 //
 //  WindowCloseInterceptor.swift
-//  MacTerminalUI
+//  Tecolot
 //
 //  NSDocument and SwiftUI both manage NSWindow delegates. This forwarding
 //  proxy is deliberately narrow and fragile: re-install it when its window

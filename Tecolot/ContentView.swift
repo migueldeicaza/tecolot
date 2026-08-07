@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  MacTerminalUI
+//  Tecolot
 //
 //  Created by Miguel de Icaza on 8/5/25.
 //

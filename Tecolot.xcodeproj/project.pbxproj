@@ -12,26 +12,26 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		497C9E172E426320008DBCC0 /* MacTerminalUI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacTerminalUI.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		497C9E172E426320008DBCC0 /* Tecolot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tecolot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		49D265C92F180D680002314A /* Exceptions for "MacTerminalUI" folder in "MacTerminalUI" target */ = {
+		49D265C92F180D680002314A /* Exceptions for "Tecolot" folder in "Tecolot" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = 497C9E162E426320008DBCC0 /* MacTerminalUI */;
+			target = 497C9E162E426320008DBCC0 /* Tecolot */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		497C9E192E426320008DBCC0 /* MacTerminalUI */ = {
+		497C9E192E426320008DBCC0 /* Tecolot */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				49D265C92F180D680002314A /* Exceptions for "MacTerminalUI" folder in "MacTerminalUI" target */,
+				49D265C92F180D680002314A /* Exceptions for "Tecolot" folder in "Tecolot" target */,
 			);
-			path = MacTerminalUI;
+			path = Tecolot;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -52,7 +52,7 @@
 		497C9E0E2E426320008DBCC0 = {
 			isa = PBXGroup;
 			children = (
-				497C9E192E426320008DBCC0 /* MacTerminalUI */,
+				497C9E192E426320008DBCC0 /* Tecolot */,
 				497C9E182E426320008DBCC0 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -60,7 +60,7 @@
 		497C9E182E426320008DBCC0 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				497C9E172E426320008DBCC0 /* MacTerminalUI.app */,
+				497C9E172E426320008DBCC0 /* Tecolot.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -68,9 +68,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		497C9E162E426320008DBCC0 /* MacTerminalUI */ = {
+		497C9E162E426320008DBCC0 /* Tecolot */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 497C9E222E426321008DBCC0 /* Build configuration list for PBXNativeTarget "MacTerminalUI" */;
+			buildConfigurationList = 497C9E222E426321008DBCC0 /* Build configuration list for PBXNativeTarget "Tecolot" */;
 			buildPhases = (
 				497C9E132E426320008DBCC0 /* Sources */,
 				497C9E142E426320008DBCC0 /* Frameworks */,
@@ -81,15 +81,15 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				497C9E192E426320008DBCC0 /* MacTerminalUI */,
+				497C9E192E426320008DBCC0 /* Tecolot */,
 			);
-			name = MacTerminalUI;
+			name = Tecolot;
 			packageProductDependencies = (
 				49D265C42F180D680002314A /* SwiftTerm */,
 				49D265C72F180D680002314A /* TerminalProfilesKit */,
 			);
-			productName = MacTerminalUI;
-			productReference = 497C9E172E426320008DBCC0 /* MacTerminalUI.app */;
+			productName = Tecolot;
+			productReference = 497C9E172E426320008DBCC0 /* Tecolot.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -107,7 +107,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 497C9E122E426320008DBCC0 /* Build configuration list for PBXProject "MacTerminalUI" */;
+			buildConfigurationList = 497C9E122E426320008DBCC0 /* Build configuration list for PBXProject "Tecolot" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -125,7 +125,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				497C9E162E426320008DBCC0 /* MacTerminalUI */,
+				497C9E162E426320008DBCC0 /* Tecolot */,
 			);
 		};
 /* End PBXProject section */
@@ -284,14 +284,14 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = MacTerminalUI/Info.plist;
+				INFOPLIST_FILE = Tecolot/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.tirania.MacTerminalUI;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tirania.Tecolot;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -316,14 +316,14 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = MacTerminalUI/Info.plist;
+				INFOPLIST_FILE = Tecolot/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.tirania.MacTerminalUI;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tirania.Tecolot;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -338,7 +338,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		497C9E122E426320008DBCC0 /* Build configuration list for PBXProject "MacTerminalUI" */ = {
+		497C9E122E426320008DBCC0 /* Build configuration list for PBXProject "Tecolot" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				497C9E202E426321008DBCC0 /* Debug */,
@@ -347,7 +347,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		497C9E222E426321008DBCC0 /* Build configuration list for PBXNativeTarget "MacTerminalUI" */ = {
+		497C9E222E426321008DBCC0 /* Build configuration list for PBXNativeTarget "Tecolot" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				497C9E232E426321008DBCC0 /* Debug */,

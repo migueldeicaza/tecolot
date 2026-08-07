@@ -1,6 +1,6 @@
 //
-//  MacTerminalUIApp.swift
-//  MacTerminalUI
+//  TecolotApp.swift
+//  Tecolot
 //
 //  Created by Miguel de Icaza on 8/5/25.
 //
@@ -227,7 +227,7 @@ struct TerminalCommands: Commands {
 }
 
 @main
-struct MacTerminalUIApp: App {
+struct TecolotApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private let model = AppModel.shared
 

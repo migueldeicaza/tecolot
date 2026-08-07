@@ -1,6 +1,6 @@
 //
 //  ThemeBrowserView.swift
-//  MacTerminalUI
+//  Tecolot
 //
 //  A searchable grid of theme cards. Selecting a card reports the theme to
 //  the owner; the browser itself holds no terminal state so it can back the

@@ -1,6 +1,6 @@
 //
 //  ProfilesSettingsView.swift
-//  MacTerminalUI
+//  Tecolot
 //
 //  The advanced pane: full profile CRUD and every profile field, organized
 //  as sections that mirror Terminal.app's Text/Window/Shell/Keyboard/

@@ -1,6 +1,6 @@
 //
 //  ProfileCommands.swift
-//  MacTerminalUI
+//  Tecolot
 //
 //  Menu commands for launching windows/tabs with a specific profile,
 //  switching the front window's theme, and applying a profile to a

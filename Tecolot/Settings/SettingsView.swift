@@ -1,6 +1,6 @@
 //
 //  SettingsView.swift
-//  MacTerminalUI
+//  Tecolot
 //
 //  Settings window: General and Appearance carry what most users need;
 //  the full profile machinery lives in the last tab for advanced use.
