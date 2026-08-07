@@ -35,15 +35,22 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     var showThemePicker = false
     @ObservationIgnored private var launchDirectory: String?
     @ObservationIgnored private var didResolveLaunch = false
+    @ObservationIgnored private var windowCloseInterceptor: WindowCloseInterceptor?
 
     /// Consumes the pending LaunchSpec exactly once, from the first view
     /// attach; discarded controller instances never reach this point
     @MainActor
-    func resolveLaunchIfNeeded() {
+    func resolveLaunchIfNeeded(document: TerminalDocument) {
         guard !didResolveLaunch else { return }
         didResolveLaunch = true
         let spec = AppModel.shared.takePendingLaunch()
-        profile = AppModel.shared.resolveProfile(for: spec)
+        if let profileID = spec?.profileID ?? document.profileID,
+           let storedProfile = AppModel.shared.profiles.profile(withID: profileID) {
+            profile = storedProfile
+        } else {
+            profile = AppModel.shared.profiles.defaultProfile
+        }
+        themeOverride = document.themeOverride
         launchDirectory = spec?.workingDirectory
     }
 
@@ -280,6 +287,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return
         }
         TerminalSessionRegistry.shared.register(controller: self, for: window)
+        installWindowCloseInterceptor(on: window)
         if !NSApp.isActive {
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -293,6 +301,15 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     private func registerWindowIfAvailable() {
         guard let window = terminal?.window else { return }
         TerminalSessionRegistry.shared.register(controller: self, for: window)
+        installWindowCloseInterceptor(on: window)
+    }
+
+    private func installWindowCloseInterceptor(on window: NSWindow) {
+        if windowCloseInterceptor?.window !== window {
+            windowCloseInterceptor = WindowCloseInterceptor(window: window)
+        } else {
+            windowCloseInterceptor?.install()
+        }
     }
 
     private func scheduleStartIfNeeded() {
@@ -383,9 +400,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
 struct TerminalSessionView: NSViewRepresentable {
     var controller: TerminalSessionController
+    var document: TerminalDocument
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
-        controller.resolveLaunchIfNeeded()
+        controller.resolveLaunchIfNeeded(document: document)
         let options = ProfileApplier.terminalOptions(for: controller.profile)
         let terminal = LocalProcessTerminalView(frame: .zero,
                                                 font: ProfileApplier.font(for: controller.profile),

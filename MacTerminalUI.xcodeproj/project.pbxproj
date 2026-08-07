@@ -15,9 +15,22 @@
 		497C9E172E426320008DBCC0 /* MacTerminalUI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacTerminalUI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		49D265C92F180D680002314A /* Exceptions for "MacTerminalUI" folder in "MacTerminalUI" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 497C9E162E426320008DBCC0 /* MacTerminalUI */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		497C9E192E426320008DBCC0 /* MacTerminalUI */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				49D265C92F180D680002314A /* Exceptions for "MacTerminalUI" folder in "MacTerminalUI" target */,
+			);
 			path = MacTerminalUI;
 			sourceTree = "<group>";
 		};
@@ -271,6 +284,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MacTerminalUI/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -302,6 +316,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MacTerminalUI/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

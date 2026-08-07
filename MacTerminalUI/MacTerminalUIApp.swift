@@ -6,16 +6,42 @@
 //
 
 import AppKit
+import Carbon.HIToolbox
+import Observation
+import SwiftTerm
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = true
+        _ = SecureKeyboardEntry.shared
         openInitialDocumentIfNeeded()
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let hasLiveProcess = sender.windows.contains { window in
+            guard let controller = TerminalSessionRegistry.shared.controller(for: window) else {
+                return false
+            }
+            return TerminalClosePolicy.requiresConfirmation(for: controller)
+        }
+        guard hasLiveProcess else { return .terminateNow }
+
+        let alert = NSAlert()
+        alert.messageText = "Quit and terminate running processes?"
+        alert.informativeText = "A process is still running."
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        SecureKeyboardEntry.shared.disableForTermination()
     }
 
     private func openInitialDocumentIfNeeded() {
@@ -27,6 +53,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.makeKeyAndOrderFront(nil)
         }
         NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+@Observable
+@MainActor
+final class SecureKeyboardEntry {
+    static let shared = SecureKeyboardEntry()
+
+    @ObservationIgnored private var enabledByThisApp = false
+    var isEnabled = false {
+        didSet {
+            applyState()
+        }
+    }
+
+    private init() {
+        isEnabled = UserDefaults.standard.bool(forKey: "SecureKeyboardEntry")
+        applyState()
+    }
+
+    func disableForTermination() {
+        guard enabledByThisApp else { return }
+        DisableSecureEventInput()
+        enabledByThisApp = false
+    }
+
+    private func applyState() {
+        UserDefaults.standard.set(isEnabled, forKey: "SecureKeyboardEntry")
+        if isEnabled {
+            guard !enabledByThisApp else { return }
+            guard EnableSecureEventInput() == noErr else {
+                isEnabled = false
+                return
+            }
+            enabledByThisApp = true
+        } else if enabledByThisApp {
+            DisableSecureEventInput()
+            enabledByThisApp = false
+        }
     }
 }
 
@@ -45,6 +110,7 @@ struct TabCommands: Commands {
 
 struct TerminalCommands: Commands {
     @State private var commandState = TerminalCommandState()
+    @State private var secureKeyboardEntry = SecureKeyboardEntry.shared
 
     private var controller: TerminalSessionController? {
         commandState.controller
@@ -85,6 +151,7 @@ struct TerminalCommands: Commands {
                 .disabled(!isEnabled)
             Toggle("Log host output to ~/Downloads/Logs", isOn: binding(\.logHostOutput))
                 .disabled(!isEnabled)
+            Toggle("Secure Keyboard Entry", isOn: Bindable(secureKeyboardEntry).isEnabled)
 
             Divider()
 
@@ -106,6 +173,35 @@ struct TerminalCommands: Commands {
             .keyboardShortcut("0", modifiers: [.command])
             .disabled(!isEnabled)
         }
+
+        CommandGroup(after: .pasteboard) {
+            Divider()
+            Menu("Find") {
+                Button("Find…") {
+                    performFindAction(.showFindInterface)
+                }
+                .keyboardShortcut("f", modifiers: [.command])
+                .disabled(!isEnabled)
+
+                Button("Find Next") {
+                    performFindAction(.nextMatch)
+                }
+                .keyboardShortcut("g", modifiers: [.command])
+                .disabled(!isEnabled)
+
+                Button("Find Previous") {
+                    performFindAction(.previousMatch)
+                }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(!isEnabled)
+            }
+
+            Button("Paste Escaped") {
+                pasteEscaped()
+            }
+            .keyboardShortcut("v", modifiers: [.command, .control])
+            .disabled(!isEnabled)
+        }
     }
 
     private func binding(_ keyPath: ReferenceWritableKeyPath<TerminalSessionController, Bool>) -> Binding<Bool> {
@@ -116,6 +212,18 @@ struct TerminalCommands: Commands {
             }
         )
     }
+
+    private func performFindAction(_ action: NSTextFinder.Action) {
+        let item = NSMenuItem()
+        item.tag = action.rawValue
+        controller?.terminal?.performTextFinderAction(item)
+    }
+
+    private func pasteEscaped() {
+        guard let text = NSPasteboard.general.string(forType: .string) else { return }
+        let escaped = "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        controller?.terminal?.send(txt: escaped)
+    }
 }
 
 @main
@@ -125,7 +233,7 @@ struct MacTerminalUIApp: App {
 
     var body: some Scene {
         DocumentGroup(newDocument: TerminalDocument()) { file in
-            ContentView(document: file.$document)
+            ContentView(document: file.$document, fileURL: file.fileURL)
                 .environmentObject(model.profiles)
                 .environmentObject(model.themes)
         }

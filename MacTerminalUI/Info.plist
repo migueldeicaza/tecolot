@@ -9,11 +9,9 @@
 			<string>Terminal Session</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
-			<key>LSHandlerRank</key>
-			<string>Owner</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>com.example.terminal-session</string>
+				<string>com.tirania.tecolot.terminal-session</string>
 			</array>
 		</dict>
 	</array>
@@ -22,17 +20,17 @@
 		<dict>
 			<key>UTTypeConformsTo</key>
 			<array>
-				<string>public.plain-text</string>
+				<string>public.json</string>
 			</array>
 			<key>UTTypeDescription</key>
 			<string>Terminal Session</string>
 			<key>UTTypeIdentifier</key>
-			<string>com.example.terminal-session</string>
+			<string>com.tirania.tecolot.terminal-session</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
 				<array>
-					<string>terminal</string>
+					<string>tecolot</string>
 				</array>
 			</dict>
 		</dict>

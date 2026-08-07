@@ -11,6 +11,10 @@ import TerminalProfilesKit
 
 struct ContentView: View {
     @Binding var document: TerminalDocument
+    /// nil for untitled windows; document metadata is only persisted for
+    /// file-backed sessions so that closing an untitled window never
+    /// triggers a save prompt
+    var fileURL: URL?
     @State private var controller = TerminalSessionController()
     @EnvironmentObject private var profiles: ProfileStore
     @EnvironmentObject private var themes: ThemeStore
@@ -22,8 +26,18 @@ struct ContentView: View {
     }
 
     var body: some View {
-        TerminalSessionView(controller: controller)
+        TerminalSessionView(controller: controller, document: document)
             .background(WindowTabbingConfigurator())
+            .onChange(of: controller.themeOverride) { _, newValue in
+                if fileURL != nil && document.themeOverride != newValue {
+                    document.themeOverride = newValue
+                }
+            }
+            .onChange(of: controller.profile.id) { _, newValue in
+                if fileURL != nil && document.profileID != newValue {
+                    document.profileID = newValue
+                }
+            }
             .onChange(of: storedProfile) { _, newValue in
                 if let newValue, newValue != controller.profile {
                     controller.applyProfile(newValue)
