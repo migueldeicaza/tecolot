@@ -36,6 +36,16 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored private var launchDirectory: String?
     @ObservationIgnored private var didResolveLaunch = false
     @ObservationIgnored private var windowCloseInterceptor: WindowCloseInterceptor?
+    @ObservationIgnored private weak var observedWindow: NSWindow?
+    @ObservationIgnored private var windowKeyObserver: NSObjectProtocol?
+
+    private(set) var hasActivity = false
+
+    deinit {
+        if let windowKeyObserver {
+            NotificationCenter.default.removeObserver(windowKeyObserver)
+        }
+    }
 
     /// Consumes the pending LaunchSpec exactly once, from the first view
     /// attach; discarded controller instances never reach this point
@@ -137,6 +147,17 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
         postedDirectory = directory
         updateWindowTitle()
+    }
+
+    func noteBell() {
+        noteOutputActivity()
+        guard !NSApp.isActive else { return }
+        BellBadge.noteBell()
+    }
+
+    func noteOutputActivity() {
+        guard terminal?.window?.isKeyWindow == false else { return }
+        setHasActivity(true)
     }
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
@@ -304,9 +325,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             scheduleFocusIfNeeded()
             return
         }
-        TerminalSessionRegistry.shared.register(controller: self, for: window)
-        installWindowCloseInterceptor(on: window)
-        updateWindowTransparency()
+        registerWindowIfAvailable()
         if !NSApp.isActive {
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -320,8 +339,33 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     private func registerWindowIfAvailable() {
         guard let window = terminal?.window else { return }
         TerminalSessionRegistry.shared.register(controller: self, for: window)
+        observeWindowKeyState(for: window)
         installWindowCloseInterceptor(on: window)
         updateWindowTransparency()
+    }
+
+    private func observeWindowKeyState(for window: NSWindow) {
+        guard observedWindow !== window else { return }
+        if let windowKeyObserver {
+            NotificationCenter.default.removeObserver(windowKeyObserver)
+        }
+        observedWindow = window
+        windowKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.setHasActivity(false)
+        }
+        if window.isKeyWindow {
+            setHasActivity(false)
+        }
+    }
+
+    private func setHasActivity(_ hasActivity: Bool) {
+        guard self.hasActivity != hasActivity else { return }
+        self.hasActivity = hasActivity
+        updateWindowTitle()
     }
 
     private func installWindowCloseInterceptor(on window: NSWindow) {
@@ -399,7 +443,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             guard let window = terminal.window else { return }
             let document = window.windowController?.document as? NSDocument
             let documentName = document?.displayName ?? ""
-            let effectiveTitle = newTitle.isEmpty ? documentName : newTitle
+            let title = newTitle.isEmpty ? documentName : newTitle
+            let effectiveTitle = self.hasActivity ? "● \(title)" : title
             window.title = effectiveTitle
 
             if !newTitle.isEmpty {
@@ -446,9 +491,10 @@ struct TerminalSessionView: NSViewRepresentable {
     func makeNSView(context: Context) -> LocalProcessTerminalView {
         controller.resolveLaunchIfNeeded(document: document)
         let options = ProfileApplier.terminalOptions(for: controller.profile)
-        let terminal = LocalProcessTerminalView(frame: .zero,
-                                                font: ProfileApplier.font(for: controller.profile),
-                                                options: options)
+        let terminal = AppTerminalView(frame: .zero,
+                                       font: ProfileApplier.font(for: controller.profile),
+                                       options: options)
+        terminal.sessionController = controller
         controller.attach(to: terminal)
         return terminal
     }
@@ -462,6 +508,30 @@ struct TerminalSessionView: NSViewRepresentable {
             TerminalSessionRegistry.shared.unregister(window: window)
         }
         nsView.terminate()
+    }
+}
+
+private enum BellBadge {
+    private static var count = 0
+    private static var didBecomeActiveObserver: NSObjectProtocol?
+
+    static func noteBell() {
+        startObservingIfNeeded()
+        count += 1
+        NSApp.dockTile.badgeLabel = String(count)
+        NSApp.requestUserAttention(.informationalRequest)
+    }
+
+    private static func startObservingIfNeeded() {
+        guard didBecomeActiveObserver == nil else { return }
+        didBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { _ in
+            Self.count = 0
+            NSApp.dockTile.badgeLabel = nil
+        }
     }
 }
 
