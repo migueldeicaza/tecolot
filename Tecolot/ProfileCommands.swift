@@ -85,7 +85,7 @@ struct ProfileCommands: Commands {
             Button("Change Theme…") {
                 commandState.controller?.showThemePicker.toggle()
             }
-            .keyboardShortcut("t", modifiers: [.command, .shift])
+            .keyboardShortcut("t", modifiers: [.command, .control])
             .disabled(commandState.controller == nil)
 
             Menu("Apply Profile to Window") {
