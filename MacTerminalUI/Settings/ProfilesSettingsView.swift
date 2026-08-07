@@ -288,8 +288,8 @@ struct ProfileTextSettingsFields: View {
             get: { profile.cursorStyle },
             set: { newValue in update { $0.cursorStyle = newValue } }
         )) {
-            ForEach(CursorStyle.allCases, id: \.self) { style in
-                Text(style.description).tag(style)
+            ForEach(CursorStyle.allStyles, id: \.tagName) { style in
+                Text(style.displayName).tag(style)
             }
         }
         Toggle("Use bright colors for bold text", isOn: Binding(

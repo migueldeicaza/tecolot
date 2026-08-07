@@ -156,7 +156,12 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.fontSize = try c.decodeIfPresent (Double.self, forKey: .fontSize) ?? defaults.fontSize
         self.fontSmoothing = try c.decodeIfPresent (Bool.self, forKey: .fontSmoothing) ?? defaults.fontSmoothing
         self.useBrightColorsForBold = try c.decodeIfPresent (Bool.self, forKey: .useBrightColorsForBold) ?? defaults.useBrightColorsForBold
-        self.cursorStyle = try c.decodeIfPresent (CursorStyle.self, forKey: .cursorStyle) ?? defaults.cursorStyle
+        // CursorStyle is deliberately not Codable in SwiftTerm; persist its tagName
+        if let tag = try c.decodeIfPresent (String.self, forKey: .cursorStyle) {
+            self.cursorStyle = CursorStyle (tagName: tag) ?? defaults.cursorStyle
+        } else {
+            self.cursorStyle = defaults.cursorStyle
+        }
         self.backgroundOpacity = try c.decodeIfPresent (Double.self, forKey: .backgroundOpacity) ?? defaults.backgroundOpacity
         self.columns = try c.decodeIfPresent (Int.self, forKey: .columns) ?? defaults.columns
         self.rows = try c.decodeIfPresent (Int.self, forKey: .rows) ?? defaults.rows
@@ -184,7 +189,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode (fontSize, forKey: .fontSize)
         try c.encode (fontSmoothing, forKey: .fontSmoothing)
         try c.encode (useBrightColorsForBold, forKey: .useBrightColorsForBold)
-        try c.encode (cursorStyle, forKey: .cursorStyle)
+        try c.encode (cursorStyle.tagName, forKey: .cursorStyle)
         try c.encode (backgroundOpacity, forKey: .backgroundOpacity)
         try c.encode (columns, forKey: .columns)
         try c.encode (rows, forKey: .rows)
