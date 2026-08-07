@@ -96,6 +96,7 @@ public enum ProfileApplier {
         view.backspaceSendsControlH = profile.backspaceSendsControlH
         view.getTerminal ().setCursorStyle (profile.cursorStyle)
         view.changeScrollback (profile.scrollbackLines)
+        view.bellStyle = profile.bellStyle
     }
 
     /// The native font described by the profile, falling back to the

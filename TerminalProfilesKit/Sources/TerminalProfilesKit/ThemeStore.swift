@@ -106,6 +106,27 @@ public final class ThemeStore: ObservableObject {
         reload ()
     }
 
+    /// Imports either a Tecolot JSON theme or an iTerm2 .itermcolors file.
+    /// Imported themes are always saved as user themes.
+    @discardableResult
+    public func importTheme (from url: URL) throws -> TerminalTheme {
+        let data = try Data (contentsOf: url)
+        var imported: TerminalTheme
+
+        if let decoded = try? JSONDecoder ().decode (TerminalTheme.self, from: data), decoded.isValid {
+            imported = decoded
+        } else if let iTermTheme = ThemeStore.iTermTheme (from: data, name: url.deletingPathExtension ().lastPathComponent) {
+            imported = iTermTheme
+        } else {
+            throw ProfilesError.invalidTheme
+        }
+
+        imported.name = uniqueThemeName (basedOn: imported.name)
+        imported.isBuiltIn = false
+        try saveUserTheme (imported)
+        return imported
+    }
+
     // MARK: - Loading helpers
 
     nonisolated static func loadBundledThemes () -> [TerminalTheme] {
@@ -137,6 +158,66 @@ public final class ThemeStore: ObservableObject {
             return []
         }
         return Set (names)
+    }
+
+    private func uniqueThemeName (basedOn base: String) -> String {
+        guard themes.contains (where: {
+            $0.name.localizedCaseInsensitiveCompare (base) == .orderedSame
+        }) else {
+            return base
+        }
+        var number = 2
+        var candidate = "\(base) \(number)"
+        while themes.contains (where: {
+            $0.name.localizedCaseInsensitiveCompare (candidate) == .orderedSame
+        }) {
+            number += 1
+            candidate = "\(base) \(number)"
+        }
+        return candidate
+    }
+
+    nonisolated private static func iTermTheme (from data: Data, name: String) -> TerminalTheme? {
+        guard let propertyList = try? PropertyListSerialization.propertyList (
+            from: data,
+            options: [],
+            format: nil
+        ), let dictionary = propertyList as? [String: Any] else {
+            return nil
+        }
+
+        let ansi = (0..<16).compactMap { color (named: "Ansi \($0) Color", in: dictionary) }
+        guard ansi.count == 16,
+              let foreground = color (named: "Foreground Color", in: dictionary),
+              let background = color (named: "Background Color", in: dictionary) else {
+            return nil
+        }
+
+        return TerminalTheme (
+            name: name,
+            ansi: ansi,
+            foreground: foreground,
+            background: background,
+            cursor: color (named: "Cursor Color", in: dictionary),
+            cursorText: color (named: "Cursor Text Color", in: dictionary),
+            selectionBackground: color (named: "Selection Color", in: dictionary),
+            selectionText: color (named: "Selected Text Color", in: dictionary)
+        )
+    }
+
+    nonisolated private static func color (named name: String, in dictionary: [String: Any]) -> ProfileColor? {
+        guard let components = dictionary [name] as? [String: Any],
+              let red = (components ["Red Component"] as? NSNumber)?.doubleValue,
+              let green = (components ["Green Component"] as? NSNumber)?.doubleValue,
+              let blue = (components ["Blue Component"] as? NSNumber)?.doubleValue,
+              red.isFinite, green.isFinite, blue.isFinite else {
+            return nil
+        }
+
+        func channel (_ value: Double) -> UInt16 {
+            UInt16 ((min (max (value, 0), 1) * 65535).rounded ())
+        }
+        return ProfileColor (red: channel (red), green: channel (green), blue: channel (blue))
     }
 
     private func persistFavorites () throws {

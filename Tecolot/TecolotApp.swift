@@ -108,6 +108,44 @@ struct TabCommands: Commands {
     }
 }
 
+struct TabSelectionCommands: Commands {
+    var body: some Commands {
+        CommandGroup(after: .windowArrangement) {
+            Menu("Select Tab") {
+                ForEach(1...8, id: \.self) { number in
+                    Button("Select Tab \(number)") {
+                        selectTab(at: number - 1)
+                    }
+                    .keyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: [.command])
+                }
+                Divider()
+                Button("Select Last Tab") {
+                    selectLastTab()
+                }
+                .keyboardShortcut("9", modifiers: [.command])
+            }
+        }
+    }
+
+    private func selectTab(at index: Int) {
+        guard UserDefaults.standard.bool(forKey: "useCommandDigitsForTabs"),
+              let tabGroup = (NSApp.keyWindow ?? NSApp.mainWindow)?.tabGroup,
+              tabGroup.windows.indices.contains(index) else {
+            return
+        }
+        tabGroup.selectedWindow = tabGroup.windows[index]
+    }
+
+    private func selectLastTab() {
+        guard UserDefaults.standard.bool(forKey: "useCommandDigitsForTabs"),
+              let tabGroup = (NSApp.keyWindow ?? NSApp.mainWindow)?.tabGroup,
+              let lastWindow = tabGroup.windows.last else {
+            return
+        }
+        tabGroup.selectedWindow = lastWindow
+    }
+}
+
 struct TerminalCommands: Commands {
     @State private var commandState = TerminalCommandState()
     @State private var secureKeyboardEntry = SecureKeyboardEntry.shared
@@ -129,6 +167,12 @@ struct TerminalCommands: Commands {
             .disabled(!isEnabled || controller?.selectionActive != true)
 
             Divider()
+
+            Button("Clear Scrollback") {
+                controller?.terminal?.clearScrollback()
+            }
+            .keyboardShortcut("k", modifiers: [.command])
+            .disabled(!isEnabled)
 
             Button("Soft Reset") {
                 controller?.softReset()
@@ -231,6 +275,10 @@ struct TecolotApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private let model = AppModel.shared
 
+    init() {
+        UserDefaults.standard.register(defaults: ["useCommandDigitsForTabs": true])
+    }
+
     var body: some Scene {
         DocumentGroup(newDocument: TerminalDocument()) { file in
             ContentView(document: file.$document, fileURL: file.fileURL)
@@ -239,6 +287,7 @@ struct TecolotApp: App {
         }
         .commands {
             TabCommands()
+            TabSelectionCommands()
             ProfileCommands(profiles: model.profiles)
             TerminalCommands()
         }

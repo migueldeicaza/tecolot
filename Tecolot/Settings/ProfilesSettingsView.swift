@@ -176,6 +176,26 @@ struct ProfileEditorView: View {
                         set: { newValue in update { $0.scrollbackLines = max(0, newValue) } }
                     ), format: .number)
                 }
+                GroupBox("Title") {
+                    TextField("Custom title:", text: Binding(
+                        get: { profile.titleOverride ?? "" },
+                        set: { newValue in update { $0.titleOverride = newValue.isEmpty ? nil : newValue } }
+                    ))
+                    ForEach(TerminalTitleComponent.allCases, id: \.self) { component in
+                        Toggle(titleComponentLabel(component), isOn: Binding(
+                            get: { profile.titleComponents.contains(component) },
+                            set: { isEnabled in
+                                update {
+                                    if isEnabled {
+                                        $0.titleComponents.insert(component)
+                                    } else {
+                                        $0.titleComponents.remove(component)
+                                    }
+                                }
+                            }
+                        ))
+                    }
+                }
             }
             Section("Shell") {
                 Picker("Run:", selection: shellKindBinding) {
@@ -209,6 +229,11 @@ struct ProfileEditorView: View {
             }
             Section("Advanced") {
                 TextField("Declare terminal as:", text: binding(\.termName))
+                Picker("Bell:", selection: binding(\.bellStyle)) {
+                    ForEach(BellStyle.allCases, id: \.tagName) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
             }
         }
         .formStyle(.grouped)
@@ -242,6 +267,16 @@ struct ProfileEditorView: View {
             get: { profile[keyPath: keyPath] },
             set: { newValue in update { $0[keyPath: keyPath] = newValue } }
         )
+    }
+
+    private func titleComponentLabel(_ component: TerminalTitleComponent) -> String {
+        switch component {
+        case .activeTitle: return "Active title"
+        case .workingDirectory: return "Working directory"
+        case .fullPath: return "Full path"
+        case .profileName: return "Profile name"
+        case .dimensions: return "Dimensions"
+        }
     }
 }
 

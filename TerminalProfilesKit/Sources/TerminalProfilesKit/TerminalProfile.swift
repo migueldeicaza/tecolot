@@ -49,6 +49,18 @@ public enum AskBeforeClosing: String, Codable, CaseIterable, Sendable, CustomStr
     }
 }
 
+/// A component that can appear in a terminal window title.
+///
+/// Raw string values are persisted so future versions can add components
+/// without changing the profile document format.
+public enum TerminalTitleComponent: String, Codable, CaseIterable, Hashable, Sendable {
+    case activeTitle
+    case workingDirectory
+    case fullPath
+    case profileName
+    case dimensions
+}
+
 public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     /// Display name, unique within a store
@@ -80,6 +92,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var scrollbackLines: Int?
     /// Fixed window title; nil composes the title dynamically
     public var titleOverride: String?
+    /// Dynamic components shown after an optional custom title
+    public var titleComponents: Set<TerminalTitleComponent>
 
     // MARK: Shell
     public var shell: ShellCommand
@@ -93,6 +107,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     // MARK: Advanced
     /// Value for the TERM environment variable
     public var termName: String
+    /// How the terminal responds to the bell character
+    public var bellStyle: BellStyle
 
     public init (id: UUID = UUID (), name: String) {
         let defaults = TerminalProfile.standardValues
@@ -109,12 +125,14 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.rows = defaults.rows
         self.scrollbackLines = defaults.scrollbackLines
         self.titleOverride = defaults.titleOverride
+        self.titleComponents = defaults.titleComponents
         self.shell = defaults.shell
         self.whenShellExits = defaults.whenShellExits
         self.askBeforeClosing = defaults.askBeforeClosing
         self.optionAsMetaKey = defaults.optionAsMetaKey
         self.backspaceSendsControlH = defaults.backspaceSendsControlH
         self.termName = defaults.termName
+        self.bellStyle = defaults.bellStyle
     }
 
     /// The defaults applied to new profiles and to fields missing from
@@ -123,24 +141,26 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
                                 fontSmoothing: Bool, useBrightColorsForBold: Bool,
                                 cursorStyle: CursorStyle, backgroundOpacity: Double,
                                 columns: Int, rows: Int, scrollbackLines: Int?,
-                                titleOverride: String?, shell: ShellCommand,
+                                titleOverride: String?, titleComponents: Set<TerminalTitleComponent>, shell: ShellCommand,
                                 whenShellExits: ShellExitBehavior, askBeforeClosing: AskBeforeClosing,
-                                optionAsMetaKey: Bool, backspaceSendsControlH: Bool, termName: String) {
+                                optionAsMetaKey: Bool, backspaceSendsControlH: Bool, termName: String,
+                                bellStyle: BellStyle) {
         (themeName: TerminalTheme.fallback.name, fontFamily: nil, fontSize: 12,
          fontSmoothing: true, useBrightColorsForBold: true,
          cursorStyle: .blinkBlock, backgroundOpacity: 1.0,
          columns: 80, rows: 25, scrollbackLines: 10_000,
-         titleOverride: nil, shell: .loginShell,
+         titleOverride: nil, titleComponents: [.activeTitle, .workingDirectory], shell: .loginShell,
          whenShellExits: .closeIfExitedCleanly, askBeforeClosing: .onlyIfProcessesRunning,
-         optionAsMetaKey: true, backspaceSendsControlH: false, termName: "xterm-256color")
+         optionAsMetaKey: true, backspaceSendsControlH: false, termName: "xterm-256color",
+         bellStyle: .sound)
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, themeName, fontFamily, fontSize, fontSmoothing
         case useBrightColorsForBold, cursorStyle, backgroundOpacity
-        case columns, rows, scrollbackLines, titleOverride
+        case columns, rows, scrollbackLines, titleOverride, titleComponents
         case shell, whenShellExits, askBeforeClosing
-        case optionAsMetaKey, backspaceSendsControlH, termName
+        case optionAsMetaKey, backspaceSendsControlH, termName, bellStyle
     }
 
     // Hand-written decoding: every field except id/name falls back to the
@@ -172,12 +192,19 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
             self.scrollbackLines = defaults.scrollbackLines
         }
         self.titleOverride = try c.decodeIfPresent (String.self, forKey: .titleOverride) ?? defaults.titleOverride
+        self.titleComponents = try c.decodeIfPresent (Set<TerminalTitleComponent>.self, forKey: .titleComponents) ?? defaults.titleComponents
         self.shell = try c.decodeIfPresent (ShellCommand.self, forKey: .shell) ?? defaults.shell
         self.whenShellExits = try c.decodeIfPresent (ShellExitBehavior.self, forKey: .whenShellExits) ?? defaults.whenShellExits
         self.askBeforeClosing = try c.decodeIfPresent (AskBeforeClosing.self, forKey: .askBeforeClosing) ?? defaults.askBeforeClosing
         self.optionAsMetaKey = try c.decodeIfPresent (Bool.self, forKey: .optionAsMetaKey) ?? defaults.optionAsMetaKey
         self.backspaceSendsControlH = try c.decodeIfPresent (Bool.self, forKey: .backspaceSendsControlH) ?? defaults.backspaceSendsControlH
         self.termName = try c.decodeIfPresent (String.self, forKey: .termName) ?? defaults.termName
+        // BellStyle is deliberately not Codable in SwiftTerm; persist its tagName
+        if let tag = try c.decodeIfPresent (String.self, forKey: .bellStyle) {
+            self.bellStyle = BellStyle (tagName: tag) ?? defaults.bellStyle
+        } else {
+            self.bellStyle = defaults.bellStyle
+        }
     }
 
     public func encode (to encoder: Encoder) throws {
@@ -196,12 +223,14 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         // Encoded unconditionally: an explicit null means "unlimited scrollback"
         try c.encode (scrollbackLines, forKey: .scrollbackLines)
         try c.encodeIfPresent (titleOverride, forKey: .titleOverride)
+        try c.encode (titleComponents, forKey: .titleComponents)
         try c.encode (shell, forKey: .shell)
         try c.encode (whenShellExits, forKey: .whenShellExits)
         try c.encode (askBeforeClosing, forKey: .askBeforeClosing)
         try c.encode (optionAsMetaKey, forKey: .optionAsMetaKey)
         try c.encode (backspaceSendsControlH, forKey: .backspaceSendsControlH)
         try c.encode (termName, forKey: .termName)
+        try c.encode (bellStyle.tagName, forKey: .bellStyle)
     }
 }
 

@@ -5,6 +5,7 @@
 //  A miniature, purely synthetic terminal snippet rendered from a theme's
 //  colors, used as the card face in the theme browser and pickers.
 //
+import AppKit
 import SwiftUI
 import TerminalProfilesKit
 
@@ -13,6 +14,19 @@ extension ProfileColor {
         Color(red: Double(red) / 65535.0,
               green: Double(green) / 65535.0,
               blue: Double(blue) / 65535.0)
+    }
+
+    init? (swiftUIColor: Color) {
+        guard let color = NSColor (swiftUIColor).usingColorSpace (.sRGB) else {
+            return nil
+        }
+
+        func channel (_ value: CGFloat) -> UInt16 {
+            UInt16 ((min (max (value, 0), 1) * 65535).rounded ())
+        }
+        self.init (red: channel (color.redComponent),
+                   green: channel (color.greenComponent),
+                   blue: channel (color.blueComponent))
     }
 }
 

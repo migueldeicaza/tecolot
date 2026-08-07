@@ -74,6 +74,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     func applyProfile(_ newProfile: TerminalProfile) {
         profile = newProfile
         applyAppearance()
+        updateWindowTitle()
     }
 
     /// Sets or clears (nil) the per-tab theme override and re-applies colors
@@ -108,7 +109,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {
-        // SwiftUI owns window sizing; we only need the PTY resize handled by SwiftTerm.
+        // SwiftUI owns window sizing; SwiftTerm resizes the PTY. The size can
+        // also be part of the user-selected window title.
+        updateWindowTitle()
     }
 
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
@@ -348,12 +351,33 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     private func updateWindowTitle() {
         guard let terminal else { return }
-        let newTitle: String
-        if let dir = postedDirectory, let uri = URL(string: dir) {
-            newTitle = postedTitle.isEmpty ? uri.path : "\(postedTitle) - \(uri.path)"
-        } else {
-            newTitle = postedTitle
+        let terminalModel = terminal.getTerminal()
+        var components: [String] = []
+
+        func appendIfPresent (_ value: String?) {
+            guard let value, !value.isEmpty else { return }
+            components.append (value)
         }
+
+        appendIfPresent (profile.titleOverride)
+        if profile.titleComponents.contains (.activeTitle) {
+            appendIfPresent (postedTitle)
+        }
+        if profile.titleComponents.contains (.dimensions) {
+            appendIfPresent ("\(terminalModel.cols) x \(terminalModel.rows)")
+        }
+        if let directory = currentWorkingDirectory {
+            if profile.titleComponents.contains (.fullPath) {
+                appendIfPresent (directory)
+            } else if profile.titleComponents.contains (.workingDirectory) {
+                appendIfPresent (URL (fileURLWithPath: directory).lastPathComponent)
+            }
+        }
+        if profile.titleComponents.contains (.profileName) {
+            appendIfPresent (profile.name)
+        }
+
+        let newTitle = components.joined (separator: " — ")
         DispatchQueue.main.async {
             guard let window = terminal.window else { return }
             let document = window.windowController?.document as? NSDocument

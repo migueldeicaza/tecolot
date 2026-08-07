@@ -27,6 +27,7 @@ struct GeneralSettingsView: View {
     @EnvironmentObject private var profiles: ProfileStore
     @AppStorage("newTabsUseCurrentDirectory") private var newTabsUseCurrentDirectory = true
     @AppStorage("newTabsUseCurrentProfile") private var newTabsUseCurrentProfile = true
+    @AppStorage("useCommandDigitsForTabs") private var useCommandDigitsForTabs = true
 
     var body: some View {
         Form {
@@ -40,6 +41,9 @@ struct GeneralSettingsView: View {
             Section("New tabs") {
                 Toggle("Open with the working directory of the current tab", isOn: $newTabsUseCurrentDirectory)
                 Toggle("Use the profile of the current window", isOn: $newTabsUseCurrentProfile)
+            }
+            Section("Tabs") {
+                Toggle("Use Command-1 through Command-9 to select tabs", isOn: $useCommandDigitsForTabs)
             }
         }
         .formStyle(.grouped)

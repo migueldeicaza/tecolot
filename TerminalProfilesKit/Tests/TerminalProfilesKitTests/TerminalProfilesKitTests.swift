@@ -96,6 +96,55 @@ final class ThemeStoreTests {
         let reloaded = ThemeStore (directory: dir)
         #expect (reloaded.isFavorite ("Dracula"))
     }
+
+    @Test func importsItermColorsAndAvoidsNameCollisions () throws {
+        let (store, dir) = try makeStore ()
+        defer { try? FileManager.default.removeItem (at: dir) }
+
+        func color (_ red: Double, _ green: Double, _ blue: Double) -> [String: Double] {
+            ["Red Component": red, "Green Component": green, "Blue Component": blue]
+        }
+        var plist: [String: Any] = [
+            "Foreground Color": color (0.5, 0.25, 1),
+            "Background Color": color (0, 0.75, 0.125),
+            "Cursor Color": color (1, 0, 0)
+        ]
+        for index in 0..<16 {
+            plist ["Ansi \(index) Color"] = color (Double (index) / 15, 0.5, 0.25)
+        }
+        let file = dir.appendingPathComponent ("Dracula.itermcolors")
+        let data = try PropertyListSerialization.data (
+            fromPropertyList: plist,
+            format: .xml,
+            options: 0
+        )
+        try data.write (to: file)
+
+        let imported = try store.importTheme (from: file)
+        #expect (imported.name == "Dracula 2")
+        #expect (imported.ansi.count == 16)
+        #expect (imported.ansi [15] == ProfileColor (red: 65535, green: 32768, blue: 16384))
+        #expect (imported.foreground == ProfileColor (red: 32768, green: 16384, blue: 65535))
+        #expect (imported.background == ProfileColor (red: 0, green: 49151, blue: 8192))
+
+        let second = try store.importTheme (from: file)
+        #expect (second.name == "Dracula 3")
+    }
+
+    @Test func importsTerminalThemeJSON () throws {
+        let (store, dir) = try makeStore ()
+        defer { try? FileManager.default.removeItem (at: dir) }
+        var source = store.theme (named: "Dracula")
+        source.name = "JSON Import"
+        source.isBuiltIn = false
+        let file = dir.appendingPathComponent ("theme.json")
+        try JSONEncoder ().encode (source).write (to: file)
+
+        let imported = try store.importTheme (from: file)
+        #expect (imported.name == "JSON Import")
+        #expect (imported.ansi == source.ansi)
+        #expect (store.theme (named: "JSON Import").foreground == source.foreground)
+    }
 }
 
 @MainActor
@@ -181,6 +230,7 @@ final class ProfileStoreTests {
         #expect (document.profile.name == "Old")
         #expect (document.profile.fontSize == TerminalProfile.standardValues.fontSize)
         #expect (document.profile.shell == .loginShell)
+        #expect (document.profile.titleComponents == [.activeTitle, .workingDirectory])
     }
 }
 
