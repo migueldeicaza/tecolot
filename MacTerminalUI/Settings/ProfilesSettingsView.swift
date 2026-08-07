@@ -288,7 +288,7 @@ struct ProfileTextSettingsFields: View {
             get: { profile.cursorStyle },
             set: { newValue in update { $0.cursorStyle = newValue } }
         )) {
-            ForEach(CursorStyle.allStyles, id: \.tagName) { style in
+            ForEach(CursorStyle.allCases, id: \.tagName) { style in
                 Text(style.displayName).tag(style)
             }
         }
