@@ -174,6 +174,20 @@ struct TerminalCommands: Commands {
             .keyboardShortcut("k", modifiers: [.command])
             .disabled(!isEnabled)
 
+            Divider()
+
+            Button("Scroll to Previous Prompt") {
+                controller?.scrollToPreviousPrompt()
+            }
+            .keyboardShortcut(.upArrow, modifiers: [.command])
+            .disabled(!isEnabled)
+
+            Button("Scroll to Next Prompt") {
+                controller?.scrollToNextPrompt()
+            }
+            .keyboardShortcut(.downArrow, modifiers: [.command])
+            .disabled(!isEnabled)
+
             Button("Soft Reset") {
                 controller?.softReset()
             }

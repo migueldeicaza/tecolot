@@ -194,6 +194,45 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
     }
 
+    /// Scrolls to the closest shell prompt above the viewport. Prompt rows
+    /// come from OSC 133 shell integration; SwiftTerm classifies the rows and
+    /// leaves the navigation policy to the host.
+    @discardableResult
+    func scrollToPreviousPrompt() -> Bool {
+        scrollToPrompt(searchingUpward: true)
+    }
+
+    /// Scrolls to the closest shell prompt below the viewport
+    @discardableResult
+    func scrollToNextPrompt() -> Bool {
+        scrollToPrompt(searchingUpward: false)
+    }
+
+    private func scrollToPrompt(searchingUpward: Bool) -> Bool {
+        guard let view = terminal else { return false }
+        let terminalModel = view.getTerminal()
+        guard !terminalModel.isCurrentBufferAlternate else { return false }
+
+        let start = terminalModel.buffer.yDisp
+        let step = searchingUpward ? -1 : 1
+        // Rows below 0 do not exist; above, the buffer cannot hold more than
+        // the scrollback limit plus a screenful, and semanticRowKind returns
+        // nil for rows past the end
+        let limit = searchingUpward
+            ? -1
+            : start + (profile.scrollbackLines ?? 100_000) + terminalModel.rows + 1
+
+        var row = start + step
+        while row != limit {
+            if terminalModel.semanticRowKind(at: row) == .initial {
+                view.scrollTo(row: row)
+                return true
+            }
+            row += step
+        }
+        return false
+    }
+
     func softReset() {
         terminal?.getTerminal().softReset()
         if let terminal {

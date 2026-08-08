@@ -1,8 +1,8 @@
 {
   "fill" : {
     "linear-gradient" : [
-      "display-p3:0.32023,0.41637,0.31570,1.00000",
-      "display-p3:0.31966,0.25585,0.09552,1.00000"
+      "display-p3:0.06152,0.17590,0.09439,1.00000",
+      "display-p3:0.18003,0.15620,0.11582,1.00000"
     ],
     "orientation" : {
       "start" : {
@@ -33,7 +33,14 @@
       "layers" : [
         {
           "image-name" : "tecolotl-textured-clear.png",
-          "name" : "tecolotl-textured-clear"
+          "name" : "tecolotl-textured-clear",
+          "position" : {
+            "scale" : 1.05,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
         }
       ],
       "shadow" : {
