@@ -30,7 +30,10 @@ let package = Package(
         ),
         .testTarget(
             name: "TerminalProfilesKitTests",
-            dependencies: ["TerminalProfilesKit"]
+            dependencies: ["TerminalProfilesKit"],
+            resources: [
+                .copy("Fixtures")
+            ]
         )
     ]
 )

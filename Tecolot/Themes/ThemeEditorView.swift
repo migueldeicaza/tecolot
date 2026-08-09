@@ -155,12 +155,10 @@ struct ThemeEditorView: View {
         editedTheme.name = trimmedName
         editedTheme.isBuiltIn = false
         do {
-            try themes.saveUserTheme (editedTheme)
-            // A rename leaves the old user theme file behind; remove it
-            if let existingUserThemeName,
-               existingUserThemeName.localizedCaseInsensitiveCompare (trimmedName) != .orderedSame {
-                try? themes.deleteUserTheme (named: existingUserThemeName)
-            }
+            try themes.saveUserTheme(
+                editedTheme,
+                replacing: existingUserThemeName
+            )
             dismiss()
         } catch {
             saveError = error.localizedDescription

@@ -10,16 +10,29 @@ import SwiftUI
 import TerminalProfilesKit
 
 struct SettingsView: View {
+    @ObservedObject var issueCenter: PersistenceIssueCenter
+    let recovery: DataRecoveryCoordinator
+
     var body: some View {
         TabView {
-            GeneralSettingsView()
-                .tabItem { Label("General", systemImage: "gearshape") }
-            AppearanceSettingsView()
-                .tabItem { Label("Appearance", systemImage: "paintbrush") }
-            ProfilesSettingsView()
-                .tabItem { Label("Profiles", systemImage: "person.2.badge.gearshape") }
+            Tab("General", systemImage: "gearshape") {
+                GeneralSettingsView()
+            }
+            Tab("Appearance", systemImage: "paintbrush") {
+                AppearanceSettingsView()
+            }
+            Tab("Profiles", systemImage: "person.2.badge.gearshape") {
+                ProfilesSettingsView()
+            }
+            Tab(dataTabTitle, systemImage: "externaldrive.badge.checkmark") {
+                DataRecoveryView(issueCenter: issueCenter, recovery: recovery)
+            }
         }
-        .frame(width: 720, height: 520)
+        .frame(width: 760, height: 560)
+    }
+
+    private var dataTabTitle: String {
+        issueCenter.issues.isEmpty ? "Data" : "Data (\(issueCenter.issues.count))"
     }
 }
 

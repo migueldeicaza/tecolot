@@ -66,6 +66,12 @@ final class ThemeTests {
     }
 }
 
+private func fixture(_ name: String, extension fileExtension: String = "json") throws -> Data {
+    let directory = try #require(Bundle.module.url(forResource: "Fixtures", withExtension: nil))
+    let url = directory.appendingPathComponent(name).appendingPathExtension(fileExtension)
+    return try Data(contentsOf: url)
+}
+
 @MainActor
 final class ThemeStoreTests {
     private func makeStore () throws -> (ThemeStore, URL) {
@@ -98,13 +104,169 @@ final class ThemeStoreTests {
         #expect (store.theme (named: "My Dracula").name == TerminalTheme.fallback.name)
     }
 
+    @Test func deletionReloadsThemesWhenFavoritePersistenceFails() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("theme-delete-partial-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let issues = PersistenceIssueCenter()
+        let store = ThemeStore(directory: dir, issueCenter: issues)
+        var custom = store.theme(named: "Dracula")
+        custom.name = "Favorite to Delete"
+        custom.isBuiltIn = false
+        try store.saveUserTheme(custom)
+        try store.toggleFavorite(custom.name)
+
+        let favoritesURL = dir.appendingPathComponent("favorites.json")
+        try FileManager.default.removeItem(at: favoritesURL)
+        try FileManager.default.createDirectory(at: favoritesURL, withIntermediateDirectories: true)
+
+        var deletionFailed = false
+        do {
+            try store.deleteUserTheme(named: custom.name)
+        } catch {
+            deletionFailed = true
+        }
+
+        #expect(deletionFailed)
+        #expect(!store.themes.contains { $0.name == custom.name })
+        #expect(issues.issues.contains {
+            $0.domain == .themeFavorites && $0.sourceURL.lastPathComponent == "favorites.json"
+        })
+        #expect(!issues.issues.contains {
+            $0.domain == .userThemes && $0.sourceURL.lastPathComponent == "\(custom.id).json"
+        })
+    }
+
     @Test func favoritesPersist () throws {
         let (store, dir) = try makeStore ()
         defer { try? FileManager.default.removeItem (at: dir) }
-        store.toggleFavorite ("Dracula")
+        try store.toggleFavorite ("Dracula")
         #expect (store.isFavorite ("Dracula"))
         let reloaded = ThemeStore (directory: dir)
         #expect (reloaded.isFavorite ("Dracula"))
+    }
+
+    @Test func failedFavoritesDocumentStaysReadOnlyUntilRecovery() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("theme-favorites-read-only-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let favoritesURL = dir.appendingPathComponent("favorites.json")
+        let original = Data("{broken".utf8)
+        try original.write(to: favoritesURL)
+        let issues = PersistenceIssueCenter()
+        let store = ThemeStore(directory: dir, issueCenter: issues)
+
+        var custom = store.theme(named: "Dracula")
+        custom.name = "Protected Theme"
+        custom.isBuiltIn = false
+        try store.saveUserTheme(custom)
+
+        #expect(throws: PersistenceMutationError.recoveryRequired(.themeFavorites)) {
+            try store.toggleFavorite(custom.name)
+        }
+        #expect(throws: PersistenceMutationError.recoveryRequired(.themeFavorites)) {
+            try store.deleteUserTheme(named: custom.name)
+        }
+        #expect(try Data(contentsOf: favoritesURL) == original)
+        #expect(store.themes.contains { $0.name == custom.name })
+        #expect(issues.issues.contains {
+            $0.domain == .themeFavorites && $0.sourceURL == favoritesURL
+        })
+    }
+
+    @Test func inPlaceRenameUpdatesTheThemeAndItsFavorite() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var custom = store.theme(named: "Dracula")
+        custom.name = "Slug Match+"
+        custom.isBuiltIn = false
+        try store.saveUserTheme(custom)
+        try store.toggleFavorite(custom.name)
+
+        let oldName = custom.name
+        let oldID = custom.id
+        custom.name = "Slug Match"
+        #expect(custom.id == oldID)
+        try store.saveUserTheme(custom, replacing: oldName)
+
+        #expect(store.themes.contains { $0.name == custom.name && !$0.isBuiltIn })
+        #expect(!store.themes.contains { $0.name == oldName })
+        #expect(store.isFavorite(custom.name))
+        #expect(!store.isFavorite(oldName))
+        let themeFiles = try FileManager.default.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.pathExtension == "json" && $0.lastPathComponent != "favorites.json"
+        }
+        #expect(themeFiles.map(\.lastPathComponent) == ["\(custom.id).json"])
+    }
+
+    @Test func migratesRawFavoritesOnceAndKeepsOriginalBackup() throws {
+        let (store, dir) = try makeStore()
+        _ = store
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let favoritesURL = dir.appendingPathComponent("favorites.json")
+        let original = try fixture("favorites-v0")
+        try original.write(to: favoritesURL)
+
+        let backupRoot = dir.appendingPathComponent("TestBackups")
+        let migrated = ThemeStore(directory: dir, backupDirectory: backupRoot)
+        #expect(migrated.favorites == ["Dracula", "Nord"])
+        let object = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: favoritesURL)
+        ) as? [String: Any])
+        #expect((object["version"] as? NSNumber)?.intValue == 1)
+
+        let backupURL = PersistenceBackups.backupURL(
+            for: favoritesURL,
+            domain: .themeFavorites,
+            sourceVersion: 0,
+            root: backupRoot
+        )
+        #expect(try Data(contentsOf: backupURL) == original)
+
+        _ = ThemeStore(directory: dir, backupDirectory: backupRoot)
+        let backups = try FileManager.default.contentsOfDirectory(
+            at: backupURL.deletingLastPathComponent(),
+            includingPropertiesForKeys: nil
+        )
+        #expect(backups.count == 1)
+    }
+
+    @Test func migratesRawUserThemeAndLoadsValidSiblingWhenOneIsCorrupt() throws {
+        let (initialStore, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var theme = initialStore.theme(named: "Dracula")
+        theme.name = "Legacy Theme"
+        theme.isBuiltIn = false
+        let validURL = dir.appendingPathComponent("legacy-theme.json")
+        let original = try JSONEncoder().encode(theme)
+        try original.write(to: validURL)
+        try Data("not json".utf8).write(to: dir.appendingPathComponent("broken.json"))
+
+        let issues = PersistenceIssueCenter()
+        let backupRoot = dir.appendingPathComponent("TestBackups")
+        let store = ThemeStore(
+            directory: dir,
+            issueCenter: issues,
+            backupDirectory: backupRoot
+        )
+        #expect(store.theme(named: "Legacy Theme").name == "Legacy Theme")
+        #expect(issues.issues.count == 1)
+        #expect(issues.issues.first?.sourceURL.lastPathComponent == "broken.json")
+        let migratedObject = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: validURL)
+        ) as? [String: Any])
+        #expect((migratedObject["version"] as? NSNumber)?.intValue == 1)
+        let backupURL = PersistenceBackups.backupURL(
+            for: validURL,
+            domain: .userThemes,
+            sourceVersion: 0,
+            root: backupRoot
+        )
+        #expect(try Data(contentsOf: backupURL) == original)
     }
 
     @Test func importsItermColorsAndAvoidsNameCollisions () throws {
@@ -276,6 +438,8 @@ final class ProfileStoreTests {
         let selectedDefault = TerminalProfile(name: "Default")
         try ProfileStore.write(profile: recovered, in: profilesDirectory)
         try ProfileStore.write(profile: selectedDefault, in: profilesDirectory)
+        let recoveredURL = ProfileStore.url(for: recovered, in: profilesDirectory)
+        let originalRecovered = try Data(contentsOf: recoveredURL)
         let state = """
         {"version":1,"defaultProfileID":"\(selectedDefault.id.uuidString)"}
         """
@@ -286,6 +450,13 @@ final class ProfileStoreTests {
         #expect(store.defaultProfile.id == selectedDefault.id)
         #expect(store.defaultProfile.name == "Default")
         #expect(store.profile(withID: recovered.id)?.name == "Default copy")
+        let backupURL = PersistenceBackups.backupURL(
+            for: recoveredURL,
+            domain: .profiles,
+            sourceVersion: 1,
+            root: dir.appendingPathComponent("Backups")
+        )
+        #expect(try Data(contentsOf: backupURL) == originalRecovered)
 
         var editable = try #require(store.profile(withID: recovered.id))
         editable.optionAsMetaKey = false
@@ -297,16 +468,136 @@ final class ProfileStoreTests {
         #expect(reloaded.profile(withID: recovered.id)?.optionAsMetaKey == false)
     }
 
-    @Test func forwardCompatibleDecoding () throws {
-        // A document with unknown keys and missing fields still loads
-        let json = """
-        {"version": 99, "profile": {"name": "Old", "someFutureField": true}}
-        """
-        let document = try JSONDecoder ().decode (ProfileDocument.self, from: json.data (using: .utf8)!)
-        #expect (document.profile.name == "Old")
-        #expect (document.profile.fontSize == TerminalProfile.standardValues.fontSize)
-        #expect (document.profile.shell == .loginShell)
-        #expect (document.profile.titleComponents == [.activeTitle, .workingDirectory])
+    @Test func validV1ProfileUsesDefaultsForFieldsThatAreAbsent() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("profile-store-historical-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let profilesDirectory = dir.appendingPathComponent("Profiles")
+        try FileManager.default.createDirectory(at: profilesDirectory, withIntermediateDirectories: true)
+        try fixture("profile-v1-missing-fields").write(
+            to: profilesDirectory.appendingPathComponent("historical.json")
+        )
+
+        let store = try ProfileStore(directory: dir)
+        let profile = try #require(store.profile(named: "Historical Profile"))
+        #expect(profile.fontSize == TerminalProfile.standardValues.fontSize)
+        #expect(profile.shell == .loginShell)
+        #expect(profile.titleComponents == [.activeTitle, .workingDirectory])
+    }
+
+    @Test func futureProfileRemainsUntouchedAndIsReported() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("profile-store-future-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let profilesDirectory = dir.appendingPathComponent("Profiles")
+        try FileManager.default.createDirectory(at: profilesDirectory, withIntermediateDirectories: true)
+        let sourceURL = profilesDirectory.appendingPathComponent("future.json")
+        let original = try fixture("profile-v99")
+        try original.write(to: sourceURL)
+        let issues = PersistenceIssueCenter()
+
+        let store = try ProfileStore(directory: dir, issueCenter: issues)
+        #expect(store.profiles.isEmpty)
+        #expect(issues.issues.count == 1)
+        #expect(issues.issues.first?.kind == .unsupportedVersion)
+        #expect(issues.issues.first?.foundVersion == 99)
+        #expect(try Data(contentsOf: sourceURL) == original)
+    }
+
+    @Test func failedStoreStateCannotBeReplacedBySelectingADefault() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("profile-state-read-only-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let profilesDirectory = dir.appendingPathComponent("Profiles")
+        try FileManager.default.createDirectory(
+            at: profilesDirectory,
+            withIntermediateDirectories: true
+        )
+        let profile = TerminalProfile(name: "Recovered Profile")
+        try ProfileStore.write(profile: profile, in: profilesDirectory)
+        let stateURL = dir.appendingPathComponent("store.json")
+        let original = Data("{\"version\":99,\"defaultProfileID\":\"\(profile.id.uuidString)\"}".utf8)
+        try original.write(to: stateURL)
+        let issues = PersistenceIssueCenter()
+        let store = try ProfileStore(directory: dir, issueCenter: issues)
+
+        #expect(throws: PersistenceMutationError.recoveryRequired(.profileStore)) {
+            try store.setDefault(profile.id)
+        }
+        #expect(try Data(contentsOf: stateURL) == original)
+        #expect(issues.issues.contains {
+            $0.domain == .profileStore && $0.kind == .unsupportedVersion
+        })
+    }
+
+    @Test func corruptProfileDoesNotHideAValidSibling() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("profile-store-partial-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let profilesDirectory = dir.appendingPathComponent("Profiles")
+        try FileManager.default.createDirectory(at: profilesDirectory, withIntermediateDirectories: true)
+        try fixture("profile-v1-missing-fields").write(
+            to: profilesDirectory.appendingPathComponent("valid.json")
+        )
+        let brokenURL = profilesDirectory.appendingPathComponent("broken.json")
+        let broken = Data("{broken".utf8)
+        try broken.write(to: brokenURL)
+        let issues = PersistenceIssueCenter()
+
+        let store = try ProfileStore(directory: dir, issueCenter: issues)
+        #expect(store.profiles.map(\.name) == ["Historical Profile"])
+        #expect(issues.issues.count == 1)
+        #expect(issues.issues.first?.sourceURL.lastPathComponent == brokenURL.lastPathComponent)
+        #expect(try Data(contentsOf: brokenURL) == broken)
+    }
+
+    @Test func temporaryStoreCanReconnectToPersistentStorage() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("profile-store-reconnect-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let temporaryDirectory = root.appendingPathComponent("Temporary")
+        let persistentDirectory = root.appendingPathComponent("Persistent")
+        let persistentProfiles = persistentDirectory.appendingPathComponent("Profiles")
+        try FileManager.default.createDirectory(
+            at: persistentProfiles,
+            withIntermediateDirectories: true
+        )
+        try fixture("profile-v1-missing-fields").write(
+            to: persistentProfiles.appendingPathComponent("historical.json")
+        )
+
+        let store = try ProfileStore(directory: temporaryDirectory)
+        #expect(store.profiles.isEmpty)
+        try store.useStorage(directory: persistentDirectory)
+
+        #expect(store.profiles.map(\.name) == ["Historical Profile"])
+        #expect(store.defaultProfile.name == "Historical Profile")
+    }
+}
+
+final class TerminalSessionDocumentCodecTests {
+    @Test func plainTextMigratesInMemoryAndSavesAsV1() throws {
+        let original = Data("prompt output\n".utf8)
+        let value = try TerminalSessionDocumentCodec.decode(original)
+        #expect(value.content == "prompt output\n")
+        #expect(value.profileID == nil)
+
+        let saved = try TerminalSessionDocumentCodec.encode(value)
+        let object = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
+        #expect((object["version"] as? NSNumber)?.intValue == 1)
+        #expect(try TerminalSessionDocumentCodec.decode(saved) == value)
+    }
+
+    @Test func futureEnvelopeIsNeverTreatedAsTerminalText() throws {
+        let data = try fixture("terminal-v99")
+        #expect(throws: VersionedPersistenceError.unsupportedVersion(found: 99, supported: 1)) {
+            try TerminalSessionDocumentCodec.decode(data)
+        }
+    }
+
+    @Test func jsonWithoutVersionRemainsLegacyTerminalText() throws {
+        let data = Data("{\"ordinary\":\"terminal output\"}".utf8)
+        #expect(try TerminalSessionDocumentCodec.decode(data).content == String(data: data, encoding: .utf8))
     }
 }
 

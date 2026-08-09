@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import TerminalProfilesKit
 import UniformTypeIdentifiers
 
 struct TerminalDocument: FileDocument {
@@ -22,38 +23,22 @@ struct TerminalDocument: FileDocument {
     }
 
     init(configuration: ReadConfiguration) throws {
-        guard let data = configuration.file.regularFileContents,
-              let string = String(data: data, encoding: .utf8)
-        else {
+        guard let data = configuration.file.regularFileContents else {
             throw CocoaError(.fileReadCorruptFile)
         }
-
-        if let envelope = try? JSONDecoder().decode(Envelope.self, from: data), envelope.version == 1 {
-            profileID = envelope.profileID
-            themeOverride = envelope.themeOverride
-            content = envelope.content
-        } else {
-            // Files created by earlier versions were plain terminal text.
-            profileID = nil
-            themeOverride = nil
-            content = string
-        }
+        let value = try TerminalSessionDocumentCodec.decode(data)
+        profileID = value.profileID
+        themeOverride = value.themeOverride
+        content = value.content
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        let envelope = Envelope(version: 1,
-                                profileID: profileID,
-                                themeOverride: themeOverride,
-                                content: content)
-        let data = try JSONEncoder().encode(envelope)
+        let data = try TerminalSessionDocumentCodec.encode(TerminalSessionDocumentValue(
+            profileID: profileID,
+            themeOverride: themeOverride,
+            content: content
+        ))
         return .init(regularFileWithContents: data)
-    }
-
-    private struct Envelope: Codable {
-        var version: Int
-        var profileID: UUID?
-        var themeOverride: String?
-        var content: String?
     }
 }
 

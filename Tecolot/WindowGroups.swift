@@ -35,25 +35,99 @@ struct SavedWindowGroup: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+private struct WindowGroupsDocumentV1: Codable {
+    var version: Int
+    var groups: [SavedWindowGroup]
+}
+
+private struct WindowGroupsMigrator: VersionedDocumentMigrator {
+    let currentVersion = 1
+
+    func sourceVersion(in data: Data) throws -> Int {
+        try PersistenceVersionProbe.optionalVersion(in: data) ?? 0
+    }
+
+    func decode(_ data: Data, from sourceVersion: Int) throws -> [SavedWindowGroup] {
+        let groups: [SavedWindowGroup]
+        switch sourceVersion {
+        case 0:
+            groups = try JSONDecoder().decode([SavedWindowGroup].self, from: data)
+        case 1:
+            groups = try JSONDecoder().decode(WindowGroupsDocumentV1.self, from: data).groups
+        default:
+            throw VersionedPersistenceError.invalidDocument("Unsupported window-group schema.")
+        }
+        return groups.map { group in
+            var group = group
+            group.name = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            group.windows = group.windows.map { window in
+                var window = window
+                if window.tabs.isEmpty {
+                    window.selectedTabIndex = 0
+                } else {
+                    window.selectedTabIndex = min(max(window.selectedTabIndex, 0), window.tabs.count - 1)
+                }
+                return window
+            }
+            return group
+        }
+    }
+
+    func validate(_ groups: [SavedWindowGroup]) throws {
+        guard groups.allSatisfy({ !$0.name.isEmpty }) else {
+            throw VersionedPersistenceError.invalidDocument("A window group has no name.")
+        }
+    }
+
+    func encodeCurrent(_ groups: [SavedWindowGroup]) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(WindowGroupsDocumentV1(version: currentVersion, groups: groups))
+    }
+}
+
+private enum WindowGroupError: LocalizedError {
+    case noTerminalWindows
+    case invalidName
+
+    var errorDescription: String? {
+        switch self {
+        case .noTerminalWindows: return "There are no terminal windows to save."
+        case .invalidName: return "Enter a name for the window group."
+        }
+    }
+}
+
 @MainActor
 final class WindowGroupStore: ObservableObject {
     @Published private(set) var groups: [SavedWindowGroup] = []
     private let fileURL: URL
+    private let directory: URL
+    private let backupDirectory: URL
+    private let issueCenter: PersistenceIssueCenter?
+    private var aggregateIsReadOnly = false
 
-    init(directory: URL? = nil) {
+    init(
+        directory: URL? = nil,
+        issueCenter: PersistenceIssueCenter? = nil,
+        backupDirectory: URL? = nil
+    ) {
         let base = directory ?? Self.defaultDirectory()
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        self.directory = base
         fileURL = base.appendingPathComponent("window-groups.json")
+        self.backupDirectory = backupDirectory ?? base.appendingPathComponent("Backups")
+        self.issueCenter = issueCenter
         load()
     }
 
     @discardableResult
-    func saveCurrentWindows(as name: String) -> SavedWindowGroup? {
+    func saveCurrentWindows(as name: String) throws -> SavedWindowGroup? {
+        try ensureWritable()
         let windows = captureWindows()
-        guard !windows.isEmpty else { return nil }
+        guard !windows.isEmpty else { throw WindowGroupError.noTerminalWindows }
 
         let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedName.isEmpty else { return nil }
+        guard !normalizedName.isEmpty else { throw WindowGroupError.invalidName }
         let group: SavedWindowGroup
         if let index = groups.firstIndex(where: {
             $0.name.localizedCaseInsensitiveCompare(normalizedName) == .orderedSame
@@ -68,13 +142,27 @@ final class WindowGroupStore: ObservableObject {
             group = SavedWindowGroup(name: normalizedName, windows: windows)
             groups.append(group)
         }
-        sortAndPersist()
+        do {
+            try sortAndPersist()
+        } catch {
+            load()
+            reportWriteFailure(error)
+            throw error
+        }
         return group
     }
 
-    func delete(_ id: SavedWindowGroup.ID) {
+    func delete(_ id: SavedWindowGroup.ID) throws {
+        try ensureWritable()
+        let oldGroups = groups
         groups.removeAll { $0.id == id }
-        persist()
+        do {
+            try persist()
+        } catch {
+            groups = oldGroups
+            reportWriteFailure(error)
+            throw error
+        }
     }
 
     @discardableResult
@@ -158,24 +246,60 @@ final class WindowGroupStore: ObservableObject {
         )
     }
 
-    private func load() {
-        guard let data = try? Data(contentsOf: fileURL),
-              let decoded = try? JSONDecoder().decode([SavedWindowGroup].self, from: data) else {
+    func load() {
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        } catch {
+            aggregateIsReadOnly = true
+            groups = []
+            issueCenter?.replaceIssues(in: .windowGroups, with: [PersistenceIssue(
+                domain: .windowGroups,
+                sourceURL: fileURL,
+                kind: .unreadable,
+                message: error.localizedDescription,
+                supportedVersion: 1
+            )])
             return
         }
-        groups = decoded.sorted(by: Self.sortByName)
+        let result = VersionedFileLoader.load(
+            from: fileURL,
+            domain: .windowGroups,
+            backupRoot: backupDirectory,
+            migrator: WindowGroupsMigrator()
+        )
+        aggregateIsReadOnly = result.issue != nil
+        groups = (result.value ?? []).sorted(by: Self.sortByName)
+        issueCenter?.replaceIssues(
+            in: .windowGroups,
+            with: result.issue.map { [$0] } ?? []
+        )
     }
 
-    private func sortAndPersist() {
+    private func sortAndPersist() throws {
         groups.sort(by: Self.sortByName)
-        persist()
+        try persist()
     }
 
-    private func persist() {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(groups) else { return }
-        try? data.write(to: fileURL, options: .atomic)
+    private func persist() throws {
+        let data = try WindowGroupsMigrator().encodeCurrent(groups)
+        try data.write(to: fileURL, options: .atomic)
+        issueCenter?.resolve(domain: .windowGroups, sourceURL: fileURL)
+    }
+
+    private func reportWriteFailure(_ error: Error) {
+        issueCenter?.report(PersistenceIssue(
+            domain: .windowGroups,
+            sourceURL: fileURL,
+            kind: .writeFailed,
+            message: error.localizedDescription,
+            supportedVersion: 1
+        ))
+    }
+
+    private func ensureWritable() throws {
+        guard !aggregateIsReadOnly else {
+            throw PersistenceMutationError.recoveryRequired(.windowGroups)
+        }
     }
 
     private static func sortByName(_ first: SavedWindowGroup, _ second: SavedWindowGroup) -> Bool {
@@ -212,7 +336,11 @@ struct WindowGroupCommands: Commands {
                     Menu("Delete Window Group") {
                         ForEach(store.groups) { group in
                             Button(group.name, role: .destructive) {
-                                store.delete(group.id)
+                                do {
+                                    try store.delete(group.id)
+                                } catch {
+                                    presentError(error)
+                                }
                             }
                         }
                     }
@@ -233,6 +361,16 @@ struct WindowGroupCommands: Commands {
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        store.saveCurrentWindows(as: nameField.stringValue)
+        do {
+            try store.saveCurrentWindows(as: nameField.stringValue)
+        } catch {
+            presentError(error)
+        }
+    }
+
+    private func presentError(_ error: Error) {
+        let alert = NSAlert(error: error)
+        alert.messageText = "Could Not Save Window Groups"
+        alert.runModal()
     }
 }

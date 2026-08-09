@@ -372,7 +372,7 @@ struct TecolotApp: App {
 
         // The Settings scene does not inherit the DocumentGroup environment
         Settings {
-            SettingsView()
+            SettingsView(issueCenter: model.issueCenter, recovery: model.recovery)
                 .environmentObject(model.profiles)
                 .environmentObject(model.themes)
         }

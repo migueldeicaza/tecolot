@@ -110,6 +110,7 @@ struct ThemePickerPopover: View {
     var controller: TerminalSessionController
     @ObservedObject var themes: ThemeStore
     @ObservedObject var profiles: ProfileStore
+    @State private var errorMessage: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -127,14 +128,28 @@ struct ThemePickerPopover: View {
                 Button("Use for All Windows") {
                     var profile = controller.profile
                     profile.themeName = controller.effectiveTheme.name
-                    controller.applyThemeOverride(nil)
-                    try? profiles.update(profile)
+                    do {
+                        try profiles.update(profile)
+                        controller.applyThemeOverride(nil)
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 }
                 .help("Makes this theme the profile default, updating every window that uses the profile")
             }
             .padding(10)
         }
         .frame(width: 520, height: 420)
+        .alert("Could Not Change Profile Theme", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {
+                errorMessage = nil
+            }
+        } message: {
+            Text(errorMessage ?? "An unknown error occurred.")
+        }
     }
 }
 

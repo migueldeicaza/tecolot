@@ -72,7 +72,7 @@ struct ThemeBrowserView: View {
         .fileImporter(isPresented: $showImporter, allowedContentTypes: importTypes) { result in
             importTheme(result)
         }
-        .alert("Could Not Import Theme", isPresented: Binding(
+        .alert("Theme Operation Failed", isPresented: Binding(
             get: { importError != nil },
             set: { if !$0 { importError = nil } }
         )) {
@@ -95,14 +95,22 @@ struct ThemeBrowserView: View {
         .buttonStyle(.plain)
         .contextMenu {
             Button(themes.isFavorite(theme.name) ? "Remove from Favorites" : "Add to Favorites") {
-                themes.toggleFavorite(theme.name)
+                do {
+                    try themes.toggleFavorite(theme.name)
+                } catch {
+                    importError = error.localizedDescription
+                }
             }
             Button(theme.isBuiltIn ? "Duplicate & Edit…" : "Edit…") {
                 presentEditor(for: theme)
             }
             if !theme.isBuiltIn {
                 Button("Delete User Theme", role: .destructive) {
-                    try? themes.deleteUserTheme(named: theme.name)
+                    do {
+                        try themes.deleteUserTheme(named: theme.name)
+                    } catch {
+                        importError = error.localizedDescription
+                    }
                 }
             }
         }
