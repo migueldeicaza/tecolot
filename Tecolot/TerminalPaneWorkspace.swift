@@ -40,6 +40,7 @@ final class TerminalPaneWorkspace {
     private(set) var root: TerminalPaneNode
     private(set) var revision = 0
     private(set) var focusedControllerID: UUID
+    @ObservationIgnored weak var chromeCoordinator: WindowChromeCoordinator?
 
     init() {
         let controller = TerminalSessionController()
@@ -60,10 +61,20 @@ final class TerminalPaneWorkspace {
         controllers.count
     }
 
+    /// The pane that controls the titlebar color. A focused pane can control
+    /// the titlebar only when it touches the top edge of the window.
+    var titlebarController: TerminalSessionController? {
+        if let focusedController, touchesTopEdge(focusedController, in: root) {
+            return focusedController
+        }
+        return topLeftController(in: root)
+    }
+
     func markFocused(_ controller: TerminalSessionController) {
         guard contains(controller) else { return }
         if focusedControllerID != controller.id {
             focusedControllerID = controller.id
+            requestChromeUpdate()
         }
     }
 
@@ -79,6 +90,7 @@ final class TerminalPaneWorkspace {
         node.content = .split(orientation, existingNode, newNode)
         focusedControllerID = newController.id
         revision += 1
+        requestChromeUpdate()
     }
 
     /// Removes a pane. Returns false when it is the only pane in the window.
@@ -91,6 +103,7 @@ final class TerminalPaneWorkspace {
             fallback.requestFocus()
         }
         revision += 1
+        requestChromeUpdate()
         return true
     }
 
@@ -102,13 +115,18 @@ final class TerminalPaneWorkspace {
 
     func updateWindowTransparency() {
         guard let window = controllers.compactMap(\.terminal?.window).first else { return }
-        if controllers.contains(where: { $0.profile.backgroundOpacity < 1.0 }) {
+        let usesGlass = WindowChromeRegistry.shared.capturedStyle(for: window)?.resolved() == .liquidGlass
+        if usesGlass || controllers.contains(where: { $0.profile.backgroundOpacity < 1.0 }) {
             window.isOpaque = false
             window.backgroundColor = .clear
         } else if !window.isOpaque {
             window.isOpaque = true
             window.backgroundColor = nil
         }
+    }
+
+    func requestChromeUpdate() {
+        chromeCoordinator?.scheduleUpdate()
     }
 
     private func contains(_ controller: TerminalSessionController) -> Bool {
@@ -121,6 +139,34 @@ final class TerminalPaneWorkspace {
             return [controller]
         case .split(_, let first, let second):
             return collectControllers(in: first) + collectControllers(in: second)
+        }
+    }
+
+    private func topLeftController(in node: TerminalPaneNode) -> TerminalSessionController? {
+        switch node.content {
+        case .terminal(let controller):
+            return controller
+        case .split(.vertical, let first, _):
+            return topLeftController(in: first)
+        case .split(.horizontal, _, let second):
+            // AppKit lays out the second child above the first child.
+            return topLeftController(in: second)
+        }
+    }
+
+    private func touchesTopEdge(
+        _ controller: TerminalSessionController,
+        in node: TerminalPaneNode
+    ) -> Bool {
+        switch node.content {
+        case .terminal(let candidate):
+            return candidate === controller
+        case .split(.vertical, let first, let second):
+            return touchesTopEdge(controller, in: first)
+                || touchesTopEdge(controller, in: second)
+        case .split(.horizontal, _, let second):
+            // Only the second child touches the top edge in an AppKit split.
+            return touchesTopEdge(controller, in: second)
         }
     }
 
@@ -221,7 +267,9 @@ final class TerminalPaneHostView: NSView {
     private func makeView(for node: TerminalPaneNode) -> NSView {
         switch node.content {
         case .terminal(let controller):
-            return controller.makeTerminalView(document: document)
+            return TerminalSessionContainerView(
+                terminal: controller.makeTerminalView(document: document)
+            )
         case .split(let orientation, let first, let second):
             let splitView = NSSplitView(frame: .zero)
             splitView.isVertical = orientation == .vertical

@@ -5,6 +5,7 @@
 //  Settings window: General and Appearance carry what most users need;
 //  the full profile machinery lives in the last tab for advanced use.
 //
+import AppKit
 import Combine
 import SwiftUI
 import TerminalProfilesKit
@@ -28,7 +29,7 @@ struct SettingsView: View {
                 DataRecoveryView(issueCenter: issueCenter, recovery: recovery)
             }
         }
-        .frame(width: 760, height: 560)
+        .frame(width: 720, height: 680)
     }
 
     private var dataTabTitle: String {
@@ -141,10 +142,18 @@ struct GeneralSettingsView: View {
 struct AppearanceSettingsView: View {
     @EnvironmentObject private var profiles: ProfileStore
     @EnvironmentObject private var themes: ThemeStore
+    @AppStorage(AppearancePreferences.interfaceAppearanceKey)
+    private var interfaceAppearance = InterfaceAppearance.system
+    @AppStorage(AppearancePreferences.macosTitlebarStyleKey)
+    private var macosTitlebarStyle = MacTitlebarStyle.native
+    @AppStorage(AppearancePreferences.liquidGlassOpacityKey)
+    private var liquidGlassOpacity = 0.7
     @State private var errorMessage: String?
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
+            applicationSettings
+            Divider()
             if profiles.profiles.isEmpty {
                 ContentUnavailableView {
                     Label("No Profile to Edit", systemImage: "paintbrush")
@@ -154,7 +163,7 @@ struct AppearanceSettingsView: View {
                     Button("Create Profile", action: createProfile)
                 }
             } else {
-                appearanceEditor
+                terminalAppearanceEditor
             }
         }
         .alert("Could Not Change Appearance", isPresented: errorPresentation) {
@@ -164,9 +173,51 @@ struct AppearanceSettingsView: View {
         } message: {
             Text(errorMessage ?? "An unknown error occurred.")
         }
+        .onChange(of: interfaceAppearance) { _, newValue in
+            newValue.apply()
+        }
     }
 
-    private var appearanceEditor: some View {
+    private var applicationSettings: some View {
+        Form {
+            Section("Application") {
+                Picker("Interface:", selection: $interfaceAppearance) {
+                    ForEach(InterfaceAppearance.allCases) { appearance in
+                        Text(appearance.displayName).tag(appearance)
+                    }
+                }
+                Picker("Titlebar:", selection: $macosTitlebarStyle) {
+                    ForEach(MacTitlebarStyle.allCases) { style in
+                        Text(style.displayName)
+                            .tag(style)
+                            .disabled(style == .liquidGlass && !supportsLiquidGlass)
+                    }
+                }
+                if macosTitlebarStyle == .liquidGlass {
+                    LabeledContent("Glass opacity:") {
+                        HStack {
+                            Slider(value: $liquidGlassOpacity, in: 0...1)
+                            Text(liquidGlassOpacity, format: .percent.precision(.fractionLength(0)))
+                                .monospacedDigit()
+                                .frame(width: 42, alignment: .trailing)
+                        }
+                    }
+                    if !supportsLiquidGlass {
+                        Text("Liquid Glass requires macOS 26 or later. Blended is used on this Mac.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text("Titlebar changes apply to new windows. New tabs use the style of their window.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(height: macosTitlebarStyle == .liquidGlass ? 220 : 170)
+    }
+
+    private var terminalAppearanceEditor: some View {
         let profile = profiles.defaultProfile
         return VStack(spacing: 0) {
             ThemeBrowserView(themes: themes, selectedThemeName: profile.themeName) { theme in
@@ -181,6 +232,11 @@ struct AppearanceSettingsView: View {
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 8)
         }
+    }
+
+    private var supportsLiquidGlass: Bool {
+        if #available(macOS 26.0, *) { return true }
+        return false
     }
 
     private func update(_ mutate: (inout TerminalProfile) -> Void) {
