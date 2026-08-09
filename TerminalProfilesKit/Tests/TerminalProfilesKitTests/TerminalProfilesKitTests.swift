@@ -316,6 +316,8 @@ final class LaunchParametersTests {
         let params = ProfileApplier.launchParameters (for: profile)
         #expect (params.execName?.hasPrefix ("-") == true)
         #expect (params.environment.contains ("TERM=xterm-256color"))
+        #expect (params.environment.contains ("TERM_PROGRAM=tecolot"))
+        #expect (params.environment.contains { $0.hasPrefix("TECOLOT_RESOURCES_DIR=") })
     }
 
     @Test func termNameFlowsIntoEnvironment () {
@@ -340,6 +342,14 @@ final class LaunchParametersTests {
         #expect (params.args == ["example.org"])
     }
 
+    @Test func directInteractiveShellGetsIntegration () {
+        var profile = TerminalProfile(name: "Test")
+        profile.shell = .command("/bin/zsh", runInShell: false)
+        let params = ProfileApplier.launchParameters(for: profile)
+
+        #expect(params.environment.contains { $0.hasPrefix("ZDOTDIR=") })
+    }
+
     @Test func initialDirectoryIsRespected () {
         let profile = TerminalProfile (name: "Test")
         let params = ProfileApplier.launchParameters (for: profile, initialDirectory: "/tmp")
@@ -358,5 +368,176 @@ final class LaunchParametersTests {
         #expect (options.scrollback == 5000)
         #expect (options.cursorStyle == .steadyBar)
         #expect (options.termName == "xterm-256color")
+    }
+}
+
+final class TecolotShellIntegrationTests {
+    private let resources = URL(fileURLWithPath: "/tmp/tecolot resources", isDirectory: true)
+
+    @Test func exportsTerminalIdentityWithoutAutomaticInjection () {
+        let input = LaunchParameters(
+            executable: "/bin/zsh",
+            args: ["-lc", "echo test"],
+            execName: nil,
+            environment: ["TERM=xterm-256color"],
+            currentDirectory: nil
+        )
+        let result = TecolotShellIntegration.configure(
+            input,
+            automatic: false,
+            resourcesDirectory: resources,
+            processEnvironment: [:],
+            terminalProgramVersion: "1.2.3"
+        )
+
+        #expect(result.args == input.args)
+        #expect(result.environment.contains("TERM_PROGRAM=tecolot"))
+        #expect(result.environment.contains("TERM_PROGRAM_VERSION=1.2.3"))
+        #expect(result.environment.contains("TECOLOT_SHELL_FEATURES=cursor:blink,title"))
+        #expect(result.environment.contains("TECOLOT_RESOURCES_DIR=/tmp/tecolot resources"))
+        #expect(!result.environment.contains { $0.hasPrefix("ZDOTDIR=") })
+    }
+
+    @Test func injectsZshAndPreservesZDotDirectory () {
+        let input = LaunchParameters(
+            executable: "/bin/zsh",
+            args: [],
+            execName: "-zsh",
+            environment: [],
+            currentDirectory: nil
+        )
+        let result = TecolotShellIntegration.configure(
+            input,
+            automatic: true,
+            resourcesDirectory: resources,
+            processEnvironment: ["ZDOTDIR": "/Users/test/.config/zsh"],
+            terminalProgramVersion: "1"
+        )
+
+        #expect(result.environment.contains("TECOLOT_ZSH_ZDOTDIR=/Users/test/.config/zsh"))
+        #expect(result.environment.contains("ZDOTDIR=/tmp/tecolot resources/shell-integration/zsh"))
+    }
+
+    @Test func injectsFishThroughXDGDataDirectories () {
+        let input = LaunchParameters(
+            executable: "/opt/homebrew/bin/fish",
+            args: [],
+            execName: "-fish",
+            environment: [],
+            currentDirectory: nil
+        )
+        let result = TecolotShellIntegration.configure(
+            input,
+            automatic: true,
+            resourcesDirectory: resources,
+            processEnvironment: ["XDG_DATA_DIRS": "/opt/share:/usr/share"],
+            terminalProgramVersion: "1"
+        )
+
+        let integration = "/tmp/tecolot resources/shell-integration"
+        #expect(result.environment.contains("TECOLOT_SHELL_INTEGRATION_XDG_DIR=\(integration)"))
+        #expect(result.environment.contains("XDG_DATA_DIRS=\(integration):/opt/share:/usr/share"))
+    }
+
+    @Test func injectsNushellModule () {
+        let input = LaunchParameters(
+            executable: "/opt/homebrew/bin/nu",
+            args: ["--login"],
+            execName: nil,
+            environment: [],
+            currentDirectory: nil
+        )
+        let result = TecolotShellIntegration.configure(
+            input,
+            automatic: true,
+            resourcesDirectory: resources,
+            processEnvironment: [:],
+            terminalProgramVersion: "1"
+        )
+
+        #expect(result.args == ["--execute", "use tecolot *", "--login"])
+    }
+
+    @Test func doesNotInjectAppleBash () {
+        let input = LaunchParameters(
+            executable: "/bin/bash",
+            args: [],
+            execName: "-bash",
+            environment: [],
+            currentDirectory: nil
+        )
+        let result = TecolotShellIntegration.configure(
+            input,
+            automatic: true,
+            resourcesDirectory: resources,
+            processEnvironment: [:],
+            terminalProgramVersion: "1"
+        )
+
+        #expect(result.args.isEmpty)
+        #expect(!result.environment.contains { $0.hasPrefix("ENV=") })
+        #expect(result.environment.contains("TECOLOT_RESOURCES_DIR=/tmp/tecolot resources"))
+    }
+
+    @Test func injectsSupportedBashAndPreservesFlags () throws {
+        let resources = try #require(TecolotShellIntegration.resourcesDirectory)
+        let input = LaunchParameters(
+            executable: "/opt/homebrew/bin/bash",
+            args: ["--noprofile", "--rcfile", "/tmp/test.bashrc", "-l"],
+            execName: "-bash",
+            environment: ["HOME=/Users/test"],
+            currentDirectory: nil
+        )
+        let result = TecolotShellIntegration.configure(
+            input,
+            automatic: true,
+            resourcesDirectory: resources,
+            processEnvironment: ["ENV": "/tmp/original-env"],
+            terminalProgramVersion: "1"
+        )
+
+        #expect(result.args == ["--posix", "-l"])
+        #expect(result.environment.contains("TECOLOT_BASH_INJECT=1 --noprofile"))
+        #expect(result.environment.contains("TECOLOT_BASH_RCFILE=/tmp/test.bashrc"))
+        #expect(result.environment.contains("TECOLOT_BASH_ENV=/tmp/original-env"))
+        #expect(result.environment.contains {
+            $0.hasPrefix("ENV=") && $0.hasSuffix("/shell-integration/bash/tecolot.bash")
+        })
+    }
+
+    @Test func doesNotInjectNoninteractiveShellCommands () throws {
+        let resources = try #require(TecolotShellIntegration.resourcesDirectory)
+        let bash = LaunchParameters(
+            executable: "/opt/homebrew/bin/bash",
+            args: ["-lc", "echo test"],
+            execName: nil,
+            environment: [],
+            currentDirectory: nil
+        )
+        let bashResult = TecolotShellIntegration.configure(
+            bash,
+            automatic: true,
+            resourcesDirectory: resources,
+            processEnvironment: [:],
+            terminalProgramVersion: "1"
+        )
+        #expect(bashResult.args == bash.args)
+        #expect(!bashResult.environment.contains { $0.hasPrefix("ENV=") })
+
+        let nushell = LaunchParameters(
+            executable: "/opt/homebrew/bin/nu",
+            args: ["--command", "echo test"],
+            execName: nil,
+            environment: [],
+            currentDirectory: nil
+        )
+        let nushellResult = TecolotShellIntegration.configure(
+            nushell,
+            automatic: true,
+            resourcesDirectory: resources,
+            processEnvironment: [:],
+            terminalProgramVersion: "1"
+        )
+        #expect(nushellResult.args == nushell.args)
     }
 }

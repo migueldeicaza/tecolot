@@ -138,24 +138,27 @@ public enum ProfileApplier {
         switch profile.shell {
         case .loginShell:
             let shell = LoginShell.current
-            return LaunchParameters (executable: shell, args: [],
-                                     execName: LoginShell.loginArgZero (for: shell),
-                                     environment: environment,
-                                     currentDirectory: directory)
+            let parameters = LaunchParameters (executable: shell, args: [],
+                                               execName: LoginShell.loginArgZero (for: shell),
+                                               environment: environment,
+                                               currentDirectory: directory)
+            return TecolotShellIntegration.configure(parameters, automatic: true)
         case .command(let commandLine, let runInShell):
             if runInShell {
                 let shell = LoginShell.current
-                return LaunchParameters (executable: shell, args: ["-lc", commandLine],
-                                         execName: nil,
-                                         environment: environment,
-                                         currentDirectory: directory)
+                let parameters = LaunchParameters (executable: shell, args: ["-lc", commandLine],
+                                                   execName: nil,
+                                                   environment: environment,
+                                                   currentDirectory: directory)
+                return TecolotShellIntegration.configure(parameters, automatic: true)
             }
             var parts = commandLine.split (separator: " ").map (String.init)
             let executable = parts.isEmpty ? LoginShell.current : parts.removeFirst ()
-            return LaunchParameters (executable: executable, args: parts,
-                                     execName: nil,
-                                     environment: environment,
-                                     currentDirectory: directory)
+            let parameters = LaunchParameters (executable: executable, args: parts,
+                                               execName: nil,
+                                               environment: environment,
+                                               currentDirectory: directory)
+            return TecolotShellIntegration.configure(parameters, automatic: true)
         }
     }
 }

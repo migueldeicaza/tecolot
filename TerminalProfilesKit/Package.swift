@@ -24,7 +24,8 @@ let package = Package(
             name: "TerminalProfilesKit",
             dependencies: ["SwiftTerm"],
             resources: [
-                .copy("Resources/Themes")
+                .copy("Resources/Themes"),
+                .copy("Resources/shell-integration")
             ]
         ),
         .testTarget(
