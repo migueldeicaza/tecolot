@@ -12,10 +12,6 @@ import SwiftTerm
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationWillFinishLaunching(_ notification: Notification) {
-        InterfaceAppearance.load().apply()
-    }
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = true
         _ = SecureKeyboardEntry.shared
@@ -352,7 +348,6 @@ struct TecolotApp: App {
     private let model = AppModel.shared
 
     init() {
-        AppearancePreferences.registerDefaults()
         UserDefaults.standard.register(defaults: [
             "useCommandDigitsForTabs": true,
             "startupMode": "default"

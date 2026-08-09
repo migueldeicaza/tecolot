@@ -29,7 +29,7 @@ struct ContentView: View {
             document: document,
             revision: workspace.revision
         )
-            .background(WindowChromeConnection(workspace: workspace))
+            .background(WindowTabbingConfigurator())
             .onAppear(perform: configureBufferPersistence)
             .onChange(of: fileURL) {
                 configureBufferPersistence()
@@ -149,6 +149,26 @@ struct ThemePickerPopover: View {
             }
         } message: {
             Text(errorMessage ?? "An unknown error occurred.")
+        }
+    }
+}
+
+struct WindowTabbingConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        configureWindow(for: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        configureWindow(for: nsView)
+    }
+
+    private func configureWindow(for view: NSView) {
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            window.tabbingIdentifier = "TerminalDocument"
+            window.tabbingMode = .preferred
         }
     }
 }

@@ -126,7 +126,6 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
                              to: terminal)
         (terminal.superview as? TerminalSessionContainerView)?.updatePaddingColor()
         updateWindowTransparency()
-        workspace?.requestChromeUpdate()
     }
 
     /// A translucent terminal background only composites when the hosting

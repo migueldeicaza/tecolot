@@ -17,16 +17,12 @@ import TerminalProfilesKit
 enum WindowOpener {
     @discardableResult
     static func openWindow(spec: LaunchSpec) -> NSWindow? {
-        let style = MacTitlebarStyle.load()
-        WindowChromeRegistry.shared.prepareNextWindow(style: style)
         AppModel.shared.setPendingLaunch(spec)
         guard let document = try? NSDocumentController.shared.openUntitledDocumentAndDisplay(true) else {
-            WindowChromeRegistry.shared.finishNextWindow(nil)
             return nil
         }
         NSApp.activate(ignoringOtherApps: true)
         let window = document.windowControllers.first?.window
-        WindowChromeRegistry.shared.finishNextWindow(window)
         window?.makeKeyAndOrderFront(nil)
         return window
     }
@@ -34,17 +30,12 @@ enum WindowOpener {
     @discardableResult
     static func openTab(spec: LaunchSpec, targetWindow: NSWindow? = nil) -> NSWindow? {
         let targetWindow = targetWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-        let inheritedStyle = WindowChromeRegistry.shared.capturedStyle(for: targetWindow)
-            ?? MacTitlebarStyle.load()
-        WindowChromeRegistry.shared.prepareNextWindow(style: inheritedStyle)
         AppModel.shared.setPendingLaunch(spec)
         guard let document = try? NSDocumentController.shared.openUntitledDocumentAndDisplay(true),
               let newWindow = document.windowControllers.first?.window else {
-            WindowChromeRegistry.shared.finishNextWindow(nil)
             return nil
         }
         NSApp.activate(ignoringOtherApps: true)
-        WindowChromeRegistry.shared.finishNextWindow(newWindow)
         newWindow.tabbingMode = .preferred
         newWindow.tabbingIdentifier = "TerminalDocument"
 
