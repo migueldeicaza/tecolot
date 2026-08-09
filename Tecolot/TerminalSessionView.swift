@@ -124,6 +124,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
                              themeStore: AppModel.shared.themes,
                              sessionThemeOverride: themeOverride,
                              to: terminal)
+        (terminal.superview as? TerminalSessionContainerView)?.updatePaddingColor()
         updateWindowTransparency()
     }
 
@@ -792,20 +793,94 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
 }
 
+final class TerminalSessionContainerView: NSView {
+    // Ghostty uses two points of window padding by default. The side and
+    // bottom padding keep terminal content clear of the window border.
+    private static let padding: CGFloat = 2
+
+    let terminal: LocalProcessTerminalView
+    private let leftPaddingView = NSView()
+    private let rightPaddingView = NSView()
+    private let bottomPaddingView = NSView()
+
+    init(terminal: LocalProcessTerminalView) {
+        self.terminal = terminal
+        super.init(frame: .zero)
+
+        terminal.translatesAutoresizingMaskIntoConstraints = false
+        let paddingViews = [leftPaddingView, rightPaddingView, bottomPaddingView]
+        for view in paddingViews {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            view.wantsLayer = true
+            addSubview(view)
+        }
+
+        addSubview(terminal)
+        NSLayoutConstraint.activate([
+            terminal.topAnchor.constraint(equalTo: topAnchor),
+            terminal.leadingAnchor.constraint(equalTo: leftPaddingView.trailingAnchor),
+            terminal.trailingAnchor.constraint(equalTo: rightPaddingView.leadingAnchor),
+            terminal.bottomAnchor.constraint(equalTo: bottomPaddingView.topAnchor),
+
+            leftPaddingView.topAnchor.constraint(equalTo: topAnchor),
+            leftPaddingView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            leftPaddingView.bottomAnchor.constraint(equalTo: bottomPaddingView.topAnchor),
+            leftPaddingView.widthAnchor.constraint(equalToConstant: Self.padding),
+
+            rightPaddingView.topAnchor.constraint(equalTo: topAnchor),
+            rightPaddingView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            rightPaddingView.bottomAnchor.constraint(equalTo: bottomPaddingView.topAnchor),
+            rightPaddingView.widthAnchor.constraint(equalToConstant: Self.padding),
+
+            bottomPaddingView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            bottomPaddingView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            bottomPaddingView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            bottomPaddingView.heightAnchor.constraint(equalToConstant: Self.padding),
+        ])
+        updatePaddingColor()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        var size = terminal.intrinsicContentSize
+        if size.width >= 0 {
+            size.width += Self.padding * 2
+        }
+        if size.height >= 0 {
+            size.height += Self.padding
+        }
+        return size
+    }
+
+    func updatePaddingColor() {
+        let color = terminal.nativeBackgroundColor.cgColor
+        leftPaddingView.layer?.backgroundColor = color
+        rightPaddingView.layer?.backgroundColor = color
+        bottomPaddingView.layer?.backgroundColor = color
+    }
+}
+
 struct TerminalSessionView: NSViewRepresentable {
     var controller: TerminalSessionController
     var document: TerminalDocument
 
-    func makeNSView(context: Context) -> LocalProcessTerminalView {
-        controller.makeTerminalView(document: document)
+    func makeNSView(context: Context) -> TerminalSessionContainerView {
+        TerminalSessionContainerView(
+            terminal: controller.makeTerminalView(document: document)
+        )
     }
 
-    func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
-        controller.attach(to: nsView)
+    func updateNSView(_ nsView: TerminalSessionContainerView, context: Context) {
+        controller.attach(to: nsView.terminal)
+        nsView.updatePaddingColor()
     }
 
-    static func dismantleNSView(_ nsView: LocalProcessTerminalView, coordinator: ()) {
-        guard let controller = (nsView as? AppTerminalView)?.sessionController,
+    static func dismantleNSView(_ nsView: TerminalSessionContainerView, coordinator: ()) {
+        guard let controller = (nsView.terminal as? AppTerminalView)?.sessionController,
               let window = nsView.window else { return }
         TerminalSessionRegistry.shared.unregister(controller: controller, from: window)
     }
