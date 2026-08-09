@@ -2,8 +2,8 @@
 //  SettingsView.swift
 //  Tecolot
 //
-//  Settings window: General and Appearance carry what most users need;
-//  the full profile machinery lives in the last tab for advanced use.
+//  Settings window: General and Data are app-wide. The remaining pages edit
+//  the profile selected in the Settings toolbar.
 //
 import Combine
 import SwiftUI
@@ -12,34 +12,218 @@ import TerminalProfilesKit
 struct SettingsView: View {
     @ObservedObject var issueCenter: PersistenceIssueCenter
     let recovery: DataRecoveryCoordinator
+    @EnvironmentObject private var profiles: ProfileStore
+
+    @State private var destination: SettingsDestination? = .general
+    @State private var activeProfileID: TerminalProfile.ID?
+    @State private var profileErrorMessage: String?
 
     var body: some View {
-        TabView {
-            Tab("General", systemImage: "gearshape") {
-                GeneralSettingsView()
+        NavigationSplitView {
+            List(selection: $destination) {
+                ForEach(SettingsDestination.allCases) { destination in
+                    Label(sidebarTitle(for: destination), systemImage: destination.systemImage)
+                        .tag(destination)
+                }
             }
-            Tab("Appearance", systemImage: "paintbrush") {
-                AppearanceSettingsView()
-            }
-            Tab("Profiles", systemImage: "person.2.badge.gearshape") {
-                ProfilesSettingsView()
-            }
-            Tab(dataTabTitle, systemImage: "externaldrive.badge.checkmark") {
-                DataRecoveryView(issueCenter: issueCenter, recovery: recovery)
+            .navigationTitle("Settings")
+            .frame(minWidth: 170)
+        } detail: {
+            detail
+        }
+        .toolbar {
+            if currentDestination.isProfileDriven {
+                ToolbarItem(placement: .automatic) {
+                    profileMenu
+                }
             }
         }
-        .frame(width: 760, height: 560)
+        .frame(minWidth: 860, minHeight: 600)
+        .onAppear(perform: repairActiveProfileSelection)
+        .onChange(of: profiles.profiles.map(\.id)) {
+            repairActiveProfileSelection()
+        }
+        .onChange(of: activeProfileID) {
+            repairActiveProfileSelection()
+        }
+        .alert("Could Not Change Profile", isPresented: profileErrorPresentation) {
+            Button("OK") {
+                profileErrorMessage = nil
+            }
+        } message: {
+            Text(profileErrorMessage ?? "An unknown error occurred.")
+        }
     }
 
     private var dataTabTitle: String {
         issueCenter.issues.isEmpty ? "Data" : "Data (\(issueCenter.issues.count))"
+    }
+
+    private func sidebarTitle(for destination: SettingsDestination) -> String {
+        destination == .data ? dataTabTitle : destination.title
+    }
+
+    private var currentDestination: SettingsDestination {
+        destination ?? .general
+    }
+
+    private var activeProfile: TerminalProfile? {
+        activeProfileID.flatMap { profiles.profile(withID: $0) }
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        switch currentDestination {
+        case .general:
+            GeneralSettingsView()
+        case .profiles:
+            ProfilesSettingsView(activeProfileID: $activeProfileID)
+        case .text, .window, .shell, .keyboard, .advanced:
+            profileSettingsDetail(for: currentDestination)
+        case .data:
+            DataRecoveryView(issueCenter: issueCenter, recovery: recovery)
+        }
+    }
+
+    @ViewBuilder
+    private func profileSettingsDetail(for destination: SettingsDestination) -> some View {
+        if let section = ProfileSettingsSection(destination: destination),
+           let profile = activeProfile {
+            ProfileSettingsPage(section: section, profile: profile, update: updateActiveProfile)
+        } else {
+            ContentUnavailableView {
+                Label("No Profile to Edit", systemImage: "person.crop.circle.badge.plus")
+            } description: {
+                Text("Create a profile before you change these settings.")
+            } actions: {
+                Button("Create Profile", action: createProfile)
+            }
+        }
+    }
+
+    private var profileMenu: some View {
+        Menu {
+            ForEach(profiles.profiles) { profile in
+                Button {
+                    activeProfileID = profile.id
+                } label: {
+                    if profile.id == activeProfileID {
+                        Label(profile.name, systemImage: "checkmark")
+                    } else {
+                        Text(profile.name)
+                    }
+                }
+            }
+        } label: {
+            Label(
+                "Profile: \(activeProfile?.name ?? "None")",
+                systemImage: "person.crop.circle"
+            )
+        }
+        .disabled(profiles.profiles.isEmpty)
+        .accessibilityLabel("Active profile")
+    }
+
+    private func repairActiveProfileSelection() {
+        if let activeProfileID,
+           profiles.profile(withID: activeProfileID) != nil {
+            return
+        }
+        activeProfileID = profiles.profiles.isEmpty ? nil : profiles.defaultProfileID
+    }
+
+    private func createProfile() {
+        var profile = profiles.defaultProfile
+        profile.id = UUID()
+        profile.name = uniqueProfileName(basedOn: "New Profile")
+        do {
+            try profiles.add(profile)
+            activeProfileID = profile.id
+        } catch {
+            profileErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func uniqueProfileName(basedOn base: String) -> String {
+        var name = base
+        var number = 2
+        while profiles.profile(named: name) != nil {
+            name = "\(base) \(number)"
+            number += 1
+        }
+        return name
+    }
+
+    private func updateActiveProfile(_ mutate: (inout TerminalProfile) -> Void) {
+        guard var profile = activeProfile else { return }
+        mutate(&profile)
+        do {
+            try profiles.update(profile)
+        } catch {
+            profileErrorMessage = error.localizedDescription
+        }
+    }
+
+    private var profileErrorPresentation: Binding<Bool> {
+        Binding(
+            get: { profileErrorMessage != nil },
+            set: { if !$0 { profileErrorMessage = nil } }
+        )
+    }
+}
+
+enum SettingsDestination: CaseIterable, Hashable, Identifiable {
+    case general
+    case profiles
+    case text
+    case window
+    case shell
+    case keyboard
+    case advanced
+    case data
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .general: return "General"
+        case .profiles: return "Profiles"
+        case .text: return "Text"
+        case .window: return "Window"
+        case .shell: return "Shell"
+        case .keyboard: return "Keyboard"
+        case .advanced: return "Advanced"
+        case .data: return "Data"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .general: return "gearshape"
+        case .profiles: return "person.2.badge.gearshape"
+        case .text: return "textformat"
+        case .window: return "macwindow"
+        case .shell: return "terminal"
+        case .keyboard: return "keyboard"
+        case .advanced: return "slider.horizontal.3"
+        case .data: return "externaldrive.badge.checkmark"
+        }
+    }
+
+    var isProfileDriven: Bool {
+        switch self {
+        case .text, .window, .shell, .keyboard, .advanced:
+            return true
+        case .general, .profiles, .data:
+            return false
+        }
     }
 }
 
 /// App-level (non-profile) settings, persisted via AppStorage
 struct GeneralSettingsView: View {
     @EnvironmentObject private var profiles: ProfileStore
-    @ObservedObject private var windowGroups = AppModel.shared.windowGroups
+    @ObservedObject private var windowGroups: WindowGroupStore
     @AppStorage("newTabsUseCurrentDirectory") private var newTabsUseCurrentDirectory = true
     @AppStorage("newTabsUseCurrentProfile") private var newTabsUseCurrentProfile = true
     @AppStorage("useCommandDigitsForTabs") private var useCommandDigitsForTabs = true
@@ -49,6 +233,15 @@ struct GeneralSettingsView: View {
     @AppStorage("startupWindowGroupID") private var startupWindowGroupID = ""
     @AppStorage("useMetalRenderer") private var useMetalRenderer = true
     @State private var errorMessage: String?
+
+    @MainActor
+    init() {
+        self.init(windowGroups: AppModel.shared.windowGroups)
+    }
+
+    init(windowGroups: WindowGroupStore) {
+        _windowGroups = ObservedObject(wrappedValue: windowGroups)
+    }
 
     var body: some View {
         Form {
@@ -154,75 +347,20 @@ struct GeneralSettingsView: View {
     }
 }
 
-/// Edits the default profile without exposing the profile concept
-struct AppearanceSettingsView: View {
-    @EnvironmentObject private var profiles: ProfileStore
-    @EnvironmentObject private var themes: ThemeStore
-    @State private var errorMessage: String?
+#Preview("Settings") {
+    SettingsView(
+        issueCenter: SettingsPreviewData.issueCenter,
+        recovery: SettingsPreviewData.recovery
+    )
+    .environmentObject(SettingsPreviewData.profiles)
+    .environmentObject(SettingsPreviewData.themes)
+    .defaultAppStorage(SettingsPreviewData.defaults)
+    .frame(width: 960, height: 640)
+}
 
-    var body: some View {
-        Group {
-            if profiles.profiles.isEmpty {
-                ContentUnavailableView {
-                    Label("No Profile to Edit", systemImage: "paintbrush")
-                } description: {
-                    Text("Create a profile before you change appearance settings.")
-                } actions: {
-                    Button("Create Profile", action: createProfile)
-                }
-            } else {
-                appearanceEditor
-            }
-        }
-        .alert("Could Not Change Appearance", isPresented: errorPresentation) {
-            Button("OK") {
-                errorMessage = nil
-            }
-        } message: {
-            Text(errorMessage ?? "An unknown error occurred.")
-        }
-    }
-
-    private var appearanceEditor: some View {
-        let profile = profiles.defaultProfile
-        return VStack(spacing: 0) {
-            ThemeBrowserView(themes: themes, selectedThemeName: profile.themeName) { theme in
-                update { $0.themeName = theme.name }
-            }
-            Divider()
-            ProfileTextSettings(profile: profile, update: update)
-                .padding(.horizontal)
-                .frame(maxHeight: 190)
-            Text("These settings edit your default profile. More options are available under Profiles.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 8)
-        }
-    }
-
-    private func update(_ mutate: (inout TerminalProfile) -> Void) {
-        var profile = profiles.defaultProfile
-        mutate(&profile)
-        do {
-            try profiles.update(profile)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func createProfile() {
-        let profile = TerminalProfile(name: "Default")
-        do {
-            try profiles.add(profile)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private var errorPresentation: Binding<Bool> {
-        Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )
-    }
+#Preview("General") {
+    GeneralSettingsView(windowGroups: SettingsPreviewData.windowGroups)
+        .environmentObject(SettingsPreviewData.profiles)
+        .defaultAppStorage(SettingsPreviewData.defaults)
+        .frame(width: 640, height: 520)
 }

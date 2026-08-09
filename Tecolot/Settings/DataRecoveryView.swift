@@ -225,3 +225,30 @@ private extension PersistenceIssue {
         }
     }
 }
+
+#Preview("Data Recovery") {
+    let _ = SettingsPreviewData.sampleIssue
+
+    DataRecoveryView(
+        issueCenter: SettingsPreviewData.issueCenter,
+        recovery: SettingsPreviewData.recovery
+    )
+    .frame(width: 680, height: 420)
+}
+
+#Preview("Data Recovery Row") {
+    let issue = SettingsPreviewData.sampleIssue
+
+    DataRecoveryRow(
+        issue: issue,
+        hasBackup: false,
+        canMoveToTrash: false,
+        reveal: {},
+        retry: {},
+        restore: {},
+        resetPreferences: {},
+        moveToTrash: {}
+    )
+    .padding()
+    .frame(width: 680)
+}

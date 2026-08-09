@@ -2,9 +2,7 @@
 //  ProfilesSettingsView.swift
 //  Tecolot
 //
-//  The advanced pane: full profile CRUD and every profile field, organized
-//  as sections that mirror Terminal.app's Text/Window/Shell/Keyboard/
-//  Advanced grouping.
+//  Profile management. Profile settings live in the separate sidebar pages.
 //
 import SwiftUI
 import AppKit
@@ -15,32 +13,37 @@ import UniformTypeIdentifiers
 struct ProfilesSettingsView: View {
     @EnvironmentObject private var profiles: ProfileStore
     @EnvironmentObject private var themes: ThemeStore
-    @State private var selection: TerminalProfile.ID?
+    @Binding var activeProfileID: TerminalProfile.ID?
     @State private var showImporter = false
     @State private var showExporter = false
     @State private var exportDocument: ProfileExportDocument?
     @State private var errorMessage: String?
+    @State private var renameTarget: TerminalProfile?
+    @State private var renameText = ""
 
     private var selectedProfile: TerminalProfile? {
-        selection.flatMap { profiles.profile(withID: $0) }
+        activeProfileID.flatMap { profiles.profile(withID: $0) }
     }
 
     var body: some View {
-        HSplitView {
-            profileList
-                .frame(minWidth: 170, maxWidth: 230)
-            detail
-                .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .onAppear {
-            if selection == nil {
-                selection = profiles.profiles.isEmpty ? nil : profiles.defaultProfileID
+        Group {
+            if profiles.profiles.isEmpty {
+                ContentUnavailableView {
+                    Label("No Profiles", systemImage: "person.crop.circle.badge.plus")
+                } description: {
+                    Text("Create a profile to customize terminal settings.")
+                } actions: {
+                    Button("Create Profile", action: addProfile)
+                }
+            } else {
+                profileList
             }
         }
+        .onAppear {
+            repairActiveProfileSelection()
+        }
         .onChange(of: profiles.profiles.map(\.id)) {
-            guard let selection,
-                  profiles.profile(withID: selection) == nil else { return }
-            self.selection = profiles.profiles.isEmpty ? nil : profiles.defaultProfileID
+            repairActiveProfileSelection()
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
             switch result {
@@ -48,7 +51,7 @@ struct ProfilesSettingsView: View {
                 let gotAccess = url.startAccessingSecurityScopedResource()
                 defer { if gotAccess { url.stopAccessingSecurityScopedResource() } }
                 do {
-                    selection = try profiles.importProfile(from: url).id
+                    activeProfileID = try profiles.importProfile(from: url).id
                 } catch {
                     report(error)
                 }
@@ -72,11 +75,21 @@ struct ProfilesSettingsView: View {
         } message: {
             Text(errorMessage ?? "An unknown error occurred.")
         }
+        .alert("Rename Profile", isPresented: renamePresentation) {
+            TextField("Name", text: $renameText)
+            Button("Rename", action: renameProfile)
+                .disabled(renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button("Cancel", role: .cancel) {
+                renameTarget = nil
+            }
+        } message: {
+            Text("Enter a new name for the profile.")
+        }
     }
 
     private var profileList: some View {
         VStack(spacing: 0) {
-            List(selection: $selection) {
+            List(selection: $activeProfileID) {
                 ForEach(profiles.profiles) { profile in
                     HStack {
                         Text(profile.name)
@@ -99,38 +112,19 @@ struct ProfilesSettingsView: View {
                     Image(systemName: "plus")
                 }
                 Button {
-                    if let selection {
-                        do {
-                            try profiles.delete(selection)
-                            self.selection = profiles.defaultProfileID
-                        } catch {
-                            report(error)
-                        }
-                    }
+                    deleteSelectedProfile()
                 } label: {
                     Image(systemName: "minus")
                 }
-                .disabled(selection == nil || profiles.profiles.count <= 1)
+                .disabled(activeProfileID == nil || profiles.profiles.count <= 1)
 
                 Menu {
-                    Button("Duplicate") {
-                        if let selection {
-                            do {
-                                self.selection = try profiles.duplicate(selection).id
-                            } catch {
-                                report(error)
-                            }
-                        }
-                    }
-                    Button("Set as Default") {
-                        if let selection {
-                            do {
-                                try profiles.setDefault(selection)
-                            } catch {
-                                report(error)
-                            }
-                        }
-                    }
+                    Button("Duplicate", action: duplicateSelectedProfile)
+                        .disabled(selectedProfile == nil)
+                    Button("Rename…", action: presentRename)
+                        .disabled(selectedProfile == nil)
+                    Button("Set as Default", action: setSelectedProfileAsDefault)
+                        .disabled(selectedProfile == nil)
                     Menu("New from Preset") {
                         Button("Pro") {
                             addPreset(name: "Pro", theme: "Pro", fontSize: 12)
@@ -153,12 +147,8 @@ struct ProfilesSettingsView: View {
                     Button("Import…") {
                         showImporter = true
                     }
-                    Button("Export…") {
-                        if let profile = selectedProfile {
-                            exportDocument = ProfileExportDocument(profile: profile)
-                            showExporter = true
-                        }
-                    }
+                    Button("Export…", action: exportSelectedProfile)
+                        .disabled(selectedProfile == nil)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -171,34 +161,13 @@ struct ProfilesSettingsView: View {
         }
     }
 
-    @ViewBuilder
-    private var detail: some View {
-        if let profile = selectedProfile {
-            ProfileEditorView(profile: profile) { mutate in
-                update(profile, mutate: mutate)
-            }
-        } else {
-            ContentUnavailableView {
-                Label("No Profiles", systemImage: "person.crop.circle")
-            } description: {
-                Text("Create a profile to customize terminal settings.")
-            } actions: {
-                Button("Create Profile", action: addProfile)
-            }
-        }
-    }
-
     private func addProfile() {
-        var name = "New Profile"
-        var counter = 2
-        while profiles.profile(named: name) != nil {
-            name = "New Profile \(counter)"
-            counter += 1
-        }
-        let profile = TerminalProfile(name: name)
+        var profile = profiles.defaultProfile
+        profile.id = UUID()
+        profile.name = uniqueName(basedOn: "New Profile")
         do {
             try profiles.add(profile)
-            selection = profile.id
+            activeProfileID = profile.id
         } catch {
             report(error)
         }
@@ -216,23 +185,81 @@ struct ProfilesSettingsView: View {
         profile.fontSize = fontSize
         do {
             try profiles.add(profile)
-            selection = profile.id
+            activeProfileID = profile.id
         } catch {
             report(error)
         }
     }
 
-    private func update(
-        _ profile: TerminalProfile,
-        mutate: (inout TerminalProfile) -> Void
-    ) {
-        var updated = profile
-        mutate(&updated)
+    private func deleteSelectedProfile() {
+        guard let activeProfileID else { return }
         do {
-            try profiles.update(updated)
+            try profiles.delete(activeProfileID)
+            self.activeProfileID = profiles.defaultProfileID
         } catch {
             report(error)
         }
+    }
+
+    private func duplicateSelectedProfile() {
+        guard let activeProfileID else { return }
+        do {
+            self.activeProfileID = try profiles.duplicate(activeProfileID).id
+        } catch {
+            report(error)
+        }
+    }
+
+    private func presentRename() {
+        guard let profile = selectedProfile else { return }
+        renameTarget = profile
+        renameText = profile.name
+    }
+
+    private func renameProfile() {
+        guard let renameTarget else { return }
+        do {
+            try profiles.rename(
+                renameTarget.id,
+                to: renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            self.renameTarget = nil
+        } catch {
+            report(error)
+        }
+    }
+
+    private func setSelectedProfileAsDefault() {
+        guard let activeProfileID else { return }
+        do {
+            try profiles.setDefault(activeProfileID)
+        } catch {
+            report(error)
+        }
+    }
+
+    private func exportSelectedProfile() {
+        guard let profile = selectedProfile else { return }
+        exportDocument = ProfileExportDocument(profile: profile)
+        showExporter = true
+    }
+
+    private func repairActiveProfileSelection() {
+        if let activeProfileID,
+           profiles.profile(withID: activeProfileID) != nil {
+            return
+        }
+        activeProfileID = profiles.profiles.isEmpty ? nil : profiles.defaultProfileID
+    }
+
+    private func uniqueName(basedOn base: String) -> String {
+        var name = base
+        var number = 2
+        while profiles.profile(named: name) != nil {
+            name = "\(base) \(number)"
+            number += 1
+        }
+        return name
     }
 
     private var errorPresentation: Binding<Bool> {
@@ -245,29 +272,104 @@ struct ProfilesSettingsView: View {
     private func report(_ error: Error) {
         errorMessage = error.localizedDescription
     }
+
+    private var renamePresentation: Binding<Bool> {
+        Binding(
+            get: { renameTarget != nil },
+            set: { if !$0 { renameTarget = nil } }
+        )
+    }
 }
 
-/// All profile fields, sectioned like Terminal.app's panes
-struct ProfileEditorView: View {
+enum ProfileSettingsSection {
+    case text
+    case window
+    case shell
+    case keyboard
+    case advanced
+
+    init?(destination: SettingsDestination) {
+        switch destination {
+        case .text: self = .text
+        case .window: self = .window
+        case .shell: self = .shell
+        case .keyboard: self = .keyboard
+        case .advanced: self = .advanced
+        case .general, .profiles, .data: return nil
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .text: return "Text"
+        case .window: return "Window"
+        case .shell: return "Shell"
+        case .keyboard: return "Keyboard"
+        case .advanced: return "Advanced"
+        }
+    }
+}
+
+/// A single group of settings for the active profile.
+struct ProfileSettingsPage: View {
+    let section: ProfileSettingsSection
     let profile: TerminalProfile
     let update: ((inout TerminalProfile) -> Void) -> Void
 
     @EnvironmentObject private var themes: ThemeStore
 
     var body: some View {
-        Form {
-            Section {
-                TextField("Name:", text: binding(\.name))
-            }
-            Section("Text") {
-                Picker("Theme:", selection: binding(\.themeName)) {
-                    ForEach(themes.themes) { theme in
-                        Text(theme.name).tag(theme.name)
+        Group {
+            switch section {
+            case .text:
+                textSettings
+            case .window:
+                Form {
+                    Section {
+                        windowSettings
                     }
                 }
-                ProfileTextSettingsFields(profile: profile, update: update)
+                .formStyle(.grouped)
+            case .shell:
+                Form {
+                    Section {
+                        shellSettings
+                    }
+                }
+                .formStyle(.grouped)
+            case .keyboard:
+                Form {
+                    Section {
+                        keyboardSettings
+                    }
+                }
+                .formStyle(.grouped)
+            case .advanced:
+                Form {
+                    Section {
+                        advancedSettings
+                    }
+                }
+                .formStyle(.grouped)
             }
-            Section("Window") {
+        }
+        .navigationTitle(section.title)
+    }
+
+    private var textSettings: some View {
+        VStack(spacing: 0) {
+            ThemeBrowserView(themes: themes, selectedThemeName: profile.themeName) { theme in
+                update { $0.themeName = theme.name }
+            }
+            Divider()
+            ProfileTextSettings(profile: profile, update: update)
+                .padding(.horizontal)
+                .frame(maxHeight: 190)
+        }
+    }
+
+    @ViewBuilder
+    private var windowSettings: some View {
                 TextField("Columns:", value: binding(\.columns), format: .number)
                 TextField("Rows:", value: binding(\.rows), format: .number)
                 Toggle("Limit scrollback", isOn: Binding(
@@ -300,8 +402,10 @@ struct ProfileEditorView: View {
                         ))
                     }
                 }
-            }
-            Section("Shell") {
+    }
+
+    @ViewBuilder
+    private var shellSettings: some View {
                 Picker("Run:", selection: shellKindBinding) {
                     Text("Default login shell").tag(ShellKind.loginShell)
                     Text("Command").tag(ShellKind.command)
@@ -326,22 +430,23 @@ struct ProfileEditorView: View {
                         Text(policy.description).tag(policy)
                     }
                 }
-            }
-            Section("Keyboard") {
+    }
+
+    @ViewBuilder
+    private var keyboardSettings: some View {
                 Toggle("Use Option as Meta key", isOn: binding(\.optionAsMetaKey))
                 Toggle("Delete sends Control-H", isOn: binding(\.backspaceSendsControlH))
                 TerminalKeyBindingsEditor(profile: profile, update: update)
-            }
-            Section("Advanced") {
+    }
+
+    @ViewBuilder
+    private var advancedSettings: some View {
                 TextField("Declare terminal as:", text: binding(\.termName))
                 Picker("Bell:", selection: binding(\.bellStyle)) {
                     ForEach(BellStyle.allCases, id: \.tagName) { style in
                         Text(style.displayName).tag(style)
                     }
                 }
-            }
-        }
-        .formStyle(.grouped)
     }
 
     private enum ShellKind: Hashable {
@@ -500,7 +605,7 @@ private struct TerminalKeyBindingRow: View {
     }
 }
 
-/// Font/cursor/opacity fields shared by Appearance and the profile editor
+/// Font, cursor, and opacity fields for the Text settings page.
 struct ProfileTextSettings: View {
     let profile: TerminalProfile
     let update: ((inout TerminalProfile) -> Void) -> Void
@@ -688,4 +793,72 @@ struct ProfileExportDocument: FileDocument {
         let data = try encoder.encode(Envelope(version: 1, profile: profile))
         return FileWrapper(regularFileWithContents: data)
     }
+}
+
+#Preview("Profiles") {
+    @Previewable @State var activeProfileID: TerminalProfile.ID? = SettingsPreviewData.profiles.defaultProfileID
+
+    ProfilesSettingsView(activeProfileID: $activeProfileID)
+        .environmentObject(SettingsPreviewData.profiles)
+        .environmentObject(SettingsPreviewData.themes)
+        .frame(width: 640, height: 520)
+}
+
+#Preview("Text Settings") {
+    ProfileSettingsPage(section: .text, profile: SettingsPreviewData.profile, update: { _ in })
+        .environmentObject(SettingsPreviewData.themes)
+        .frame(width: 720, height: 620)
+}
+
+#Preview("Window Settings") {
+    ProfileSettingsPage(section: .window, profile: SettingsPreviewData.profile, update: { _ in })
+        .environmentObject(SettingsPreviewData.themes)
+        .frame(width: 560, height: 430)
+}
+
+#Preview("Shell Settings") {
+    ProfileSettingsPage(section: .shell, profile: SettingsPreviewData.profile, update: { _ in })
+        .environmentObject(SettingsPreviewData.themes)
+        .frame(width: 560, height: 430)
+}
+
+#Preview("Keyboard Settings") {
+    ProfileSettingsPage(section: .keyboard, profile: SettingsPreviewData.profile, update: { _ in })
+        .environmentObject(SettingsPreviewData.themes)
+        .frame(width: 560, height: 430)
+}
+
+#Preview("Advanced Settings") {
+    ProfileSettingsPage(section: .advanced, profile: SettingsPreviewData.profile, update: { _ in })
+        .environmentObject(SettingsPreviewData.themes)
+        .frame(width: 560, height: 340)
+}
+
+#Preview("Key Bindings Editor") {
+    TerminalKeyBindingsEditor(profile: SettingsPreviewData.profile, update: { _ in })
+        .padding()
+        .frame(width: 560)
+}
+
+#Preview("Key Binding Row") {
+    TerminalKeyBindingRow(
+        keyBinding: SettingsPreviewData.keyBinding,
+        update: { _ in },
+        remove: {}
+    )
+    .padding()
+    .frame(width: 560)
+}
+
+#Preview("Text Controls") {
+    ProfileTextSettings(profile: SettingsPreviewData.profile, update: { _ in })
+        .frame(width: 560, height: 250)
+}
+
+#Preview("Text Fields") {
+    Form {
+        ProfileTextSettingsFields(profile: SettingsPreviewData.profile, update: { _ in })
+    }
+    .formStyle(.grouped)
+    .frame(width: 560, height: 250)
 }

@@ -169,6 +169,7 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
             guard let window = view.window else { return }
             window.tabbingIdentifier = "TerminalDocument"
             window.tabbingMode = .preferred
+            TerminalWindowSizeStore.shared.configure(window)
         }
     }
 }

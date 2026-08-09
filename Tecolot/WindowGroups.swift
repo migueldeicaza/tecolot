@@ -174,7 +174,10 @@ final class WindowGroupStore: ObservableObject {
                 continue
             }
             openedAny = true
-            firstWindow.setFrame(NSRectFromString(savedWindow.frame), display: true)
+            TerminalWindowSizeStore.shared.restoreWindowGroupFrame(
+                NSRectFromString(savedWindow.frame),
+                to: firstWindow
+            )
 
             var openedWindows = [firstWindow]
             for tab in savedWindow.tabs.dropFirst() {
