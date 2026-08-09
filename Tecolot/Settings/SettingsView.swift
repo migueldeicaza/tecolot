@@ -34,15 +34,22 @@ struct GeneralSettingsView: View {
     @AppStorage("startupMode") private var startupMode = "default"
     @AppStorage("startupProfileID") private var startupProfileID = ""
     @AppStorage("startupWindowGroupID") private var startupWindowGroupID = ""
+    @State private var errorMessage: String?
 
     var body: some View {
         Form {
-            Picker("Default profile:", selection: defaultProfileBinding) {
-                ForEach(profiles.profiles) { profile in
-                    Text(profile.name).tag(profile.id)
+            if profiles.profiles.isEmpty {
+                LabeledContent("Default profile:") {
+                    Text("Built-in defaults")
                 }
+            } else {
+                Picker("Default profile:", selection: defaultProfileBinding) {
+                    ForEach(profiles.profiles) { profile in
+                        Text(profile.name).tag(profile.id)
+                    }
+                }
+                .help("Used for new windows, and wherever no explicit profile is chosen")
             }
-            .help("Used for new windows, and wherever no explicit profile is chosen")
 
             Section("Startup") {
                 Picker("Open:", selection: $startupMode) {
@@ -87,12 +94,32 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+        .alert("Could Not Change Default Profile", isPresented: errorPresentation) {
+            Button("OK") {
+                errorMessage = nil
+            }
+        } message: {
+            Text(errorMessage ?? "An unknown error occurred.")
+        }
     }
 
     private var defaultProfileBinding: Binding<TerminalProfile.ID> {
         Binding(
             get: { profiles.defaultProfileID },
-            set: { try? profiles.setDefault($0) }
+            set: { id in
+                do {
+                    try profiles.setDefault(id)
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        )
+    }
+
+    private var errorPresentation: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
         )
     }
 }
@@ -101,10 +128,34 @@ struct GeneralSettingsView: View {
 struct AppearanceSettingsView: View {
     @EnvironmentObject private var profiles: ProfileStore
     @EnvironmentObject private var themes: ThemeStore
+    @State private var errorMessage: String?
 
     var body: some View {
+        Group {
+            if profiles.profiles.isEmpty {
+                ContentUnavailableView {
+                    Label("No Profile to Edit", systemImage: "paintbrush")
+                } description: {
+                    Text("Create a profile before you change appearance settings.")
+                } actions: {
+                    Button("Create Profile", action: createProfile)
+                }
+            } else {
+                appearanceEditor
+            }
+        }
+        .alert("Could Not Change Appearance", isPresented: errorPresentation) {
+            Button("OK") {
+                errorMessage = nil
+            }
+        } message: {
+            Text(errorMessage ?? "An unknown error occurred.")
+        }
+    }
+
+    private var appearanceEditor: some View {
         let profile = profiles.defaultProfile
-        VStack(spacing: 0) {
+        return VStack(spacing: 0) {
             ThemeBrowserView(themes: themes, selectedThemeName: profile.themeName) { theme in
                 update { $0.themeName = theme.name }
             }
@@ -122,6 +173,26 @@ struct AppearanceSettingsView: View {
     private func update(_ mutate: (inout TerminalProfile) -> Void) {
         var profile = profiles.defaultProfile
         mutate(&profile)
-        try? profiles.update(profile)
+        do {
+            try profiles.update(profile)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func createProfile() {
+        let profile = TerminalProfile(name: "Default")
+        do {
+            try profiles.add(profile)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private var errorPresentation: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )
     }
 }

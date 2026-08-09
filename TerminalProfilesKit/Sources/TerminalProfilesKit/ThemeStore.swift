@@ -230,7 +230,27 @@ public final class ThemeStore: ObservableObject {
 public enum ProfilesError: Error, Equatable {
     case invalidTheme
     case themeIsBuiltIn
+    case invalidName
     case duplicateName
     case cannotDeleteLastProfile
     case profileNotFound
+}
+
+extension ProfilesError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .invalidTheme:
+            return "The theme file is not valid."
+        case .themeIsBuiltIn:
+            return "A built-in theme cannot be changed."
+        case .invalidName:
+            return "Enter a profile name."
+        case .duplicateName:
+            return "A profile with this name already exists."
+        case .cannotDeleteLastProfile:
+            return "The last profile cannot be deleted."
+        case .profileNotFound:
+            return "The profile no longer exists."
+        }
+    }
 }

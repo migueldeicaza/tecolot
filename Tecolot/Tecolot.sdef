@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<dictionary title="Tecolot Terminology">
+    <suite name="Tecolot Suite" code="Tclt" description="Commands for terminal sessions.">
+        <command name="open terminal" code="TcltOpTr" description="Open a terminal window.">
+            <cocoa class="OpenTerminalScriptCommand"/>
+            <direct-parameter type="text" optional="yes" description="The initial working directory."/>
+        </command>
+        <command name="open terminal tab" code="TcltOpTb" description="Open a terminal tab.">
+            <cocoa class="OpenTerminalTabScriptCommand"/>
+            <direct-parameter type="text" optional="yes" description="The initial working directory."/>
+        </command>
+    </suite>
+</dictionary>

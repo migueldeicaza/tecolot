@@ -44,8 +44,8 @@ final class AppModel {
         windowGroups = WindowGroupStore()
     }
 
-    /// Copies files that do not exist in the Tecolot directory. The old
-    /// MacTerminalUI directory stays unchanged so the migration is recoverable.
+    /// Copies the legacy store once. Do not merge it into an existing store,
+    /// because both stores can contain a profile with the same name.
     private static func migrateLegacyApplicationSupport() {
         let fileManager = FileManager.default
         guard let applicationSupport = fileManager.urls(
@@ -54,35 +54,9 @@ final class AppModel {
         ).first else { return }
         let source = applicationSupport.appendingPathComponent("com.tirania.MacTerminalUI")
         let destination = applicationSupport.appendingPathComponent("com.tirania.Tecolot")
-        guard fileManager.fileExists(atPath: source.path) else { return }
-        copyMissingItems(from: source, to: destination, with: fileManager)
-    }
-
-    private static func copyMissingItems(
-        from source: URL,
-        to destination: URL,
-        with fileManager: FileManager
-    ) {
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: source.path, isDirectory: &isDirectory) else { return }
-        if !isDirectory.boolValue {
-            guard !fileManager.fileExists(atPath: destination.path) else { return }
-            try? fileManager.copyItem(at: source, to: destination)
-            return
-        }
-
-        try? fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
-        guard let children = try? fileManager.contentsOfDirectory(
-            at: source,
-            includingPropertiesForKeys: nil
-        ) else { return }
-        for child in children {
-            copyMissingItems(
-                from: child,
-                to: destination.appendingPathComponent(child.lastPathComponent),
-                with: fileManager
-            )
-        }
+        guard fileManager.fileExists(atPath: source.path),
+              !fileManager.fileExists(atPath: destination.path) else { return }
+        try? fileManager.copyItem(at: source, to: destination)
     }
 
     func setPendingLaunch(_ spec: LaunchSpec) {

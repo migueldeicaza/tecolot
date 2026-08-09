@@ -18,6 +18,7 @@ struct ProfilesSettingsView: View {
     @State private var showImporter = false
     @State private var showExporter = false
     @State private var exportDocument: ProfileExportDocument?
+    @State private var errorMessage: String?
 
     private var selectedProfile: TerminalProfile? {
         selection.flatMap { profiles.profile(withID: $0) }
@@ -32,21 +33,43 @@ struct ProfilesSettingsView: View {
         }
         .onAppear {
             if selection == nil {
-                selection = profiles.defaultProfileID
+                selection = profiles.profiles.isEmpty ? nil : profiles.defaultProfileID
             }
         }
+        .onChange(of: profiles.profiles.map(\.id)) {
+            guard let selection,
+                  profiles.profile(withID: selection) == nil else { return }
+            self.selection = profiles.profiles.isEmpty ? nil : profiles.defaultProfileID
+        }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
-            if case .success(let url) = result {
+            switch result {
+            case .success(let url):
                 let gotAccess = url.startAccessingSecurityScopedResource()
                 defer { if gotAccess { url.stopAccessingSecurityScopedResource() } }
-                _ = try? profiles.importProfile(from: url)
+                do {
+                    selection = try profiles.importProfile(from: url).id
+                } catch {
+                    report(error)
+                }
+            case .failure(let error):
+                report(error)
             }
         }
         .fileExporter(isPresented: $showExporter,
                       document: exportDocument,
                       contentType: .json,
-                      defaultFilename: exportDocument?.filename ?? "Profile") { _ in
+                      defaultFilename: exportDocument?.filename ?? "Profile") { result in
+            if case .failure(let error) = result {
+                report(error)
+            }
             exportDocument = nil
+        }
+        .alert("Could Not Change Profile", isPresented: errorPresentation) {
+            Button("OK") {
+                errorMessage = nil
+            }
+        } message: {
+            Text(errorMessage ?? "An unknown error occurred.")
         }
     }
 
@@ -76,8 +99,12 @@ struct ProfilesSettingsView: View {
                 }
                 Button {
                     if let selection {
-                        try? profiles.delete(selection)
-                        self.selection = profiles.defaultProfileID
+                        do {
+                            try profiles.delete(selection)
+                            self.selection = profiles.defaultProfileID
+                        } catch {
+                            report(error)
+                        }
                     }
                 } label: {
                     Image(systemName: "minus")
@@ -86,13 +113,21 @@ struct ProfilesSettingsView: View {
 
                 Menu {
                     Button("Duplicate") {
-                        if let selection, let copy = try? profiles.duplicate(selection) {
-                            self.selection = copy.id
+                        if let selection {
+                            do {
+                                self.selection = try profiles.duplicate(selection).id
+                            } catch {
+                                report(error)
+                            }
                         }
                     }
                     Button("Set as Default") {
                         if let selection {
-                            try? profiles.setDefault(selection)
+                            do {
+                                try profiles.setDefault(selection)
+                            } catch {
+                                report(error)
+                            }
                         }
                     }
                     Menu("New from Preset") {
@@ -139,12 +174,16 @@ struct ProfilesSettingsView: View {
     private var detail: some View {
         if let profile = selectedProfile {
             ProfileEditorView(profile: profile) { mutate in
-                var updated = profile
-                mutate(&updated)
-                try? profiles.update(updated)
+                update(profile, mutate: mutate)
             }
         } else {
-            ContentUnavailableView("Select a profile", systemImage: "person.crop.circle")
+            ContentUnavailableView {
+                Label("No Profiles", systemImage: "person.crop.circle")
+            } description: {
+                Text("Create a profile to customize terminal settings.")
+            } actions: {
+                Button("Create Profile", action: addProfile)
+            }
         }
     }
 
@@ -156,8 +195,12 @@ struct ProfilesSettingsView: View {
             counter += 1
         }
         let profile = TerminalProfile(name: name)
-        try? profiles.add(profile)
-        selection = profile.id
+        do {
+            try profiles.add(profile)
+            selection = profile.id
+        } catch {
+            report(error)
+        }
     }
 
     private func addPreset(name: String, theme: String, fontSize: Double) {
@@ -170,8 +213,36 @@ struct ProfilesSettingsView: View {
         var profile = TerminalProfile(name: uniqueName)
         profile.themeName = themes.theme(named: theme).name
         profile.fontSize = fontSize
-        try? profiles.add(profile)
-        selection = profile.id
+        do {
+            try profiles.add(profile)
+            selection = profile.id
+        } catch {
+            report(error)
+        }
+    }
+
+    private func update(
+        _ profile: TerminalProfile,
+        mutate: (inout TerminalProfile) -> Void
+    ) {
+        var updated = profile
+        mutate(&updated)
+        do {
+            try profiles.update(updated)
+        } catch {
+            report(error)
+        }
+    }
+
+    private var errorPresentation: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )
+    }
+
+    private func report(_ error: Error) {
+        errorMessage = error.localizedDescription
     }
 }
 

@@ -26,12 +26,15 @@ public final class ProfileStore: ObservableObject {
     }
 
     nonisolated static let documentVersion = 1
+    private nonisolated static let builtInDefaultProfile = TerminalProfile(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+        name: "Default"
+    )
 
-    /// - Parameters:
-    ///   - directory: overrides the storage location (for tests); nil uses
-    ///     Application Support/<bundle id>
-    ///   - seedDefault: creates a "Default" profile on first run
-    public init (directory: URL? = nil, seedDefault: Bool = true) throws {
+    /// Creates a store without creating a profile. The app uses built-in
+    /// defaults until the user explicitly creates or imports a profile.
+    /// The directory parameter overrides the storage location for tests.
+    public init (directory: URL? = nil) throws {
         let base = directory ?? ProfileStore.defaultDirectory ()
         self.directory = base
         self.profilesDirectory = base.appendingPathComponent ("Profiles")
@@ -39,21 +42,23 @@ public final class ProfileStore: ObservableObject {
 
         try FileManager.default.createDirectory (at: profilesDirectory, withIntermediateDirectories: true)
 
-        var loaded = ProfileStore.loadProfiles (in: profilesDirectory)
-        if loaded.isEmpty && seedDefault {
-            let seeded = TerminalProfile (name: "Default")
-            try ProfileStore.write (profile: seeded, in: profilesDirectory)
-            loaded = [seeded]
-        }
-        self.profiles = ProfileStore.sorted (loaded)
+        let storedState = ProfileStore.loadState(from: stateFile)
+        let loaded = try ProfileStore.repairDuplicateNames(
+            in: ProfileStore.loadProfiles(in: profilesDirectory),
+            preferredID: storedState?.defaultProfileID,
+            profilesDirectory: profilesDirectory
+        )
+        let sortedProfiles = ProfileStore.sorted(loaded)
+        self.profiles = sortedProfiles
 
-        if let data = try? Data (contentsOf: stateFile),
-           let state = try? JSONDecoder ().decode (StoreState.self, from: data),
+        if let state = storedState,
            loaded.contains (where: { $0.id == state.defaultProfileID }) {
             self.defaultProfileID = state.defaultProfileID
-        } else {
-            self.defaultProfileID = loaded.first?.id ?? UUID ()
+        } else if let first = sortedProfiles.first {
+            self.defaultProfileID = first.id
             try persistState ()
+        } else {
+            self.defaultProfileID = ProfileStore.builtInDefaultProfile.id
         }
     }
 
@@ -66,7 +71,7 @@ public final class ProfileStore: ObservableObject {
     // MARK: - Lookup
 
     public var defaultProfile: TerminalProfile {
-        profile (withID: defaultProfileID) ?? profiles.first ?? TerminalProfile (name: "Default")
+        profile (withID: defaultProfileID) ?? profiles.first ?? ProfileStore.builtInDefaultProfile
     }
 
     public func profile (withID id: TerminalProfile.ID) -> TerminalProfile? {
@@ -74,7 +79,7 @@ public final class ProfileStore: ObservableObject {
     }
 
     public func profile (named name: String) -> TerminalProfile? {
-        profiles.first { $0.name == name }
+        profiles.first { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }
     }
 
     // MARK: - Mutation
@@ -88,16 +93,27 @@ public final class ProfileStore: ObservableObject {
     }
 
     public func add (_ profile: TerminalProfile) throws {
+        guard !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ProfilesError.invalidName
+        }
         guard self.profile (named: profile.name) == nil else {
             throw ProfilesError.duplicateName
         }
         try ProfileStore.write (profile: profile, in: profilesDirectory)
+        let wasEmpty = profiles.isEmpty
         profiles = ProfileStore.sorted (profiles + [profile])
+        if wasEmpty {
+            defaultProfileID = profile.id
+            try persistState()
+        }
     }
 
     public func update (_ profile: TerminalProfile) throws {
         guard let index = profiles.firstIndex (where: { $0.id == profile.id }) else {
             throw ProfilesError.profileNotFound
+        }
+        guard !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ProfilesError.invalidName
         }
         if let sameName = self.profile (named: profile.name), sameName.id != profile.id {
             throw ProfilesError.duplicateName
@@ -216,5 +232,51 @@ public final class ProfileStore: ObservableObject {
             }
         }
         return result
+    }
+
+    nonisolated private static func loadState(from url: URL) -> StoreState? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(StoreState.self, from: data)
+    }
+
+    /// Older releases could write a second Default profile when an existing
+    /// file did not decode. Keep every profile, but give duplicates unique
+    /// names so that all profiles can be edited again.
+    nonisolated private static func repairDuplicateNames(
+        in profiles: [TerminalProfile],
+        preferredID: TerminalProfile.ID?,
+        profilesDirectory: URL
+    ) throws -> [TerminalProfile] {
+        let ordered = profiles.sorted { first, second in
+            if first.id == preferredID { return true }
+            if second.id == preferredID { return false }
+            return first.id.uuidString < second.id.uuidString
+        }
+        var usedNames = Set<String>()
+        var repaired: [TerminalProfile] = []
+
+        for var profile in ordered {
+            let baseName = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let validBaseName = baseName.isEmpty ? "Recovered Profile" : baseName
+            var candidate = validBaseName
+            var counter = 1
+            while usedNames.contains(normalizedName(candidate)) {
+                candidate = counter == 1
+                    ? "\(validBaseName) copy"
+                    : "\(validBaseName) copy \(counter)"
+                counter += 1
+            }
+            usedNames.insert(normalizedName(candidate))
+            if profile.name != candidate {
+                profile.name = candidate
+                try write(profile: profile, in: profilesDirectory)
+            }
+            repaired.append(profile)
+        }
+        return repaired
+    }
+
+    nonisolated private static func normalizedName(_ name: String) -> String {
+        name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 }

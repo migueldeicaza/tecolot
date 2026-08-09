@@ -165,12 +165,17 @@ final class ProfileStoreTests {
         return (try ProfileStore (directory: dir), dir)
     }
 
-    @Test func seedsDefaultProfile () throws {
+    @Test func startsWithoutCreatingProfile () throws {
         let (store, dir) = try makeStore ()
         defer { try? FileManager.default.removeItem (at: dir) }
-        #expect (store.profiles.count == 1)
+        #expect (store.profiles.isEmpty)
         #expect (store.defaultProfile.name == "Default")
         #expect (store.defaultProfile.themeName == "SwiftTerm")
+        #expect (!FileManager.default.fileExists(atPath: dir.appendingPathComponent("store.json").path))
+        #expect ((try FileManager.default.contentsOfDirectory(
+            at: dir.appendingPathComponent("Profiles"),
+            includingPropertiesForKeys: nil
+        )).isEmpty)
     }
 
     @Test func crudAndPersistence () throws {
@@ -181,7 +186,8 @@ final class ProfileStoreTests {
         extra.themeName = "Nord"
         extra.fontSize = 14
         try store.add (extra)
-        #expect (store.profiles.count == 2)
+        #expect (store.profiles.count == 1)
+        #expect (store.defaultProfileID == extra.id)
 
         #expect (throws: ProfilesError.duplicateName) {
             try store.add (TerminalProfile (name: "Servers"))
@@ -194,26 +200,29 @@ final class ProfileStoreTests {
 
         // A fresh store sees everything
         let reloaded = try ProfileStore (directory: dir)
-        #expect (reloaded.profiles.count == 3)
+        #expect (reloaded.profiles.count == 2)
         #expect (reloaded.defaultProfile.name == "Servers")
         #expect (reloaded.profile (named: "Workers") != nil)
         #expect (reloaded.profile (named: "Servers")?.themeName == "Nord")
 
         try store.delete (copy.id)
-        #expect (store.profiles.count == 2)
+        #expect (store.profiles.count == 1)
     }
 
     @Test func cannotDeleteLastProfile () throws {
         let (store, dir) = try makeStore ()
         defer { try? FileManager.default.removeItem (at: dir) }
+        let profile = TerminalProfile(name: "Default")
+        try store.add(profile)
         #expect (throws: ProfilesError.cannotDeleteLastProfile) {
-            try store.delete (store.defaultProfileID)
+            try store.delete (profile.id)
         }
     }
 
     @Test func importExportRoundTrip () throws {
         let (store, dir) = try makeStore ()
         defer { try? FileManager.default.removeItem (at: dir) }
+        try store.add(TerminalProfile(name: "Default"))
         let file = dir.appendingPathComponent ("export.json")
         try store.exportProfile (store.defaultProfileID, to: file)
         let imported = try store.importProfile (from: file)
@@ -225,9 +234,9 @@ final class ProfileStoreTests {
     @Test func unlimitedScrollbackSurvivesRoundTrip () throws {
         let (store, dir) = try makeStore ()
         defer { try? FileManager.default.removeItem (at: dir) }
-        var profile = store.defaultProfile
+        var profile = TerminalProfile(name: "Default")
         profile.scrollbackLines = nil
-        try store.update (profile)
+        try store.add(profile)
         let reloaded = try ProfileStore (directory: dir)
         #expect (reloaded.defaultProfile.scrollbackLines == nil)
     }
@@ -235,7 +244,7 @@ final class ProfileStoreTests {
     @Test func keyBindingsSurviveRoundTrip () throws {
         let (store, dir) = try makeStore ()
         defer { try? FileManager.default.removeItem (at: dir) }
-        var profile = store.defaultProfile
+        var profile = TerminalProfile(name: "Default")
         profile.keyBindings = [
             TerminalKeyBinding(
                 key: "k",
@@ -249,10 +258,43 @@ final class ProfileStoreTests {
                 action: .scrollPageUp
             )
         ]
-        try store.update(profile)
+        try store.add(profile)
 
         let reloaded = try ProfileStore(directory: dir)
         #expect(reloaded.defaultProfile.keyBindings == profile.keyBindings)
+    }
+
+    @Test func repairsDuplicateNamesWithoutDeletingProfiles () throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("profile-store-duplicate-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let profilesDirectory = dir.appendingPathComponent("Profiles")
+        try FileManager.default.createDirectory(at: profilesDirectory, withIntermediateDirectories: true)
+
+        var recovered = TerminalProfile(name: "Default")
+        recovered.fontSize = 21
+        let selectedDefault = TerminalProfile(name: "Default")
+        try ProfileStore.write(profile: recovered, in: profilesDirectory)
+        try ProfileStore.write(profile: selectedDefault, in: profilesDirectory)
+        let state = """
+        {"version":1,"defaultProfileID":"\(selectedDefault.id.uuidString)"}
+        """
+        try #require(state.data(using: .utf8)).write(to: dir.appendingPathComponent("store.json"))
+
+        let store = try ProfileStore(directory: dir)
+        #expect(store.profiles.count == 2)
+        #expect(store.defaultProfile.id == selectedDefault.id)
+        #expect(store.defaultProfile.name == "Default")
+        #expect(store.profile(withID: recovered.id)?.name == "Default copy")
+
+        var editable = try #require(store.profile(withID: recovered.id))
+        editable.optionAsMetaKey = false
+        try store.update(editable)
+
+        let reloaded = try ProfileStore(directory: dir)
+        #expect(reloaded.profiles.count == 2)
+        #expect(reloaded.profile(withID: recovered.id)?.fontSize == 21)
+        #expect(reloaded.profile(withID: recovered.id)?.optionAsMetaKey == false)
     }
 
     @Test func forwardCompatibleDecoding () throws {
