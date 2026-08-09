@@ -7,6 +7,7 @@
 //  Advanced grouping.
 //
 import SwiftUI
+import AppKit
 import SwiftTerm
 import TerminalProfilesKit
 import UniformTypeIdentifiers
@@ -515,29 +516,32 @@ struct ProfileTextSettings: View {
 struct ProfileTextSettingsFields: View {
     let profile: TerminalProfile
     let update: ((inout TerminalProfile) -> Void) -> Void
-
-    private var fontFamilies: [String] {
-        NSFontManager.shared.availableFontFamilies.filter { family in
-            guard let font = NSFont(name: family, size: 12) else { return false }
-            return font.isFixedPitch
-        }
-    }
+    @State private var fontPanelManager = FontPanelManager()
 
     var body: some View {
-        Picker("Font:", selection: Binding(
-            get: { profile.fontFamily ?? "" },
-            set: { newValue in update { $0.fontFamily = newValue.isEmpty ? nil : newValue } }
-        )) {
-            Text("System Monospaced").tag("")
-            ForEach(fontFamilies, id: \.self) { family in
-                Text(family).tag(family)
+        HStack {
+            Button(action: showFontPanel) {
+                LabeledContent("Font:") {
+                    Text(fontDescription)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
+
+            if profile.fontFamily != nil {
+                Button(action: resetFont) {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Use system monospaced font")
             }
         }
-        Stepper("Size: \(Int(profile.fontSize)) pt",
-                value: Binding(
-                    get: { profile.fontSize },
-                    set: { newValue in update { $0.fontSize = newValue } }
-                ), in: 6...72)
+        .onAppear(perform: configureFontPanel)
+        .onChange(of: profile) {
+            configureFontPanel()
+        }
         Picker("Cursor:", selection: Binding(
             get: { profile.cursorStyle },
             set: { newValue in update { $0.cursorStyle = newValue } }
@@ -557,6 +561,102 @@ struct ProfileTextSettingsFields: View {
             ), in: 0.3...1.0)
             .frame(maxWidth: 200)
         }
+    }
+
+    private var fontDescription: String {
+        let fontName = profile.fontFamily.flatMap {
+            NSFont(name: $0, size: CGFloat(profile.fontSize))?.displayName
+        } ?? profile.fontFamily ?? "System Monospaced"
+        return "\(fontName) - \(Int(profile.fontSize)) pt"
+    }
+
+    private func showFontPanel() {
+        configureFontPanel()
+        fontPanelManager.showFontPanel(
+            fontName: profile.fontFamily,
+            size: CGFloat(profile.fontSize)
+        )
+    }
+
+    private func configureFontPanel() {
+        fontPanelManager.onSelect = { font in
+            guard font.pointSize.isFinite, font.pointSize > 0 else { return }
+            update {
+                $0.fontFamily = font.fontName
+                $0.fontSize = Double(font.pointSize)
+            }
+        }
+    }
+
+    private func resetFont() {
+        update { $0.fontFamily = nil }
+    }
+}
+
+@MainActor
+final class FontPanelManager: NSObject {
+    var onSelect: ((NSFont) -> Void)?
+    private var currentFont: NSFont
+
+    override init() {
+        currentFont = NSFont.monospacedSystemFont(
+            ofSize: NSFont.systemFontSize,
+            weight: .regular
+        )
+        super.init()
+    }
+
+    func showFontPanel(fontName: String?, size: CGFloat) {
+        currentFont = resolveFont(fontName: fontName, size: size)
+
+        let manager = NSFontManager.shared
+        let panel = NSFontPanel.shared
+
+        if panel.isVisible {
+            complete()
+            return
+        }
+
+        panel.delegate = self
+        manager.target = self
+        manager.action = #selector(changeFont(_:))
+        panel.setPanelFont(currentFont, isMultiple: false)
+        panel.orderFront(nil)
+    }
+
+    private func resolveFont(fontName: String?, size: CGFloat) -> NSFont {
+        guard let fontName,
+              let font = NSFont(name: fontName, size: size) else {
+            return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        }
+        return font
+    }
+
+    @objc private func changeFont(_ sender: NSFontManager?) {
+        guard let sender else { return }
+        let font = sender.convert(currentFont)
+        guard font.isFixedPitch else { return }
+        currentFont = font
+        onSelect?(font)
+    }
+
+    private func complete() {
+        let manager = NSFontManager.shared
+        if manager.target === self {
+            manager.target = nil
+        }
+
+        let panel = NSFontPanel.shared
+        if panel.delegate === self {
+            panel.delegate = nil
+        }
+        panel.orderOut(nil)
+    }
+}
+
+extension FontPanelManager: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        complete()
     }
 }
 
