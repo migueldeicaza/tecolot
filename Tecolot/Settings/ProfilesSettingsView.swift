@@ -621,7 +621,7 @@ final class FontPanelManager: NSObject {
         manager.target = self
         manager.action = #selector(changeFont(_:))
         panel.setPanelFont(currentFont, isMultiple: false)
-        panel.orderFront(nil)
+        panel.makeKeyAndOrderFront(nil)
     }
 
     private func resolveFont(fontName: String?, size: CGFloat) -> NSFont {
