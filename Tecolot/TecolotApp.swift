@@ -360,6 +360,7 @@ struct TecolotApp: App {
                 .environmentObject(model.profiles)
                 .environmentObject(model.themes)
         }
+        .windowToolbarStyle(.unifiedCompact)
         .commands {
             AppInfoCommands()
             TabCommands()
