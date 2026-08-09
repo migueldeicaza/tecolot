@@ -12,6 +12,7 @@ private struct PreferencesV0 {
     var startupWindowGroupID: String?
     var secureKeyboardEntry: Bool?
     var logHostOutput: Bool?
+    var useMetalRenderer: Bool?
 }
 
 private struct PreferencesV1 {
@@ -24,11 +25,12 @@ private struct PreferencesV1 {
     var startupWindowGroupID: String?
     var secureKeyboardEntry: Bool
     var logHostOutput: Bool
+    var useMetalRenderer: Bool
 }
 
 @MainActor
 final class PreferenceMigrator {
-    static let currentVersion = 1
+    static let currentVersion = 2
     static let schemaKey = "settingsSchemaVersion"
 
     private let defaults: UserDefaults
@@ -46,7 +48,8 @@ final class PreferenceMigrator {
         "startupProfileID",
         "startupWindowGroupID",
         "SecureKeyboardEntry",
-        "LogHostOutput"
+        "LogHostOutput",
+        "useMetalRenderer"
     ]
 
     init(
@@ -187,7 +190,8 @@ final class PreferenceMigrator {
             startupProfileID: defaults.string(forKey: "startupProfileID"),
             startupWindowGroupID: defaults.string(forKey: "startupWindowGroupID"),
             secureKeyboardEntry: boolean(forKey: "SecureKeyboardEntry"),
-            logHostOutput: boolean(forKey: "LogHostOutput")
+            logHostOutput: boolean(forKey: "LogHostOutput"),
+            useMetalRenderer: boolean(forKey: "useMetalRenderer")
         )
     }
 
@@ -240,7 +244,8 @@ final class PreferenceMigrator {
             startupProfileID: startupProfileID,
             startupWindowGroupID: startupWindowGroupID,
             secureKeyboardEntry: source.secureKeyboardEntry ?? false,
-            logHostOutput: source.logHostOutput ?? false
+            logHostOutput: source.logHostOutput ?? false,
+            useMetalRenderer: source.useMetalRenderer ?? true
         )
     }
 
@@ -254,6 +259,7 @@ final class PreferenceMigrator {
         setOptional(preferences.startupWindowGroupID, forKey: "startupWindowGroupID")
         defaults.set(preferences.secureKeyboardEntry, forKey: "SecureKeyboardEntry")
         defaults.set(preferences.logHostOutput, forKey: "LogHostOutput")
+        defaults.set(preferences.useMetalRenderer, forKey: "useMetalRenderer")
         applySecureKeyboardEntry(preferences.secureKeyboardEntry)
     }
 

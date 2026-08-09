@@ -342,14 +342,19 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     var useMetalRenderer: Bool {
         get { terminal?.isUsingMetalRenderer ?? false }
         set {
-            guard let terminal else { return }
-            do {
-                try terminal.setUseMetal(newValue)
-            } catch {
-                print("METAL TOGGLE FAILED: \(error)")
-            }
-            terminal.setNeedsDisplay(terminal.bounds)
+            UserDefaults.standard.set(newValue, forKey: "useMetalRenderer")
+            TerminalSessionRegistry.shared.setUseMetalRenderer(newValue)
         }
+    }
+
+    func setUseMetalRenderer(_ enabled: Bool) {
+        guard let terminal else { return }
+        do {
+            try terminal.setUseMetal(enabled)
+        } catch {
+            print("METAL TOGGLE FAILED: \(error)")
+        }
+        terminal.setNeedsDisplay(terminal.bounds)
     }
 
     var usePerFrameMetalBuffering: Bool {
@@ -437,11 +442,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     private func configureTerminal(_ terminal: LocalProcessTerminalView) {
         terminal.metalBufferingMode = .perFrameAggregated
-        do {
-            try terminal.setUseMetal(false)
-        } catch {
-            print("METAL DISABLED: \(error)")
-        }
+        setUseMetalRenderer(UserDefaults.standard.object(forKey: "useMetalRenderer") as? Bool ?? true)
         applyAppearance()
         terminal.processDelegate = self
 
@@ -997,6 +998,14 @@ final class TerminalSessionRegistry {
         guard let window, let sessions = table.object(forKey: window) else { return [] }
         sessions.entries.removeAll { $0.controller == nil }
         return sessions.entries.compactMap(\.controller)
+    }
+
+    func setUseMetalRenderer(_ enabled: Bool) {
+        for window in NSApp.windows {
+            for controller in controllers(for: window) {
+                controller.setUseMetalRenderer(enabled)
+            }
+        }
     }
 
     func workspace(for window: NSWindow?) -> TerminalPaneWorkspace? {

@@ -350,7 +350,8 @@ struct TecolotApp: App {
     init() {
         UserDefaults.standard.register(defaults: [
             "useCommandDigitsForTabs": true,
-            "startupMode": "default"
+            "startupMode": "default",
+            "useMetalRenderer": true
         ])
     }
 

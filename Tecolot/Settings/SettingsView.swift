@@ -47,6 +47,7 @@ struct GeneralSettingsView: View {
     @AppStorage("startupMode") private var startupMode = "default"
     @AppStorage("startupProfileID") private var startupProfileID = ""
     @AppStorage("startupWindowGroupID") private var startupWindowGroupID = ""
+    @AppStorage("useMetalRenderer") private var useMetalRenderer = true
     @State private var errorMessage: String?
 
     var body: some View {
@@ -93,6 +94,12 @@ struct GeneralSettingsView: View {
             Section("Tabs") {
                 Toggle("Use Command-1 through Command-9 to select tabs", isOn: $useCommandDigitsForTabs)
             }
+            Section("Rendering") {
+                Toggle("Use Metal", isOn: metalRendererBinding)
+                Text("Metal rendering is enabled by default.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("Resume") {
                 Stepper(
                     "Restore up to \(restoredRowsLimit) rows when a saved session opens",
@@ -125,6 +132,16 @@ struct GeneralSettingsView: View {
                 } catch {
                     errorMessage = error.localizedDescription
                 }
+            }
+        )
+    }
+
+    private var metalRendererBinding: Binding<Bool> {
+        Binding(
+            get: { useMetalRenderer },
+            set: { enabled in
+                useMetalRenderer = enabled
+                TerminalSessionRegistry.shared.setUseMetalRenderer(enabled)
             }
         )
     }
