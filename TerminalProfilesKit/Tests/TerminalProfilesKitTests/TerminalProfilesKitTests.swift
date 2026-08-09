@@ -660,6 +660,15 @@ final class LaunchParametersTests {
         #expect (options.cursorStyle == .steadyBar)
         #expect (options.termName == "xterm-256color")
     }
+
+    @Test func shellIntegrationDoesNotOverrideProfileCursor() {
+        var profile = TerminalProfile(name: "Test")
+        profile.cursorStyle = .steadyUnderline
+
+        let params = ProfileApplier.launchParameters(for: profile)
+
+        #expect(params.environment.contains("TECOLOT_SHELL_FEATURES=title"))
+    }
 }
 
 final class TecolotShellIntegrationTests {
@@ -684,9 +693,24 @@ final class TecolotShellIntegrationTests {
         #expect(result.args == input.args)
         #expect(result.environment.contains("TERM_PROGRAM=tecolot"))
         #expect(result.environment.contains("TERM_PROGRAM_VERSION=1.2.3"))
-        #expect(result.environment.contains("TECOLOT_SHELL_FEATURES=cursor:blink,title"))
+        #expect(result.environment.contains("TECOLOT_SHELL_FEATURES=title"))
         #expect(result.environment.contains("TECOLOT_RESOURCES_DIR=/tmp/tecolot resources"))
         #expect(!result.environment.contains { $0.hasPrefix("ZDOTDIR=") })
+    }
+
+    @Test func shellFeaturesDoNotContainCursorControl() {
+        let input = LaunchParameters(
+            executable: "/bin/zsh", args: [], execName: nil,
+            environment: [], currentDirectory: nil
+        )
+
+        let result = TecolotShellIntegration.configure(
+            input, automatic: false,
+            resourcesDirectory: resources, processEnvironment: [:],
+            terminalProgramVersion: "1"
+        )
+
+        #expect(result.environment.contains("TECOLOT_SHELL_FEATURES=title"))
     }
 
     @Test func injectsZshAndPreservesZDotDirectory () {

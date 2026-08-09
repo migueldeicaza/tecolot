@@ -9,7 +9,9 @@ import Foundation
 
 public enum TecolotShellIntegration {
     public static let terminalProgram = "tecolot"
-    public static let shellFeatures = "cursor:blink,title"
+    /// Shell integration must not change the profile's cursor shape or blink
+    /// state. Applications inside the terminal can still request a style.
+    public static let shellFeatures = "title"
 
     /// The directory that contains Tecolot's installable shell integration.
     public static var resourcesDirectory: URL? {
