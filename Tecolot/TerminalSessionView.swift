@@ -20,6 +20,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored private var pendingFocus = false
     @ObservationIgnored private var pendingStart = false
     @ObservationIgnored private var postedTitle: String = ""
+    @ObservationIgnored private var displayedTerminalTitle: String = ""
+    @ObservationIgnored private var titleUpdateTask: Task<Void, Never>?
     @ObservationIgnored private var postedDirectory: String?
     @ObservationIgnored private var zoomGesture: NSMagnificationGestureRecognizer?
     @ObservationIgnored private var keyEventMonitor: Any?
@@ -57,6 +59,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if let keyEventMonitor {
             NSEvent.removeMonitor(keyEventMonitor)
         }
+        titleUpdateTask?.cancel()
         snapshotWorkItem?.cancel()
     }
 
@@ -202,7 +205,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
         postedTitle = title
-        updateWindowTitle()
+        scheduleTerminalTitleUpdate()
     }
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
@@ -714,6 +717,21 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         bufferSnapshotHandler(content)
     }
 
+    private func scheduleTerminalTitleUpdate() {
+        titleUpdateTask?.cancel()
+        titleUpdateTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(75))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.titleUpdateTask = nil
+            self.displayedTerminalTitle = self.postedTitle
+            self.updateWindowTitle()
+        }
+    }
+
     private func updateWindowTitle() {
         if let focused = workspace?.focusedController, focused !== self {
             focused.updateWindowTitle()
@@ -730,7 +748,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
         appendIfPresent (profile.titleOverride)
         if profile.titleComponents.contains (.activeTitle) {
-            appendIfPresent (postedTitle)
+            appendIfPresent (displayedTerminalTitle)
         }
         if profile.titleComponents.contains (.dimensions) {
             appendIfPresent ("\(terminalModel.cols) x \(terminalModel.rows)")
@@ -747,19 +765,17 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
 
         let newTitle = components.joined (separator: " — ")
-        DispatchQueue.main.async {
-            guard let window = terminal.window else { return }
-            let document = window.windowController?.document as? NSDocument
-            let documentName = document?.displayName ?? ""
-            let title = newTitle.isEmpty ? documentName : newTitle
-            let hasPaneActivity = self.workspace?.controllers.contains(where: \.hasActivity)
-                ?? self.hasActivity
-            let effectiveTitle = hasPaneActivity ? "● \(title)" : title
-            window.title = effectiveTitle
+        guard let window = terminal.window else { return }
+        let document = window.windowController?.document as? NSDocument
+        let documentName = document?.displayName ?? ""
+        let title = newTitle.isEmpty ? documentName : newTitle
+        let hasPaneActivity = workspace?.controllers.contains(where: \.hasActivity)
+            ?? hasActivity
+        let effectiveTitle = hasPaneActivity ? "● \(title)" : title
+        window.title = effectiveTitle
 
-            if !newTitle.isEmpty {
-                document?.displayName = newTitle
-            }
+        if !newTitle.isEmpty {
+            document?.displayName = newTitle
         }
     }
 
