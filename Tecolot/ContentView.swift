@@ -15,51 +15,92 @@ struct ContentView: View {
     /// file-backed sessions so that closing an untitled window never
     /// triggers a save prompt
     var fileURL: URL?
-    @State private var controller = TerminalSessionController()
+    @State private var workspace = TerminalPaneWorkspace()
     @EnvironmentObject private var profiles: ProfileStore
     @EnvironmentObject private var themes: ThemeStore
 
-    /// The store's current copy of this session's profile; editing it in
-    /// Settings changes this value, which onChange pushes into the session
-    private var storedProfile: TerminalProfile? {
-        profiles.profile(withID: controller.profile.id)
+    private var rootController: TerminalSessionController? {
+        workspace.controllers.first
     }
 
     var body: some View {
-        TerminalSessionView(controller: controller, document: document)
+        TerminalPaneContainer(
+            workspace: workspace,
+            document: document,
+            revision: workspace.revision
+        )
             .background(WindowTabbingConfigurator())
-            .onChange(of: controller.themeOverride) { _, newValue in
+            .onAppear(perform: configureBufferPersistence)
+            .onChange(of: fileURL) {
+                configureBufferPersistence()
+            }
+            .onChange(of: rootController?.id) {
+                configureBufferPersistence()
+            }
+            .onChange(of: rootController?.themeOverride) { _, newValue in
                 if fileURL != nil && document.themeOverride != newValue {
                     document.themeOverride = newValue
                 }
             }
-            .onChange(of: controller.profile.id) { _, newValue in
-                if fileURL != nil && document.profileID != newValue {
+            .onChange(of: rootController?.profile.id) { _, newValue in
+                if fileURL != nil, let newValue, document.profileID != newValue {
                     document.profileID = newValue
                 }
             }
-            .onChange(of: storedProfile) { _, newValue in
-                if let newValue, newValue != controller.profile {
-                    controller.applyProfile(newValue)
+            .onChange(of: profiles.profiles) {
+                for controller in workspace.controllers {
+                    if let stored = profiles.profile(withID: controller.profile.id),
+                       stored != controller.profile {
+                        controller.applyProfile(stored)
+                    }
                 }
             }
             .onChange(of: themes.themes) {
                 // A user theme was edited/imported: re-resolve colors
-                controller.applyAppearance()
+                for controller in workspace.controllers {
+                    controller.applyAppearance()
+                }
             }
             .toolbar {
                 ToolbarItem {
                     Button {
-                        controller.showThemePicker.toggle()
+                        workspace.focusedController?.showThemePicker.toggle()
                     } label: {
                         Label("Theme", systemImage: "paintbrush")
                     }
                     .help("Change the theme of this terminal")
-                    .popover(isPresented: Bindable(controller).showThemePicker, arrowEdge: .bottom) {
-                        ThemePickerPopover(controller: controller, themes: themes, profiles: profiles)
+                    .disabled(workspace.focusedController == nil)
+                    .popover(isPresented: themePickerBinding, arrowEdge: .bottom) {
+                        if let controller = workspace.focusedController {
+                            ThemePickerPopover(
+                                controller: controller,
+                                themes: themes,
+                                profiles: profiles
+                            )
+                        }
                     }
                 }
             }
+    }
+
+    private var themePickerBinding: Binding<Bool> {
+        Binding(
+            get: { workspace.focusedController?.showThemePicker ?? false },
+            set: { workspace.focusedController?.showThemePicker = $0 }
+        )
+    }
+
+    private func configureBufferPersistence() {
+        guard let controller = rootController else { return }
+        guard fileURL != nil else {
+            controller.bufferSnapshotHandler = nil
+            return
+        }
+        controller.bufferSnapshotHandler = { content in
+            if document.content != content {
+                document.content = content
+            }
+        }
     }
 }
 

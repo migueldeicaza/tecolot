@@ -15,15 +15,19 @@ import UniformTypeIdentifiers
 
 @Observable
 final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegate {
+    let id = UUID()
     @ObservationIgnored private var didStartProcess = false
     @ObservationIgnored private var pendingFocus = false
     @ObservationIgnored private var pendingStart = false
     @ObservationIgnored private var postedTitle: String = ""
     @ObservationIgnored private var postedDirectory: String?
     @ObservationIgnored private var zoomGesture: NSMagnificationGestureRecognizer?
+    @ObservationIgnored private var keyEventMonitor: Any?
+    @ObservationIgnored private var snapshotWorkItem: DispatchWorkItem?
     private var logging = false
 
-    @ObservationIgnored weak var terminal: LocalProcessTerminalView?
+    @ObservationIgnored private(set) var terminal: LocalProcessTerminalView?
+    @ObservationIgnored weak var workspace: TerminalPaneWorkspace?
     @ObservationIgnored private var isConfigured = false
     @ObservationIgnored private var didRequestFocus = false
 
@@ -35,9 +39,11 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     var showThemePicker = false
     @ObservationIgnored private var launchDirectory: String?
     @ObservationIgnored private var didResolveLaunch = false
-    @ObservationIgnored private var windowCloseInterceptor: WindowCloseInterceptor?
+    @ObservationIgnored private var restoredContent: String?
+    @ObservationIgnored var bufferSnapshotHandler: ((String) -> Void)?
     @ObservationIgnored private weak var observedWindow: NSWindow?
     @ObservationIgnored private var windowKeyObserver: NSObjectProtocol?
+    @ObservationIgnored private var windowUpdateObserver: NSObjectProtocol?
 
     private(set) var hasActivity = false
 
@@ -45,6 +51,13 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if let windowKeyObserver {
             NotificationCenter.default.removeObserver(windowKeyObserver)
         }
+        if let windowUpdateObserver {
+            NotificationCenter.default.removeObserver(windowUpdateObserver)
+        }
+        if let keyEventMonitor {
+            NSEvent.removeMonitor(keyEventMonitor)
+        }
+        snapshotWorkItem?.cancel()
     }
 
     /// Consumes the pending LaunchSpec exactly once, from the first view
@@ -60,8 +73,18 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         } else {
             profile = AppModel.shared.profiles.defaultProfile
         }
-        themeOverride = document.themeOverride
+        themeOverride = spec?.themeOverride ?? document.themeOverride
         launchDirectory = spec?.workingDirectory
+        restoredContent = document.content
+    }
+
+    @MainActor
+    func prepareForSplit(from source: TerminalSessionController) {
+        guard !didResolveLaunch else { return }
+        didResolveLaunch = true
+        profile = source.profile
+        themeOverride = source.themeOverride
+        launchDirectory = source.currentWorkingDirectory
     }
 
     /// The directory the shell reported via OSC 7, as a filesystem path
@@ -108,6 +131,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// window is non-opaque; restore normal opacity otherwise
     @MainActor
     private func updateWindowTransparency() {
+        if let workspace {
+            workspace.updateWindowTransparency()
+            return
+        }
         guard let window = terminal?.window else { return }
         if profile.backgroundOpacity < 1.0 {
             window.isOpaque = false
@@ -130,6 +157,39 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             isConfigured = true
         }
         scheduleStartIfNeeded()
+        scheduleFocusIfNeeded()
+    }
+
+    @MainActor
+    func makeTerminalView(document: TerminalDocument) -> LocalProcessTerminalView {
+        if let terminal {
+            terminal.removeFromSuperview()
+            attach(to: terminal)
+            return terminal
+        }
+
+        resolveLaunchIfNeeded(document: document)
+        let options = ProfileApplier.terminalOptions(for: profile)
+        let terminal = AppTerminalView(
+            frame: .zero,
+            font: ProfileApplier.font(for: profile),
+            options: options
+        )
+        terminal.sessionController = self
+        attach(to: terminal)
+        return terminal
+    }
+
+    func didBecomeFocused() {
+        guard let window = terminal?.window else { return }
+        workspace?.markFocused(self)
+        TerminalSessionRegistry.shared.focus(controller: self, for: window)
+        setHasActivity(false)
+        updateWindowTitle()
+    }
+
+    func requestFocus() {
+        didRequestFocus = false
         scheduleFocusIfNeeded()
     }
 
@@ -156,6 +216,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     func noteOutputActivity() {
+        scheduleBufferSnapshot()
         guard terminal?.window?.isKeyWindow == false else { return }
         setHasActivity(true)
     }
@@ -164,16 +225,23 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         let exitedCleanly = (exitCode ?? 0) == 0
         switch profile.whenShellExits {
         case .closeWindow:
-            terminal?.window?.close()
+            closePaneOrWindow()
         case .closeIfExitedCleanly:
             if exitedCleanly {
-                terminal?.window?.close()
+                closePaneOrWindow()
             } else {
                 showCompletionBanner(exitCode: exitCode)
             }
         case .keepOpen:
             showCompletionBanner(exitCode: exitCode)
         }
+    }
+
+    private func closePaneOrWindow() {
+        if workspace?.close(self) == true {
+            return
+        }
+        terminal?.window?.close()
     }
 
     private func showCompletionBanner(exitCode: Int32?) {
@@ -192,6 +260,19 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             guard let selection = self.terminal?.getSelection() else { return Data() }
             return selection.data(using: .utf8) ?? Data()
         }
+    }
+
+    func printBuffer() {
+        guard let data = terminal?.getTerminal().getBufferAsData(),
+              let text = String(data: data, encoding: .utf8) else { return }
+        let printView = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 720))
+        printView.string = text
+        printView.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+        printView.isEditable = false
+        printView.sizeToFit()
+        let operation = NSPrintOperation(view: printView)
+        operation.jobTitle = terminal?.window?.title ?? "Tecolot Terminal"
+        operation.run()
     }
 
     /// Scrolls to the closest shell prompt above the viewport. Prompt rows
@@ -317,7 +398,32 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     func terminate() {
+        flushBufferSnapshot()
         terminal?.terminate()
+    }
+
+    func requestClose() {
+        guard let window = terminal?.window else { return }
+        guard let workspace, workspace.paneCount > 1 else {
+            window.performClose(nil)
+            return
+        }
+
+        guard TerminalClosePolicy.requiresConfirmation(for: self) else {
+            workspace.close(self)
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Close this pane?"
+        alert.informativeText = "A process is still running."
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, let self else { return }
+            self.workspace?.close(self)
+        }
     }
 
     @objc private func handleMagnify(_ sender: NSMagnificationGestureRecognizer) {
@@ -344,8 +450,125 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             zoomGesture = gesture
         }
 
+        if keyEventMonitor == nil {
+            keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                self?.handleKeyBinding(event) == true ? nil : event
+            }
+        }
+
         logging = NSUserDefaultsController.shared.defaults.bool(forKey: "LogHostOutput")
         updateLogging()
+    }
+
+    private func handleKeyBinding(_ event: NSEvent) -> Bool {
+        guard let terminal,
+              event.window === terminal.window,
+              terminal.window?.firstResponder === terminal else {
+            return false
+        }
+
+        let key = normalizedKey(for: event)
+        let modifiers = terminalModifiers(for: event.modifierFlags)
+        guard let keyBinding = profile.keyBindings.first(where: {
+            $0.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == key &&
+            $0.modifiers == modifiers
+        }) else {
+            return false
+        }
+
+        switch keyBinding.action {
+        case .sendText:
+            terminal.send(txt: decodedKeyBindingText(keyBinding.value))
+        case .sendEscapeSequence:
+            terminal.send(txt: "\u{1b}" + decodedKeyBindingText(keyBinding.value))
+        case .scrollPageUp:
+            scroll(by: -terminal.getTerminal().rows)
+        case .scrollPageDown:
+            scroll(by: terminal.getTerminal().rows)
+        case .scrollLineUp:
+            scroll(by: -1)
+        case .scrollLineDown:
+            scroll(by: 1)
+        }
+        return true
+    }
+
+    private func scroll(by rows: Int) {
+        guard let terminal else { return }
+        let model = terminal.getTerminal()
+        terminal.scrollTo(row: max(0, model.buffer.yDisp + rows))
+    }
+
+    private func terminalModifiers(for flags: NSEvent.ModifierFlags) -> TerminalKeyModifiers {
+        var result: TerminalKeyModifiers = []
+        let flags = flags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command) { result.insert(.command) }
+        if flags.contains(.shift) { result.insert(.shift) }
+        if flags.contains(.option) { result.insert(.option) }
+        if flags.contains(.control) { result.insert(.control) }
+        return result
+    }
+
+    private func normalizedKey(for event: NSEvent) -> String {
+        switch event.keyCode {
+        case 122: return "f1"
+        case 120: return "f2"
+        case 99: return "f3"
+        case 118: return "f4"
+        case 96: return "f5"
+        case 97: return "f6"
+        case 98: return "f7"
+        case 100: return "f8"
+        case 101: return "f9"
+        case 109: return "f10"
+        case 103: return "f11"
+        case 111: return "f12"
+        case 105: return "f13"
+        case 107: return "f14"
+        case 113: return "f15"
+        case 106: return "f16"
+        case 64: return "f17"
+        case 79: return "f18"
+        case 80: return "f19"
+        case 90: return "f20"
+        case 36: return "return"
+        case 48: return "tab"
+        case 51: return "delete"
+        case 53: return "escape"
+        case 115: return "home"
+        case 116: return "pageup"
+        case 117: return "forwarddelete"
+        case 119: return "end"
+        case 121: return "pagedown"
+        case 123: return "left"
+        case 124: return "right"
+        case 125: return "down"
+        case 126: return "up"
+        default:
+            return event.charactersIgnoringModifiers?.lowercased() ?? ""
+        }
+    }
+
+    private func decodedKeyBindingText(_ text: String) -> String {
+        var result = ""
+        var iterator = text.makeIterator()
+        while let character = iterator.next() {
+            guard character == "\\", let escaped = iterator.next() else {
+                result.append(character)
+                continue
+            }
+            switch escaped {
+            case "e": result.append("\u{1b}")
+            case "n": result.append("\n")
+            case "r": result.append("\r")
+            case "t": result.append("\t")
+            case "\\": result.append("\\")
+            default:
+                result.append("\\")
+                result.append(escaped)
+            }
+        }
+        return result
     }
 
     private func scheduleFocusIfNeeded() {
@@ -373,13 +596,13 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
         window.makeFirstResponder(terminal)
         didRequestFocus = true
+        didBecomeFocused()
     }
 
     private func registerWindowIfAvailable() {
         guard let window = terminal?.window else { return }
-        TerminalSessionRegistry.shared.register(controller: self, for: window)
+        TerminalSessionRegistry.shared.register(controller: self, workspace: workspace, for: window)
         observeWindowKeyState(for: window)
-        installWindowCloseInterceptor(on: window)
         updateWindowTransparency()
     }
 
@@ -388,6 +611,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if let windowKeyObserver {
             NotificationCenter.default.removeObserver(windowKeyObserver)
         }
+        if let windowUpdateObserver {
+            NotificationCenter.default.removeObserver(windowUpdateObserver)
+        }
         observedWindow = window
         windowKeyObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
@@ -395,6 +621,14 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             queue: .main
         ) { [weak self] _ in
             self?.setHasActivity(false)
+        }
+        windowUpdateObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didUpdateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            guard let self, let window, window.firstResponder === self.terminal else { return }
+            self.didBecomeFocused()
         }
         if window.isKeyWindow {
             setHasActivity(false)
@@ -405,14 +639,6 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         guard self.hasActivity != hasActivity else { return }
         self.hasActivity = hasActivity
         updateWindowTitle()
-    }
-
-    private func installWindowCloseInterceptor(on window: NSWindow) {
-        if windowCloseInterceptor?.window !== window {
-            windowCloseInterceptor = WindowCloseInterceptor(window: window)
-        } else {
-            windowCloseInterceptor?.install()
-        }
     }
 
     private func scheduleStartIfNeeded() {
@@ -440,6 +666,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
         didStartProcess = true
 
+        restoreBufferIfNeeded(on: terminal)
+
         let params = ProfileApplier.launchParameters(for: profile, initialDirectory: launchDirectory)
         terminal.startProcess(executable: params.executable,
                               args: params.args,
@@ -449,7 +677,46 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         terminal.sizeChanged(source: terminal.getTerminal())
     }
 
+    private func restoreBufferIfNeeded(on terminal: LocalProcessTerminalView) {
+        guard let restoredContent, !restoredContent.isEmpty else { return }
+        self.restoredContent = nil
+        let limit = UserDefaults.standard.object(forKey: "restoredRowsLimit") as? Int ?? 1_000
+        guard limit > 0 else { return }
+
+        var lines = restoredContent.split(separator: "\n", omittingEmptySubsequences: false)
+        if lines.last?.isEmpty == true {
+            lines.removeLast()
+        }
+        let visibleLines = lines.suffix(limit)
+        guard !visibleLines.isEmpty else { return }
+        terminal.feed(text: visibleLines.joined(separator: "\n") + "\n")
+    }
+
+    private func scheduleBufferSnapshot() {
+        guard bufferSnapshotHandler != nil else { return }
+        guard snapshotWorkItem == nil else { return }
+        let item = DispatchWorkItem { [weak self] in
+            self?.flushBufferSnapshot()
+        }
+        snapshotWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
+    }
+
+    func flushBufferSnapshot() {
+        guard snapshotWorkItem != nil else { return }
+        snapshotWorkItem?.cancel()
+        snapshotWorkItem = nil
+        guard let bufferSnapshotHandler,
+              let data = terminal?.getTerminal().getBufferAsData(),
+              let content = String(data: data, encoding: .utf8) else { return }
+        bufferSnapshotHandler(content)
+    }
+
     private func updateWindowTitle() {
+        if let focused = workspace?.focusedController, focused !== self {
+            focused.updateWindowTitle()
+            return
+        }
         guard let terminal else { return }
         let terminalModel = terminal.getTerminal()
         var components: [String] = []
@@ -483,7 +750,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             let document = window.windowController?.document as? NSDocument
             let documentName = document?.displayName ?? ""
             let title = newTitle.isEmpty ? documentName : newTitle
-            let effectiveTitle = self.hasActivity ? "● \(title)" : title
+            let hasPaneActivity = self.workspace?.controllers.contains(where: \.hasActivity)
+                ?? self.hasActivity
+            let effectiveTitle = hasPaneActivity ? "● \(title)" : title
             window.title = effectiveTitle
 
             if !newTitle.isEmpty {
@@ -528,14 +797,7 @@ struct TerminalSessionView: NSViewRepresentable {
     var document: TerminalDocument
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
-        controller.resolveLaunchIfNeeded(document: document)
-        let options = ProfileApplier.terminalOptions(for: controller.profile)
-        let terminal = AppTerminalView(frame: .zero,
-                                       font: ProfileApplier.font(for: controller.profile),
-                                       options: options)
-        terminal.sessionController = controller
-        controller.attach(to: terminal)
-        return terminal
+        controller.makeTerminalView(document: document)
     }
 
     func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
@@ -543,10 +805,9 @@ struct TerminalSessionView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: LocalProcessTerminalView, coordinator: ()) {
-        if let window = nsView.window {
-            TerminalSessionRegistry.shared.unregister(window: window)
-        }
-        nsView.terminate()
+        guard let controller = (nsView as? AppTerminalView)?.sessionController,
+              let window = nsView.window else { return }
+        TerminalSessionRegistry.shared.unregister(controller: controller, from: window)
     }
 }
 
@@ -576,23 +837,100 @@ private enum BellBadge {
 
 final class TerminalSessionRegistry {
     static let shared = TerminalSessionRegistry()
-    private let table = NSMapTable<NSWindow, TerminalSessionController>(
-        keyOptions: [.weakMemory],
-        valueOptions: [.weakMemory]
-    )
+    private final class WindowSessions {
+        final class Entry {
+            weak var controller: TerminalSessionController?
+            weak var workspace: TerminalPaneWorkspace?
 
-    func register(controller: TerminalSessionController, for window: NSWindow) {
-        table.setObject(controller, forKey: window)
+            init(controller: TerminalSessionController, workspace: TerminalPaneWorkspace?) {
+                self.controller = controller
+                self.workspace = workspace
+            }
+        }
+
+        var entries: [Entry] = []
+        weak var focusedController: TerminalSessionController?
+        let closeInterceptor: WindowCloseInterceptor
+
+        init(window: NSWindow) {
+            closeInterceptor = WindowCloseInterceptor(window: window)
+        }
     }
 
-    func unregister(window: NSWindow) {
-        table.removeObject(forKey: window)
+    private let table = NSMapTable<NSWindow, WindowSessions>(
+        keyOptions: [.weakMemory],
+        valueOptions: [.strongMemory]
+    )
+
+    func register(
+        controller: TerminalSessionController,
+        workspace: TerminalPaneWorkspace?,
+        for window: NSWindow
+    ) {
+        let sessions = table.object(forKey: window) ?? WindowSessions(window: window)
+        let previousController = sessions.focusedController
+            ?? sessions.entries.compactMap(\.controller).first
+        sessions.entries.removeAll { $0.controller == nil }
+        if !sessions.entries.contains(where: { $0.controller === controller }) {
+            sessions.entries.append(WindowSessions.Entry(controller: controller, workspace: workspace))
+        }
+        sessions.focusedController = sessions.focusedController ?? controller
+        table.setObject(sessions, forKey: window)
+        sessions.closeInterceptor.install()
+        let currentController = sessions.focusedController
+            ?? sessions.entries.compactMap(\.controller).first
+        if previousController !== currentController {
+            NotificationCenter.default.post(name: .terminalFocusedPaneDidChange, object: window)
+        }
+    }
+
+    func unregister(controller: TerminalSessionController, from window: NSWindow) {
+        guard let sessions = table.object(forKey: window) else { return }
+        let previousController = sessions.focusedController
+            ?? sessions.entries.compactMap(\.controller).first
+        sessions.entries.removeAll { $0.controller == nil || $0.controller === controller }
+        if sessions.focusedController === controller {
+            sessions.focusedController = sessions.entries.compactMap(\.controller).first
+        }
+        if sessions.entries.isEmpty {
+            sessions.closeInterceptor.uninstall()
+            table.removeObject(forKey: window)
+            NotificationCenter.default.post(name: .terminalFocusedPaneDidChange, object: window)
+        } else {
+            let currentController = sessions.focusedController
+                ?? sessions.entries.compactMap(\.controller).first
+            if previousController !== currentController {
+                NotificationCenter.default.post(name: .terminalFocusedPaneDidChange, object: window)
+            }
+        }
+    }
+
+    func focus(controller: TerminalSessionController, for window: NSWindow) {
+        register(controller: controller, workspace: controller.workspace, for: window)
+        guard table.object(forKey: window)?.focusedController !== controller else { return }
+        table.object(forKey: window)?.focusedController = controller
+        NotificationCenter.default.post(name: .terminalFocusedPaneDidChange, object: window)
     }
 
     func controller(for window: NSWindow?) -> TerminalSessionController? {
         guard let window else { return nil }
-        return table.object(forKey: window)
+        guard let sessions = table.object(forKey: window) else { return nil }
+        return sessions.focusedController ?? sessions.entries.compactMap(\.controller).first
     }
+
+    func controllers(for window: NSWindow?) -> [TerminalSessionController] {
+        guard let window, let sessions = table.object(forKey: window) else { return [] }
+        sessions.entries.removeAll { $0.controller == nil }
+        return sessions.entries.compactMap(\.controller)
+    }
+
+    func workspace(for window: NSWindow?) -> TerminalPaneWorkspace? {
+        controller(for: window)?.workspace
+    }
+}
+
+extension Notification.Name {
+    static let terminalFocusedPaneDidChange = Notification.Name("TerminalFocusedPaneDidChange")
 }
 
 @Observable
@@ -619,6 +957,13 @@ final class TerminalCommandState {
             )
         }
 
+        observers.append(center.addObserver(
+            forName: .terminalFocusedPaneDidChange,
+            object: nil,
+            queue: .main
+        ) { _ in
+            update()
+        })
         observers.append(center.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: nil,

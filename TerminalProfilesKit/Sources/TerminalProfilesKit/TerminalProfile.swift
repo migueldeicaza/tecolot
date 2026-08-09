@@ -7,7 +7,7 @@
 //  when it exits. Colors live in the referenced TerminalTheme, not here.
 //
 import Foundation
-import SwiftTerm
+@preconcurrency import SwiftTerm
 
 /// What to run when a terminal session starts
 public enum ShellCommand: Codable, Equatable, Sendable {
@@ -61,6 +61,67 @@ public enum TerminalTitleComponent: String, Codable, CaseIterable, Hashable, Sen
     case dimensions
 }
 
+public struct TerminalKeyModifiers: OptionSet, Codable, Hashable, Sendable {
+    public let rawValue: UInt8
+
+    public init(rawValue: UInt8) {
+        self.rawValue = rawValue
+    }
+
+    public static let command = TerminalKeyModifiers(rawValue: 1 << 0)
+    public static let shift = TerminalKeyModifiers(rawValue: 1 << 1)
+    public static let option = TerminalKeyModifiers(rawValue: 1 << 2)
+    public static let control = TerminalKeyModifiers(rawValue: 1 << 3)
+}
+
+public enum TerminalKeyAction: String, Codable, CaseIterable, Sendable {
+    case sendText
+    case sendEscapeSequence
+    case scrollPageUp
+    case scrollPageDown
+    case scrollLineUp
+    case scrollLineDown
+
+    public var displayName: String {
+        switch self {
+        case .sendText: return "Send text"
+        case .sendEscapeSequence: return "Send escape sequence"
+        case .scrollPageUp: return "Scroll one page up"
+        case .scrollPageDown: return "Scroll one page down"
+        case .scrollLineUp: return "Scroll one line up"
+        case .scrollLineDown: return "Scroll one line down"
+        }
+    }
+
+    public var usesValue: Bool {
+        self == .sendText || self == .sendEscapeSequence
+    }
+}
+
+public struct TerminalKeyBinding: Identifiable, Codable, Equatable, Sendable {
+    public var id: UUID
+    /// A printable key or a named key such as "up", "pageup", or "f1".
+    public var key: String
+    public var modifiers: TerminalKeyModifiers
+    public var action: TerminalKeyAction
+    /// Text to send. Escape-sequence actions add ESC before this value.
+    public var value: String
+
+    public init(
+        id: UUID = UUID(),
+        key: String,
+        modifiers: TerminalKeyModifiers = [],
+        action: TerminalKeyAction = .sendText,
+        value: String = ""
+    ) {
+        self.id = id
+        self.key = key
+        self.modifiers = modifiers
+        self.action = action
+        self.value = value
+    }
+}
+
 public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     /// Display name, unique within a store
@@ -103,6 +164,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     // MARK: Keyboard
     public var optionAsMetaKey: Bool
     public var backspaceSendsControlH: Bool
+    public var keyBindings: [TerminalKeyBinding]
 
     // MARK: Advanced
     /// Value for the TERM environment variable
@@ -131,6 +193,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.askBeforeClosing = defaults.askBeforeClosing
         self.optionAsMetaKey = defaults.optionAsMetaKey
         self.backspaceSendsControlH = defaults.backspaceSendsControlH
+        self.keyBindings = defaults.keyBindings
         self.termName = defaults.termName
         self.bellStyle = defaults.bellStyle
     }
@@ -144,7 +207,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
                                 titleOverride: String?, titleComponents: Set<TerminalTitleComponent>, shell: ShellCommand,
                                 whenShellExits: ShellExitBehavior, askBeforeClosing: AskBeforeClosing,
                                 optionAsMetaKey: Bool, backspaceSendsControlH: Bool, termName: String,
-                                bellStyle: BellStyle) {
+                                bellStyle: BellStyle, keyBindings: [TerminalKeyBinding]) {
         (themeName: TerminalTheme.fallback.name, fontFamily: nil, fontSize: 12,
          fontSmoothing: true, useBrightColorsForBold: true,
          cursorStyle: .blinkBlock, backgroundOpacity: 1.0,
@@ -152,7 +215,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
          titleOverride: nil, titleComponents: [.activeTitle, .workingDirectory], shell: .loginShell,
          whenShellExits: .closeIfExitedCleanly, askBeforeClosing: .onlyIfProcessesRunning,
          optionAsMetaKey: true, backspaceSendsControlH: false, termName: "xterm-256color",
-         bellStyle: .sound)
+         bellStyle: .sound, keyBindings: [])
     }
 
     enum CodingKeys: String, CodingKey {
@@ -160,7 +223,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         case useBrightColorsForBold, cursorStyle, backgroundOpacity
         case columns, rows, scrollbackLines, titleOverride, titleComponents
         case shell, whenShellExits, askBeforeClosing
-        case optionAsMetaKey, backspaceSendsControlH, termName, bellStyle
+        case optionAsMetaKey, backspaceSendsControlH, keyBindings, termName, bellStyle
     }
 
     // Hand-written decoding: every field except id/name falls back to the
@@ -198,6 +261,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.askBeforeClosing = try c.decodeIfPresent (AskBeforeClosing.self, forKey: .askBeforeClosing) ?? defaults.askBeforeClosing
         self.optionAsMetaKey = try c.decodeIfPresent (Bool.self, forKey: .optionAsMetaKey) ?? defaults.optionAsMetaKey
         self.backspaceSendsControlH = try c.decodeIfPresent (Bool.self, forKey: .backspaceSendsControlH) ?? defaults.backspaceSendsControlH
+        self.keyBindings = try c.decodeIfPresent ([TerminalKeyBinding].self, forKey: .keyBindings) ?? defaults.keyBindings
         self.termName = try c.decodeIfPresent (String.self, forKey: .termName) ?? defaults.termName
         // BellStyle is deliberately not Codable in SwiftTerm; persist its tagName
         if let tag = try c.decodeIfPresent (String.self, forKey: .bellStyle) {
@@ -229,6 +293,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode (askBeforeClosing, forKey: .askBeforeClosing)
         try c.encode (optionAsMetaKey, forKey: .optionAsMetaKey)
         try c.encode (backspaceSendsControlH, forKey: .backspaceSendsControlH)
+        try c.encode (keyBindings, forKey: .keyBindings)
         try c.encode (termName, forKey: .termName)
         try c.encode (bellStyle.tagName, forKey: .bellStyle)
     }

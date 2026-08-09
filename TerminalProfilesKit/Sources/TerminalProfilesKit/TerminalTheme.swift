@@ -95,10 +95,10 @@ public struct TerminalTheme: Identifiable, Codable, Equatable, Sendable {
         return result.trimmingCharacters (in: CharacterSet (charactersIn: "-"))
     }
 
-    /// A always-available fallback theme (Terminal.app-style colors on black),
-    /// used when a referenced theme cannot be resolved
+    /// An always-available fallback theme that matches the SwiftTerm MacTerminal app.
+    /// It is used when a referenced theme cannot be resolved.
     public static let fallback = TerminalTheme (
-        name: "Basic Dark",
+        name: "SwiftTerm",
         ansi: [
             ProfileColor (hex: "#000000")!, ProfileColor (hex: "#c23621")!,
             ProfileColor (hex: "#25bc24")!, ProfileColor (hex: "#adad27")!,
@@ -109,9 +109,9 @@ public struct TerminalTheme: Identifiable, Codable, Equatable, Sendable {
             ProfileColor (hex: "#5833ff")!, ProfileColor (hex: "#f935f8")!,
             ProfileColor (hex: "#14f0f0")!, ProfileColor (hex: "#e9ebeb")!
         ],
-        foreground: ProfileColor (hex: "#e9ebeb")!,
-        background: ProfileColor (hex: "#000000")!,
-        cursor: ProfileColor (hex: "#4d4d4d")!,
+        foreground: ProfileColor (hex: "#ffffff")!,
+        background: ProfileColor (hex: "#282c34")!,
+        cursor: ProfileColor (hex: "#30d158")!,
         isBuiltIn: true
     )
 }

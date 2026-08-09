@@ -36,6 +36,16 @@ final class ThemeTests {
         #expect (TerminalTheme.fallback.isDark)
     }
 
+    @Test func swiftTermThemeMatchesMacTerminalDefaults () throws {
+        let theme = try #require (
+            ThemeStore.loadBundledThemes ().first { $0.name == "SwiftTerm" }
+        )
+        #expect (theme.ansi == TerminalTheme.fallback.ansi)
+        #expect (theme.foreground.hexString == "#ffffff")
+        #expect (theme.background.hexString == "#282c34")
+        #expect (theme.cursor?.hexString == "#30d158")
+    }
+
     @Test func bundledThemesAllValid () {
         let themes = ThemeStore.loadBundledThemes ()
         #expect (themes.count >= 100)
@@ -160,6 +170,7 @@ final class ProfileStoreTests {
         defer { try? FileManager.default.removeItem (at: dir) }
         #expect (store.profiles.count == 1)
         #expect (store.defaultProfile.name == "Default")
+        #expect (store.defaultProfile.themeName == "SwiftTerm")
     }
 
     @Test func crudAndPersistence () throws {
@@ -219,6 +230,29 @@ final class ProfileStoreTests {
         try store.update (profile)
         let reloaded = try ProfileStore (directory: dir)
         #expect (reloaded.defaultProfile.scrollbackLines == nil)
+    }
+
+    @Test func keyBindingsSurviveRoundTrip () throws {
+        let (store, dir) = try makeStore ()
+        defer { try? FileManager.default.removeItem (at: dir) }
+        var profile = store.defaultProfile
+        profile.keyBindings = [
+            TerminalKeyBinding(
+                key: "k",
+                modifiers: [.command, .shift],
+                action: .sendEscapeSequence,
+                value: "[1;2A"
+            ),
+            TerminalKeyBinding(
+                key: "pageup",
+                modifiers: [.option],
+                action: .scrollPageUp
+            )
+        ]
+        try store.update(profile)
+
+        let reloaded = try ProfileStore(directory: dir)
+        #expect(reloaded.defaultProfile.keyBindings == profile.keyBindings)
     }
 
     @Test func forwardCompatibleDecoding () throws {

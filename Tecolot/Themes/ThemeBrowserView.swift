@@ -57,6 +57,10 @@ struct ThemeBrowserView: View {
                     showImporter = true
                 }
                 Spacer()
+                Link(
+                    "Get More Themes…",
+                    destination: URL(string: "https://github.com/mbadolato/iTerm2-Color-Schemes")!
+                )
             }
             .padding(10)
         }

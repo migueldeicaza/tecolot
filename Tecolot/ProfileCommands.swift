@@ -15,21 +15,25 @@ import TerminalProfilesKit
 /// because the NSDocumentController path cannot carry parameters
 @MainActor
 enum WindowOpener {
-    static func openWindow(spec: LaunchSpec) {
+    @discardableResult
+    static func openWindow(spec: LaunchSpec) -> NSWindow? {
         AppModel.shared.setPendingLaunch(spec)
         guard let document = try? NSDocumentController.shared.openUntitledDocumentAndDisplay(true) else {
-            return
+            return nil
         }
         NSApp.activate(ignoringOtherApps: true)
-        document.windowControllers.first?.window?.makeKeyAndOrderFront(nil)
+        let window = document.windowControllers.first?.window
+        window?.makeKeyAndOrderFront(nil)
+        return window
     }
 
-    static func openTab(spec: LaunchSpec) {
-        let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+    @discardableResult
+    static func openTab(spec: LaunchSpec, targetWindow: NSWindow? = nil) -> NSWindow? {
+        let targetWindow = targetWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         AppModel.shared.setPendingLaunch(spec)
         guard let document = try? NSDocumentController.shared.openUntitledDocumentAndDisplay(true),
               let newWindow = document.windowControllers.first?.window else {
-            return
+            return nil
         }
         NSApp.activate(ignoringOtherApps: true)
         newWindow.tabbingMode = .preferred
@@ -41,6 +45,7 @@ enum WindowOpener {
             existingWindow.addTabbedWindow(newWindow, ordered: .above)
         }
         newWindow.makeKeyAndOrderFront(nil)
+        return newWindow
     }
 
     /// The LaunchSpec a plain New Tab should use, honoring the General

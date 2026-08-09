@@ -49,6 +49,10 @@ final class WindowCloseInterceptor: NSObject, NSWindowDelegate {
     private var observers: [NSObjectProtocol] = []
     private var bypassClose = false
     private var isPresentingConfirmation = false
+    /// Some AppKit delegate proxies implement `responds(to:)` by asking the
+    /// window's current delegate. After this interceptor is installed, that
+    /// query comes back here. Stop that cycle before it exhausts the stack.
+    private var isQueryingForwardedDelegate = false
 
     init(window: NSWindow) {
         self.window = window
@@ -59,7 +63,9 @@ final class WindowCloseInterceptor: NSObject, NSWindowDelegate {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            self?.install()
+            Task { @MainActor [weak self] in
+                self?.install()
+            }
         })
     }
 
@@ -77,26 +83,36 @@ final class WindowCloseInterceptor: NSObject, NSWindowDelegate {
         window.delegate = self
     }
 
+    func uninstall() {
+        guard let window, window.delegate === self else { return }
+        window.delegate = forwardedDelegate
+        forwardedDelegate = nil
+    }
+
     override func responds(to aSelector: Selector!) -> Bool {
-        super.responds(to: aSelector) || forwardedDelegate?.responds(to: aSelector) == true
+        super.responds(to: aSelector) || forwardedDelegateResponds(to: aSelector)
     }
 
     override func forwardingTarget(for aSelector: Selector!) -> Any? {
         if aSelector == #selector(windowShouldClose(_:)) {
             return nil
         }
+        guard forwardedDelegateResponds(to: aSelector) else { return nil }
         return forwardedDelegate
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if bypassClose {
-            return forwardedDelegate?.windowShouldClose?(sender) ?? true
+        for controller in TerminalSessionRegistry.shared.controllers(for: sender) {
+            controller.flushBufferSnapshot()
         }
 
-        guard let controller = TerminalSessionRegistry.shared.controller(for: sender),
-              TerminalClosePolicy.requiresConfirmation(for: controller)
-        else {
-            return forwardedDelegate?.windowShouldClose?(sender) ?? true
+        if bypassClose {
+            return forwardedWindowShouldClose(sender)
+        }
+
+        let controllers = TerminalSessionRegistry.shared.controllers(for: sender)
+        guard controllers.contains(where: TerminalClosePolicy.requiresConfirmation) else {
+            return forwardedWindowShouldClose(sender)
         }
 
         guard !isPresentingConfirmation else { return false }
@@ -116,5 +132,22 @@ final class WindowCloseInterceptor: NSObject, NSWindowDelegate {
             sender?.close()
         }
         return false
+    }
+
+    private func forwardedDelegateResponds(to selector: Selector) -> Bool {
+        guard !isQueryingForwardedDelegate,
+              let forwardedDelegate,
+              forwardedDelegate !== self else {
+            return false
+        }
+        isQueryingForwardedDelegate = true
+        defer { isQueryingForwardedDelegate = false }
+        return forwardedDelegate.responds(to: selector)
+    }
+
+    private func forwardedWindowShouldClose(_ sender: NSWindow) -> Bool {
+        let selector = #selector(NSWindowDelegate.windowShouldClose(_:))
+        guard forwardedDelegateResponds(to: selector) else { return true }
+        return forwardedDelegate?.windowShouldClose?(sender) ?? true
     }
 }

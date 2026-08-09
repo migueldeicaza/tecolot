@@ -24,10 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let hasLiveProcess = sender.windows.contains { window in
-            guard let controller = TerminalSessionRegistry.shared.controller(for: window) else {
-                return false
-            }
-            return TerminalClosePolicy.requiresConfirmation(for: controller)
+            TerminalSessionRegistry.shared.controllers(for: window)
+                .contains(where: TerminalClosePolicy.requiresConfirmation)
         }
         guard hasLiveProcess else { return .terminateNow }
 
@@ -46,13 +44,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openInitialDocumentIfNeeded() {
         guard NSDocumentController.shared.documents.isEmpty else { return }
-        guard let document = try? NSDocumentController.shared.openUntitledDocumentAndDisplay(true) else {
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: "startupMode") == "windowGroup",
+           let rawID = defaults.string(forKey: "startupWindowGroupID"),
+           let id = UUID(uuidString: rawID),
+           let group = AppModel.shared.windowGroups.group(withID: id),
+           AppModel.shared.windowGroups.open(group) {
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
-        if let window = document.windowControllers.first?.window {
-            window.makeKeyAndOrderFront(nil)
+
+        var spec = LaunchSpec()
+        if defaults.string(forKey: "startupMode") == "profile",
+           let rawID = defaults.string(forKey: "startupProfileID") {
+            spec.profileID = UUID(uuidString: rawID)
         }
-        NSApp.activate(ignoringOtherApps: true)
+        WindowOpener.openWindow(spec: spec)
     }
 }
 
@@ -157,6 +164,30 @@ struct TerminalCommands: Commands {
     var body: some Commands {
         let isEnabled = controller != nil
         CommandMenu("Terminal") {
+            Button("Split Pane") {
+                if let controller {
+                    controller.workspace?.split(controller, orientation: .vertical)
+                }
+            }
+            .keyboardShortcut("d", modifiers: [.command])
+            .disabled(!isEnabled)
+
+            Button("Split Pane Horizontally") {
+                if let controller {
+                    controller.workspace?.split(controller, orientation: .horizontal)
+                }
+            }
+            .keyboardShortcut("d", modifiers: [.command, .option])
+            .disabled(!isEnabled)
+
+            Button("Close Pane") {
+                controller?.requestClose()
+            }
+            .keyboardShortcut("w", modifiers: [.command])
+            .disabled(!isEnabled)
+
+            Divider()
+
             Button("Export Buffer...") {
                 controller?.exportBuffer()
             }
@@ -284,13 +315,43 @@ struct TerminalCommands: Commands {
     }
 }
 
+struct TerminalPrintCommands: Commands {
+    @State private var commandState = TerminalCommandState()
+
+    var body: some Commands {
+        CommandGroup(replacing: .printItem) {
+            Button("Print…") {
+                commandState.controller?.printBuffer()
+            }
+            .keyboardShortcut("p", modifiers: [.command])
+            .disabled(commandState.controller == nil)
+        }
+    }
+}
+
+struct AppInfoCommands: Commands {
+    var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About Tecolot") {
+                let credits = NSAttributedString(
+                    string: "A native terminal built with SwiftTerm.\nCopyright © 2026 Miguel de Icaza."
+                )
+                NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
+            }
+        }
+    }
+}
+
 @main
 struct TecolotApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private let model = AppModel.shared
 
     init() {
-        UserDefaults.standard.register(defaults: ["useCommandDigitsForTabs": true])
+        UserDefaults.standard.register(defaults: [
+            "useCommandDigitsForTabs": true,
+            "startupMode": "default"
+        ])
     }
 
     var body: some Scene {
@@ -300,10 +361,13 @@ struct TecolotApp: App {
                 .environmentObject(model.themes)
         }
         .commands {
+            AppInfoCommands()
             TabCommands()
             TabSelectionCommands()
             ProfileCommands(profiles: model.profiles)
+            WindowGroupCommands(store: model.windowGroups)
             TerminalCommands()
+            TerminalPrintCommands()
         }
 
         // The Settings scene does not inherit the DocumentGroup environment
