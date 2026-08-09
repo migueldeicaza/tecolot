@@ -324,52 +324,38 @@ struct ProfileSettingsPage: View {
             case .text:
                 textSettings
             case .window:
-                Form {
-                    Section {
-                        windowSettings
-                    }
-                }
-                .formStyle(.grouped)
+                windowSettings
             case .shell:
-                Form {
-                    Section {
-                        shellSettings
-                    }
-                }
-                .formStyle(.grouped)
+                shellSettings
             case .keyboard:
-                Form {
-                    Section {
-                        keyboardSettings
-                    }
-                }
-                .formStyle(.grouped)
+                keyboardSettings
             case .advanced:
-                Form {
-                    Section {
-                        advancedSettings
-                    }
-                }
-                .formStyle(.grouped)
+                advancedSettings
             }
         }
+        .formStyle(.grouped)
         .navigationTitle(section.title)
     }
 
     private var textSettings: some View {
-        VStack(spacing: 0) {
-            ThemeBrowserView(themes: themes, selectedThemeName: profile.themeName) { theme in
-                update { $0.themeName = theme.name }
+        Form {
+            Section {
+                ProfileTextSettings(profile: profile, update: update)
+                    .padding(.horizontal)
+                    .frame(maxHeight: 190)
             }
-            Divider()
-            ProfileTextSettings(profile: profile, update: update)
-                .padding(.horizontal)
-                .frame(maxHeight: 190)
+            Section {
+                ThemeBrowserView(themes: themes, selectedThemeName: profile.themeName) { theme in
+                    update { $0.themeName = theme.name }
+                }
+            }
         }
     }
 
     @ViewBuilder
     private var windowSettings: some View {
+        Form {
+            Section {
                 TextField("Columns:", value: binding(\.columns), format: .number)
                 TextField("Rows:", value: binding(\.rows), format: .number)
                 Toggle("Limit scrollback", isOn: Binding(
@@ -382,30 +368,34 @@ struct ProfileSettingsPage: View {
                         set: { newValue in update { $0.scrollbackLines = max(0, newValue) } }
                     ), format: .number)
                 }
-                GroupBox("Title") {
-                    TextField("Custom title:", text: Binding(
-                        get: { profile.titleOverride ?? "" },
-                        set: { newValue in update { $0.titleOverride = newValue.isEmpty ? nil : newValue } }
-                    ))
-                    ForEach(TerminalTitleComponent.allCases, id: \.self) { component in
-                        Toggle(titleComponentLabel(component), isOn: Binding(
-                            get: { profile.titleComponents.contains(component) },
-                            set: { isEnabled in
-                                update {
-                                    if isEnabled {
-                                        $0.titleComponents.insert(component)
-                                    } else {
-                                        $0.titleComponents.remove(component)
-                                    }
+            }
+            Section("Title") {
+                TextField("Custom title:", text: Binding(
+                    get: { profile.titleOverride ?? "" },
+                    set: { newValue in update { $0.titleOverride = newValue.isEmpty ? nil : newValue } }
+                ), prompt: Text("Default"))
+                ForEach(TerminalTitleComponent.allCases, id: \.self) { component in
+                    Toggle(titleComponentLabel(component), isOn: Binding(
+                        get: { profile.titleComponents.contains(component) },
+                        set: { isEnabled in
+                            update {
+                                if isEnabled {
+                                    $0.titleComponents.insert(component)
+                                } else {
+                                    $0.titleComponents.remove(component)
                                 }
                             }
-                        ))
-                    }
+                        }
+                    ))
                 }
+            }
+        }
     }
 
     @ViewBuilder
     private var shellSettings: some View {
+        Form {
+            Section {
                 Picker("Run:", selection: shellKindBinding) {
                     Text("Default login shell").tag(ShellKind.loginShell)
                     Text("Command").tag(ShellKind.command)
@@ -430,23 +420,35 @@ struct ProfileSettingsPage: View {
                         Text(policy.description).tag(policy)
                     }
                 }
+            }
+        }
     }
 
     @ViewBuilder
     private var keyboardSettings: some View {
+        Form {
+            Section {
                 Toggle("Use Option as Meta key", isOn: binding(\.optionAsMetaKey))
                 Toggle("Delete sends Control-H", isOn: binding(\.backspaceSendsControlH))
+            }
+            Section("Key Mappings"){
                 TerminalKeyBindingsEditor(profile: profile, update: update)
+            }
+        }
     }
 
     @ViewBuilder
     private var advancedSettings: some View {
+        Form {
+            Section {
                 TextField("Declare terminal as:", text: binding(\.termName))
                 Picker("Bell:", selection: binding(\.bellStyle)) {
                     ForEach(BellStyle.allCases, id: \.tagName) { style in
                         Text(style.displayName).tag(style)
                     }
                 }
+            }
+        }
     }
 
     private enum ShellKind: Hashable {
@@ -495,20 +497,16 @@ struct TerminalKeyBindingsEditor: View {
     let update: ((inout TerminalProfile) -> Void) -> Void
 
     var body: some View {
-        GroupBox("Key mappings") {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(profile.keyBindings) { keyBinding in
-                    TerminalKeyBindingRow(
-                        keyBinding: keyBinding,
-                        update: { replace(keyBinding.id, with: $0) },
-                        remove: { remove(keyBinding.id) }
-                    )
-                }
-
-                Button("Add Key Mapping", systemImage: "plus", action: add)
-                    .buttonStyle(.borderless)
-            }
+        ForEach(profile.keyBindings) { keyBinding in
+            TerminalKeyBindingRow(
+                keyBinding: keyBinding,
+                update: { replace(keyBinding.id, with: $0) },
+                remove: { remove(keyBinding.id) }
+            )
         }
+
+        Button("Add Key Mapping", systemImage: "plus", action: add)
+            .buttonStyle(.borderless)
     }
 
     private func add() {
@@ -611,10 +609,7 @@ struct ProfileTextSettings: View {
     let update: ((inout TerminalProfile) -> Void) -> Void
 
     var body: some View {
-        Form {
-            ProfileTextSettingsFields(profile: profile, update: update)
-        }
-        .formStyle(.grouped)
+        ProfileTextSettingsFields(profile: profile, update: update)
     }
 }
 
@@ -805,31 +800,31 @@ struct ProfileExportDocument: FileDocument {
 }
 
 #Preview("Text Settings") {
-    ProfileSettingsPage(section: .text, profile: SettingsPreviewData.profile, update: { _ in })
+    ProfileSettingsPagePreview(section: .text)
         .environmentObject(SettingsPreviewData.themes)
         .frame(width: 720, height: 620)
 }
 
 #Preview("Window Settings") {
-    ProfileSettingsPage(section: .window, profile: SettingsPreviewData.profile, update: { _ in })
+    ProfileSettingsPagePreview(section: .window)
         .environmentObject(SettingsPreviewData.themes)
         .frame(width: 560, height: 430)
 }
 
 #Preview("Shell Settings") {
-    ProfileSettingsPage(section: .shell, profile: SettingsPreviewData.profile, update: { _ in })
+    ProfileSettingsPagePreview(section: .shell)
         .environmentObject(SettingsPreviewData.themes)
         .frame(width: 560, height: 430)
 }
 
 #Preview("Keyboard Settings") {
-    ProfileSettingsPage(section: .keyboard, profile: SettingsPreviewData.profile, update: { _ in })
+    ProfileSettingsPagePreview(section: .keyboard)
         .environmentObject(SettingsPreviewData.themes)
         .frame(width: 560, height: 430)
 }
 
 #Preview("Advanced Settings") {
-    ProfileSettingsPage(section: .advanced, profile: SettingsPreviewData.profile, update: { _ in })
+    ProfileSettingsPagePreview(section: .advanced)
         .environmentObject(SettingsPreviewData.themes)
         .frame(width: 560, height: 340)
 }
@@ -851,8 +846,12 @@ struct ProfileExportDocument: FileDocument {
 }
 
 #Preview("Text Controls") {
-    ProfileTextSettings(profile: SettingsPreviewData.profile, update: { _ in })
+    Form {
+        ProfileTextSettings(profile: SettingsPreviewData.profile, update: { _ in })
+    }
+    .formStyle(.grouped)
         .frame(width: 560, height: 250)
+
 }
 
 #Preview("Text Fields") {
@@ -861,4 +860,18 @@ struct ProfileExportDocument: FileDocument {
     }
     .formStyle(.grouped)
     .frame(width: 560, height: 250)
+}
+
+/// Keeps profile-page preview changes local to the preview canvas.
+private struct ProfileSettingsPagePreview: View {
+    let section: ProfileSettingsSection
+    @State private var profile = SettingsPreviewData.profile
+
+    var body: some View {
+        ProfileSettingsPage(section: section, profile: profile, update: apply)
+    }
+
+    private func apply(_ mutate: (inout TerminalProfile) -> Void) {
+        mutate(&profile)
+    }
 }
