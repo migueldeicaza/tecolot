@@ -131,34 +131,46 @@ public enum ProfileApplier {
     /// Resolves the shell command, environment (including TERM) and working
     /// directory to launch a session with this profile
     public static func launchParameters (for profile: TerminalProfile,
-                                         initialDirectory: String? = nil) -> LaunchParameters {
-        let environment = Terminal.getEnvironmentVariables (termName: profile.termName, trueColor: true)
+                                         initialDirectory: String? = nil,
+                                         processEnvironment: [String: String] = ProcessInfo.processInfo.environment) -> LaunchParameters {
+        let environment = TerminalEnvironment.base(
+            parentEnvironment: processEnvironment,
+            termName: profile.termName
+        )
         let directory = initialDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
 
+        let parameters: LaunchParameters
         switch profile.shell {
         case .loginShell:
             let shell = LoginShell.current
-            let parameters = LaunchParameters (executable: shell, args: [],
-                                               execName: LoginShell.loginArgZero (for: shell),
-                                               environment: environment,
-                                               currentDirectory: directory)
-            return TecolotShellIntegration.configure(parameters, automatic: true)
+            parameters = LaunchParameters (executable: shell, args: [],
+                                           execName: LoginShell.loginArgZero (for: shell),
+                                           environment: environment,
+                                           currentDirectory: directory)
         case .command(let commandLine, let runInShell):
             if runInShell {
                 let shell = LoginShell.current
-                let parameters = LaunchParameters (executable: shell, args: ["-lc", commandLine],
-                                                   execName: nil,
-                                                   environment: environment,
-                                                   currentDirectory: directory)
-                return TecolotShellIntegration.configure(parameters, automatic: true)
-            }
-            var parts = commandLine.split (separator: " ").map (String.init)
-            let executable = parts.isEmpty ? LoginShell.current : parts.removeFirst ()
-            let parameters = LaunchParameters (executable: executable, args: parts,
+                parameters = LaunchParameters (executable: shell, args: ["-lc", commandLine],
                                                execName: nil,
                                                environment: environment,
                                                currentDirectory: directory)
-            return TecolotShellIntegration.configure(parameters, automatic: true)
+            } else {
+                var parts = commandLine.split (separator: " ").map (String.init)
+                let executable = parts.isEmpty ? LoginShell.current : parts.removeFirst ()
+                parameters = LaunchParameters (executable: executable, args: parts,
+                                               execName: nil,
+                                               environment: environment,
+                                               currentDirectory: directory)
+            }
         }
+
+        let integrated = TecolotShellIntegration.configure(
+            parameters,
+            automatic: true,
+            processEnvironment: processEnvironment
+        )
+        var result = integrated
+        result.environment = TerminalEnvironment.applying(profile.environmentVariables, to: integrated.environment)
+        return result
     }
 }

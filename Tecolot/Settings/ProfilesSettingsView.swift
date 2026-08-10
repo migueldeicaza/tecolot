@@ -448,6 +448,34 @@ struct ProfileSettingsPage: View {
                     }
                 }
             }
+            Section {
+                Text("Tecolot inherits the app environment, then applies these changes.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(profile.environmentVariables) { variable in
+                    EnvironmentVariableRow(variable: variable) { replacement in
+                        update { profile in
+                            guard let index = profile.environmentVariables.firstIndex(where: { $0.id == replacement.id }) else {
+                                return
+                            }
+                            profile.environmentVariables[index] = replacement
+                        }
+                    } remove: {
+                        update { profile in
+                            profile.environmentVariables.removeAll { $0.id == variable.id }
+                        }
+                    }
+                }
+                Button("Add Environment Variable") {
+                    update {
+                        $0.environmentVariables.append(TerminalEnvironmentVariable(name: "", value: ""))
+                    }
+                }
+            } header: {
+                Text("Environment")
+            } footer: {
+                Text("Unset removes an inherited value. An empty value is passed as an empty string. Later entries with the same name win.")
+            }
         }
     }
 
@@ -488,6 +516,53 @@ struct ProfileSettingsPage: View {
         case .fullPath: return "Full path"
         case .profileName: return "Profile name"
         case .dimensions: return "Dimensions"
+        }
+    }
+}
+
+private struct EnvironmentVariableRow: View {
+    let variable: TerminalEnvironmentVariable
+    let update: (TerminalEnvironmentVariable) -> Void
+    let remove: () -> Void
+
+    var body: some View {
+        HStack {
+            TextField("Name", text: Binding(
+                get: { variable.name },
+                set: { newName in
+                    var replacement = variable
+                    replacement.name = newName
+                    update(replacement)
+                }
+            ))
+            .frame(minWidth: 120)
+
+            if variable.value != nil {
+                TextField("Value", text: Binding(
+                    get: { variable.value ?? "" },
+                    set: { newValue in
+                        var replacement = variable
+                        replacement.value = newValue
+                        update(replacement)
+                    }
+                ))
+            }
+
+            Toggle("Unset", isOn: Binding(
+                get: { variable.value == nil },
+                set: { isUnset in
+                    var replacement = variable
+                    replacement.value = isUnset ? nil : ""
+                    update(replacement)
+                }
+            ))
+            .toggleStyle(.checkbox)
+
+            Button(action: remove) {
+                Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove environment variable")
         }
     }
 }
@@ -826,7 +901,7 @@ struct ProfileExportDocument: FileDocument {
 #Preview("Advanced Settings") {
     ProfileSettingsPagePreview(section: .advanced)
         .environmentObject(SettingsPreviewData.themes)
-        .frame(width: 560, height: 340)
+        .frame(width: 680, height: 480)
 }
 
 #Preview("Key Bindings Editor") {

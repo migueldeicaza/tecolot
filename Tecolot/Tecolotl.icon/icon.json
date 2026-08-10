@@ -32,10 +32,23 @@
     {
       "layers" : [
         {
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "tecolotl-textured-clear-lighter.png",
+          "name" : "tecolotl-textured-clear-lighter",
+          "position" : {
+            "scale" : 1.3,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        },
+        {
           "blend-mode" : "normal",
           "fill" : "none",
           "glass" : false,
-          "hidden" : false,
+          "hidden" : true,
           "image-name" : "tecolotl-textured-clear.png",
           "name" : "tecolotl-textured-clear",
           "position" : {

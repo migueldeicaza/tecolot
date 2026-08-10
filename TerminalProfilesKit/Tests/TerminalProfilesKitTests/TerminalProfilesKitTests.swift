@@ -602,6 +602,13 @@ final class TerminalSessionDocumentCodecTests {
 }
 
 final class LaunchParametersTests {
+    private func environmentValues(_ environment: [String]) -> [String: String] {
+        environment.reduce(into: [:]) { result, entry in
+            guard let separator = entry.firstIndex(of: "=") else { return }
+            result[String(entry[..<separator])] = String(entry[entry.index(after: separator)...])
+        }
+    }
+
     @Test func loginShellUsesLoginIdiom () {
         let profile = TerminalProfile (name: "Test")
         let params = ProfileApplier.launchParameters (for: profile)
@@ -616,6 +623,66 @@ final class LaunchParametersTests {
         profile.termName = "xterm-direct"
         let params = ProfileApplier.launchParameters (for: profile)
         #expect (params.environment.contains ("TERM=xterm-direct"))
+    }
+
+    @Test func inheritsParentEnvironmentAndReplacesTerminalState() {
+        let profile = TerminalProfile(name: "Test")
+        let params = ProfileApplier.launchParameters(
+            for: profile,
+            processEnvironment: [
+                "PATH": "/opt/homebrew/bin:/usr/bin",
+                "SSH_AUTH_SOCK": "/tmp/agent.sock",
+                "LC_CTYPE": "en_GB.UTF-8",
+                "TERM": "xterm-ghostty",
+                "TERM_PROGRAM": "Ghostty",
+                "VTE_VERSION": "7600",
+                "PWD": "/stale",
+                "SHLVL": "4",
+                "__XCODE_BUILT_PRODUCTS_DIR_PATHS": "/build",
+                "DYLD_LIBRARY_PATH": "/build/lib"
+            ]
+        )
+        let environment = environmentValues(params.environment)
+
+        #expect(environment["PATH"] == "/opt/homebrew/bin:/usr/bin")
+        #expect(environment["SSH_AUTH_SOCK"] == "/tmp/agent.sock")
+        #expect(environment["LC_CTYPE"] == "en_GB.UTF-8")
+        #expect(environment["TERM"] == "xterm-256color")
+        #expect(environment["COLORTERM"] == "truecolor")
+        #expect(environment["TERM_PROGRAM"] == "tecolot")
+        #expect(environment["VTE_VERSION"] == nil)
+        #expect(environment["PWD"] == nil)
+        #expect(environment["SHLVL"] == nil)
+        #expect(environment["DYLD_LIBRARY_PATH"] == nil)
+    }
+
+    @Test func suppliesUTF8LocaleWhenParentHasNone() {
+        let profile = TerminalProfile(name: "Test")
+        let params = ProfileApplier.launchParameters(
+            for: profile,
+            processEnvironment: ["PATH": "/usr/bin"]
+        )
+        let environment = environmentValues(params.environment)
+
+        #expect(environment["LANG"] == "en_US.UTF-8")
+    }
+
+    @Test func appliesProfileEnvironmentOverridesLast() {
+        var profile = TerminalProfile(name: "Test")
+        profile.environmentVariables = [
+            TerminalEnvironmentVariable(name: "EDITOR", value: "nvim"),
+            TerminalEnvironmentVariable(name: "SSH_AUTH_SOCK", value: nil),
+            TerminalEnvironmentVariable(name: "TERM_PROGRAM", value: "custom-terminal")
+        ]
+        let params = ProfileApplier.launchParameters(
+            for: profile,
+            processEnvironment: ["EDITOR": "vi", "SSH_AUTH_SOCK": "/tmp/agent.sock"]
+        )
+        let environment = environmentValues(params.environment)
+
+        #expect(environment["EDITOR"] == "nvim")
+        #expect(environment["SSH_AUTH_SOCK"] == nil)
+        #expect(environment["TERM_PROGRAM"] == "custom-terminal")
     }
 
     @Test func runInShellWrapsCommand () {
@@ -668,6 +735,24 @@ final class LaunchParametersTests {
         let params = ProfileApplier.launchParameters(for: profile)
 
         #expect(params.environment.contains("TECOLOT_SHELL_FEATURES=title"))
+    }
+}
+
+final class TerminalEnvironmentVariableTests {
+    @Test func profileRoundTripPreservesSetAndUnsetValues() throws {
+        var profile = TerminalProfile(name: "Test")
+        profile.environmentVariables = [
+            TerminalEnvironmentVariable(name: "EDITOR", value: "nvim"),
+            TerminalEnvironmentVariable(name: "SSH_AUTH_SOCK", value: nil),
+            TerminalEnvironmentVariable(name: "EMPTY", value: "")
+        ]
+
+        let decoded = try JSONDecoder().decode(
+            TerminalProfile.self,
+            from: JSONEncoder().encode(profile)
+        )
+
+        #expect(decoded.environmentVariables == profile.environmentVariables)
     }
 }
 
