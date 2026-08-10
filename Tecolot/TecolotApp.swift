@@ -378,5 +378,6 @@ struct TecolotApp: App {
                 .environmentObject(model.profiles)
                 .environmentObject(model.themes)
         }
+        .defaultSize(width: 820, height: 560)
     }
 }

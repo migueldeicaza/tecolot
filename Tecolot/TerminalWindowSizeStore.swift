@@ -25,7 +25,10 @@ final class TerminalWindowSizeStore {
         let identifier = ObjectIdentifier(window)
         guard observers[identifier] == nil else { return }
 
-        if restoresSize && window.tabGroup == nil {
+        // macOS puts even a single document window in a tab group. All tabs
+        // share one frame, so restoring each tab is safe and ensures that
+        // startup document windows restore their saved size.
+        if restoresSize {
             restoreSize(to: window)
         }
         observers[identifier] = WindowObserver(

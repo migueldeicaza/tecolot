@@ -6,6 +6,7 @@
 //  the profile selected in the Settings toolbar.
 //
 import Combine
+import AppKit
 import SwiftUI
 import TerminalProfilesKit
 
@@ -19,17 +20,20 @@ struct SettingsView: View {
     @State private var profileErrorMessage: String?
 
     var body: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
             List(selection: $destination) {
                 ForEach(SettingsDestination.allCases) { destination in
                     Label(sidebarTitle(for: destination), systemImage: destination.systemImage)
                         .tag(destination)
                 }
             }
-            .navigationTitle("Settings")
-            .frame(minWidth: 170)
-        } detail: {
+            .listStyle(.sidebar)
+            .frame(minWidth: 170, idealWidth: 190, maxWidth: 230)
+
+            Divider()
+
             detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .toolbar {
             if currentDestination.isProfileDriven {
@@ -38,7 +42,9 @@ struct SettingsView: View {
                 }
             }
         }
-        .frame(minWidth: 860, minHeight: 600)
+        .frame(minWidth: 800, minHeight: 560)
+        .background(SettingsWindowConfigurator())
+        .onKeyPress(.escape, action: closeOnEscape)
         .onAppear(perform: repairActiveProfileSelection)
         .onChange(of: profiles.profiles.map(\.id)) {
             repairActiveProfileSelection()
@@ -164,6 +170,11 @@ struct SettingsView: View {
         }
     }
 
+    private func closeOnEscape() -> KeyPress.Result {
+        NSApp.keyWindow?.performClose(nil)
+        return .handled
+    }
+
     private var profileErrorPresentation: Binding<Bool> {
         Binding(
             get: { profileErrorMessage != nil },
@@ -172,14 +183,45 @@ struct SettingsView: View {
     }
 }
 
+/// Applies the initial Settings window size after SwiftUI creates its window.
+private struct SettingsWindowConfigurator: NSViewRepresentable {
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            context.coordinator.configure(window: view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.configure(window: view.window)
+    }
+
+    @MainActor
+    final class Coordinator {
+        private var didConfigure = false
+
+        func configure(window: NSWindow?) {
+            guard !didConfigure, let window else { return }
+            didConfigure = true
+            window.setContentSize(NSSize(width: 820, height: 560))
+        }
+    }
+}
+
 enum SettingsDestination: CaseIterable, Hashable, Identifiable {
     case general
-    case profiles
     case text
     case window
     case shell
     case keyboard
     case advanced
+
+    case profiles
     case data
 
     var id: Self { self }
@@ -289,9 +331,6 @@ struct GeneralSettingsView: View {
             }
             Section("Rendering") {
                 Toggle("Use Metal", isOn: metalRendererBinding)
-                Text("Metal rendering is enabled by default.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             Section("Resume") {
                 Stepper(
