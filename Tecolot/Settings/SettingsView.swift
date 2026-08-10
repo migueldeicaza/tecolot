@@ -20,20 +20,17 @@ struct SettingsView: View {
     @State private var profileErrorMessage: String?
 
     var body: some View {
-        HStack(spacing: 0) {
+        NavigationSplitView {
             List(selection: $destination) {
                 ForEach(SettingsDestination.allCases) { destination in
                     Label(sidebarTitle(for: destination), systemImage: destination.systemImage)
                         .tag(destination)
                 }
             }
-            .listStyle(.sidebar)
-            .frame(minWidth: 170, idealWidth: 190, maxWidth: 230)
-
-            Divider()
-
+            .navigationTitle("Settings")
+            .frame(minWidth: 170)
+        } detail: {
             detail
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .toolbar {
             if currentDestination.isProfileDriven {
@@ -43,7 +40,6 @@ struct SettingsView: View {
             }
         }
         .frame(minWidth: 800, minHeight: 560)
-        .background(SettingsWindowConfigurator())
         .onKeyPress(.escape, action: closeOnEscape)
         .onAppear(perform: repairActiveProfileSelection)
         .onChange(of: profiles.profiles.map(\.id)) {
@@ -180,36 +176,6 @@ struct SettingsView: View {
             get: { profileErrorMessage != nil },
             set: { if !$0 { profileErrorMessage = nil } }
         )
-    }
-}
-
-/// Applies the initial Settings window size after SwiftUI creates its window.
-private struct SettingsWindowConfigurator: NSViewRepresentable {
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            context.coordinator.configure(window: view.window)
-        }
-        return view
-    }
-
-    func updateNSView(_ view: NSView, context: Context) {
-        context.coordinator.configure(window: view.window)
-    }
-
-    @MainActor
-    final class Coordinator {
-        private var didConfigure = false
-
-        func configure(window: NSWindow?) {
-            guard !didConfigure, let window else { return }
-            didConfigure = true
-            window.setContentSize(NSSize(width: 820, height: 560))
-        }
     }
 }
 

@@ -342,6 +342,23 @@ struct AppInfoCommands: Commands {
     }
 }
 
+private enum SettingsWindowID {
+    static let value = "settings"
+}
+
+struct SettingsCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") {
+                openWindow(id: SettingsWindowID.value)
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
+    }
+}
+
 @main
 struct TecolotApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -364,6 +381,7 @@ struct TecolotApp: App {
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             AppInfoCommands()
+            SettingsCommands()
             TabCommands()
             TabSelectionCommands()
             ProfileCommands(profiles: model.profiles)
@@ -372,12 +390,12 @@ struct TecolotApp: App {
             TerminalPrintCommands()
         }
 
-        // The Settings scene does not inherit the DocumentGroup environment
-        Settings {
+        Window("Settings", id: SettingsWindowID.value) {
             SettingsView(issueCenter: model.issueCenter, recovery: model.recovery)
                 .environmentObject(model.profiles)
                 .environmentObject(model.themes)
         }
         .defaultSize(width: 820, height: 560)
+        .windowResizability(.contentMinSize)
     }
 }
