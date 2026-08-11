@@ -2,8 +2,8 @@
 //  TerminalWindowSizeStore.swift
 //  Tecolot
 //
-//  Saves the size of the last normal terminal window. Window-group restores
-//  use their own frames and never replace the normal window size.
+//  Saves the frame of the last normal terminal window. Window-group restores
+//  use their own frames and do not replace the normal window frame.
 //
 
 import AppKit
@@ -13,6 +13,7 @@ final class TerminalWindowSizeStore {
     static let shared = TerminalWindowSizeStore()
 
     private enum DefaultsKey {
+        static let lastFrame = "lastTerminalWindowFrame"
         static let lastFrameSize = "lastTerminalWindowFrameSize"
     }
 
@@ -21,21 +22,22 @@ final class TerminalWindowSizeStore {
 
     private init() {}
 
-    func configure(_ window: NSWindow, restoresSize: Bool = true) {
+    func configure(_ window: NSWindow, restoresFrame: Bool = true) {
         let identifier = ObjectIdentifier(window)
         guard observers[identifier] == nil else { return }
 
         // macOS puts even a single document window in a tab group. All tabs
         // share one frame, so restoring each tab is safe and ensures that
-        // startup document windows restore their saved size.
-        if restoresSize {
-            restoreSize(to: window)
+        // startup document windows restore their saved frame.
+        if restoresFrame {
+            restoreFrame(to: window)
+            recordFrame(of: window)
         }
         observers[identifier] = WindowObserver(
             window: window,
-            didResize: { [weak self, weak window] in
+            didChangeFrame: { [weak self, weak window] in
                 guard let window else { return }
-                self?.recordResize(of: window)
+                self?.recordFrame(of: window)
             },
             didClose: { [weak self] in
                 self?.observers.removeValue(forKey: identifier)
@@ -45,9 +47,9 @@ final class TerminalWindowSizeStore {
     }
 
     /// Applies a saved window-group frame without saving it as the normal
-    /// window size. The frame is constrained to the current screen.
+    /// window frame. The frame is constrained to the current screen.
     func restoreWindowGroupFrame(_ savedFrame: NSRect, to window: NSWindow) {
-        configure(window, restoresSize: false)
+        configure(window, restoresFrame: false)
         let identifier = ObjectIdentifier(window)
         suppressedWindowIDs.insert(identifier)
         window.setFrame(constrainedFrame(savedFrame, for: window), display: true)
@@ -56,30 +58,31 @@ final class TerminalWindowSizeStore {
         }
     }
 
-    private func restoreSize(to window: NSWindow) {
+    private func restoreFrame(to window: NSWindow) {
+        if let storedValue = UserDefaults.standard.string(forKey: DefaultsKey.lastFrame) {
+            let savedFrame = NSRectFromString(storedValue)
+            if isValid(savedFrame) {
+                window.setFrame(constrainedFrame(savedFrame, for: window), display: false)
+                return
+            }
+        }
+
         guard let storedValue = UserDefaults.standard.string(forKey: DefaultsKey.lastFrameSize) else {
             return
         }
-
         let size = NSSizeFromString(storedValue)
-        guard size.width.isFinite,
-              size.height.isFinite,
-              size.width > 0,
-              size.height > 0 else {
-            return
-        }
-
+        guard isValid(size) else { return }
         var savedFrame = window.frame
         savedFrame.size = size
         window.setFrame(constrainedFrame(savedFrame, for: window), display: false)
     }
 
-    private func recordResize(of window: NSWindow) {
+    private func recordFrame(of window: NSWindow) {
         let identifier = ObjectIdentifier(window)
         guard !suppressedWindowIDs.contains(identifier), isNormal(window) else {
             return
         }
-        save(window.frame.size)
+        save(window.frame)
     }
 
     private func isNormal(_ window: NSWindow) -> Bool {
@@ -87,7 +90,9 @@ final class TerminalWindowSizeStore {
     }
 
     private func constrainedFrame(_ frame: NSRect, for window: NSWindow) -> NSRect {
-        guard let screen = window.screen ?? NSScreen.main else { return frame }
+        guard let screen = screen(containing: frame) ?? window.screen ?? NSScreen.main else {
+            return frame
+        }
         let visibleFrame = screen.visibleFrame
         var frame = frame
 
@@ -98,33 +103,65 @@ final class TerminalWindowSizeStore {
         return frame
     }
 
-    private func save(_ size: NSSize) {
-        guard size.width.isFinite,
-              size.height.isFinite,
-              size.width > 0,
-              size.height > 0 else {
-            return
+    private func screen(containing frame: NSRect) -> NSScreen? {
+        let screen = NSScreen.screens.max { first, second in
+            intersectionArea(of: frame, with: first.frame)
+                < intersectionArea(of: frame, with: second.frame)
         }
-        UserDefaults.standard.set(NSStringFromSize(size), forKey: DefaultsKey.lastFrameSize)
+        guard let screen, intersectionArea(of: frame, with: screen.frame) > 0 else {
+            return nil
+        }
+        return screen
+    }
+
+    private func intersectionArea(of first: NSRect, with second: NSRect) -> CGFloat {
+        let intersection = first.intersection(second)
+        return intersection.width * intersection.height
+    }
+
+    private func save(_ frame: NSRect) {
+        guard isValid(frame) else { return }
+        UserDefaults.standard.set(NSStringFromRect(frame), forKey: DefaultsKey.lastFrame)
+        UserDefaults.standard.set(NSStringFromSize(frame.size), forKey: DefaultsKey.lastFrameSize)
+    }
+
+    private func isValid(_ frame: NSRect) -> Bool {
+        frame.origin.x.isFinite
+            && frame.origin.y.isFinite
+            && isValid(frame.size)
+    }
+
+    private func isValid(_ size: NSSize) -> Bool {
+        size.width.isFinite
+            && size.height.isFinite
+            && size.width > 0
+            && size.height > 0
     }
 }
 
 private final class WindowObserver {
     private let resizeObserver: NSObjectProtocol
+    private let moveObserver: NSObjectProtocol
     private let closeObserver: NSObjectProtocol
 
     init(
         window: NSWindow,
-        didResize: @escaping () -> Void,
+        didChangeFrame: @escaping () -> Void,
         didClose: @escaping () -> Void
     ) {
         resizeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification,
             object: window,
             queue: .main
-        ) { [weak window] _ in
-            guard let window else { return }
-            didResize()
+        ) { _ in
+            didChangeFrame()
+        }
+        moveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: window,
+            queue: .main
+        ) { _ in
+            didChangeFrame()
         }
         closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
@@ -137,6 +174,7 @@ private final class WindowObserver {
 
     deinit {
         NotificationCenter.default.removeObserver(resizeObserver)
+        NotificationCenter.default.removeObserver(moveObserver)
         NotificationCenter.default.removeObserver(closeObserver)
     }
 }
