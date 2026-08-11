@@ -1,0 +1,49 @@
+name: Build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Show build tools
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Tecolot.xcodeproj \
+            -scheme Tecolot
+
+      - name: Test TerminalProfilesKit
+        run: swift test --package-path TerminalProfilesKit
+
+      - name: Build Tecolot
+        run: |
+          xcodebuild build \
+            -project Tecolot.xcodeproj \
+            -scheme Tecolot \
+            -configuration Debug \
+            -destination "platform=macOS" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO

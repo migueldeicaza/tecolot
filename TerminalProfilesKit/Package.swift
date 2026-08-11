@@ -17,7 +17,10 @@ let package = Package(
         .library(name: "TerminalProfilesKit", targets: ["TerminalProfilesKit"])
     ],
     dependencies: [
-        .package(path: "../../SwiftTerm")
+        .package(
+            url: "https://github.com/migueldeicaza/SwiftTerm",
+            revision: "c590a52ef866c163cdc157d07312cb5118f3c9b2"
+        )
     ],
     targets: [
         .target(

@@ -117,8 +117,8 @@
 			mainGroup = 497C9E0E2E426320008DBCC0;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				49D265C32F180D680002314A /* XCLocalSwiftPackageReference "../SwiftTerm" */,
 				49D265C62F180D680002314A /* XCLocalSwiftPackageReference "TerminalProfilesKit" */,
+				496BAD6D302A8D04008A15C4 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 497C9E182E426320008DBCC0 /* Products */;
@@ -359,19 +359,27 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		49D265C32F180D680002314A /* XCLocalSwiftPackageReference "../SwiftTerm" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../SwiftTerm;
-		};
 		49D265C62F180D680002314A /* XCLocalSwiftPackageReference "TerminalProfilesKit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = TerminalProfilesKit;
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		496BAD6D302A8D04008A15C4 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
+			requirement = {
+				kind = revision;
+				revision = c590a52ef866c163cdc157d07312cb5118f3c9b2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		49D265C42F180D680002314A /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 496BAD6D302A8D04008A15C4 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
 		};
 		49D265C72F180D680002314A /* TerminalProfilesKit */ = {
