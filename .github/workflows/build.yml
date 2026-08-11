@@ -45,5 +45,6 @@ jobs:
             -scheme Tecolot \
             -configuration Debug \
             -destination "platform=macOS" \
+            -skipPackagePluginValidation \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             CODE_SIGNING_ALLOWED=NO

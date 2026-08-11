@@ -106,6 +106,7 @@ jobs:
             -scheme Tecolot \
             -configuration Release \
             -destination "generic/platform=macOS" \
+            -skipPackagePluginValidation \
             -archivePath "$RUNNER_TEMP/Tecolot.xcarchive" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" \
