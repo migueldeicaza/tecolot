@@ -320,16 +320,14 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     func softReset() {
         terminal?.getTerminal().softReset()
-        if let terminal {
-            terminal.setNeedsDisplay(terminal.frame)
-        }
+        // requestRedraw, not setNeedsDisplay: with a GPU renderer the view does
+        // not draw through AppKit, so an invalidation is dropped on the floor.
+        terminal?.requestRedraw()
     }
 
     func hardReset() {
         terminal?.getTerminal().resetToInitialState()
-        if let terminal {
-            terminal.setNeedsDisplay(terminal.frame)
-        }
+        terminal?.requestRedraw()
     }
 
     var allowMouseReporting: Bool {
@@ -357,7 +355,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         } catch {
             print("METAL TOGGLE FAILED: \(error)")
         }
-        terminal.setNeedsDisplay(terminal.bounds)
+        terminal.requestRedraw()
     }
 
     var usePerFrameMetalBuffering: Bool {
@@ -365,7 +363,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         set {
             guard let terminal else { return }
             terminal.metalBufferingMode = newValue ? .perFrameAggregated : .perRowPersistent
-            terminal.setNeedsDisplay(terminal.bounds)
+            terminal.requestRedraw()
         }
     }
 
