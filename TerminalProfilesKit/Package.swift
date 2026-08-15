@@ -19,7 +19,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/migueldeicaza/SwiftTerm",
-            branch: "new-io"
+            branch: "new-io-perf-glyph-cache"
         )
     ],
     targets: [
