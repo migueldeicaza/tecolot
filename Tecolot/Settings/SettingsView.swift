@@ -8,7 +8,6 @@
 import Combine
 import AppKit
 import SwiftUI
-import TerminalProfilesKit
 
 struct SettingsView: View {
     @ObservedObject var issueCenter: PersistenceIssueCenter

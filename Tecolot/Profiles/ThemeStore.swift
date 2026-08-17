@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 private struct ThemeDocumentV1: Codable {
@@ -96,7 +97,7 @@ public final class ThemeStore: ObservableObject {
 
     nonisolated static func defaultDirectory() -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let bundleID = Bundle.main.bundleIdentifier ?? "TerminalProfilesKit"
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.tirania.Tecolot"
         return appSupport.appendingPathComponent(bundleID).appendingPathComponent("Themes")
     }
 
@@ -310,7 +311,7 @@ public final class ThemeStore: ObservableObject {
     }
 
     nonisolated static func loadBundledThemes() -> [TerminalTheme] {
-        guard let resourceURL = Bundle.module.url(forResource: "Themes", withExtension: nil) else {
+        guard let resourceURL = Bundle.main.url(forResource: "Themes", withExtension: nil) else {
             return []
         }
         return loadRawThemes(in: resourceURL)

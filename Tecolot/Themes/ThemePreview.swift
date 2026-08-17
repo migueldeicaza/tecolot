@@ -7,7 +7,6 @@
 //
 import AppKit
 import SwiftUI
-import TerminalProfilesKit
 
 extension ProfileColor {
     var swiftUIColor: Color {

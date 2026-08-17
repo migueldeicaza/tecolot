@@ -7,7 +7,6 @@
 //  per-window picker popover and the Appearance settings pane alike.
 //
 import SwiftUI
-import TerminalProfilesKit
 import UniformTypeIdentifiers
 
 private struct ThemeEditorPresentation: Identifiable {

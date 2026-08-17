@@ -1,6 +1,6 @@
 //
 //  ProfileColor.swift
-//  TerminalProfilesKit
+//  Tecolot
 //
 //  A value-type, Codable color used by themes and profiles. SwiftTerm's
 //  `Color` is a reference type and not Codable, so the models store this

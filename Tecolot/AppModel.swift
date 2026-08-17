@@ -9,7 +9,6 @@
 //  controller picks up; every fallback path uses the default profile.
 //
 import Foundation
-import TerminalProfilesKit
 
 /// Parameters for the next session to be created
 struct LaunchSpec {

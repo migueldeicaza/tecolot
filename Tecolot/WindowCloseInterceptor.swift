@@ -11,7 +11,6 @@
 import AppKit
 import Darwin
 import SwiftTerm
-import TerminalProfilesKit
 
 @MainActor
 enum TerminalClosePolicy {

@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import TerminalProfilesKit
 import UniformTypeIdentifiers
 
 struct TerminalDocument: FileDocument {

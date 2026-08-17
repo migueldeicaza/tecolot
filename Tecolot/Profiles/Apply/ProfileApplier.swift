@@ -1,6 +1,6 @@
 //
 //  ProfileApplier.swift
-//  TerminalProfilesKit
+//  Tecolot
 //
 //  Bridges the profile/theme models onto a live SwiftTerm TerminalView.
 //  Three phases:

@@ -7,7 +7,6 @@
 import SwiftUI
 import AppKit
 import SwiftTerm
-import TerminalProfilesKit
 import UniformTypeIdentifiers
 
 struct ProfilesSettingsView: View {

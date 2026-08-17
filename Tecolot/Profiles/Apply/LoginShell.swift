@@ -1,6 +1,6 @@
 //
 //  LoginShell.swift
-//  TerminalProfilesKit
+//  Tecolot
 //
 import Foundation
 

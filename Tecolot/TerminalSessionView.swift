@@ -10,7 +10,6 @@ import Darwin
 import Observation
 import SwiftTerm
 import SwiftUI
-import TerminalProfilesKit
 import UniformTypeIdentifiers
 
 @Observable

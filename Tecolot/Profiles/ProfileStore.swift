@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 private struct ProfileStoreStateV1: Codable {
@@ -103,7 +104,7 @@ public final class ProfileStore: ObservableObject {
 
     nonisolated static func defaultDirectory() -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let bundleID = Bundle.main.bundleIdentifier ?? "TerminalProfilesKit"
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.tirania.Tecolot"
         return appSupport.appendingPathComponent(bundleID)
     }
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Convert Windows Terminal color schemes from the MIT-licensed
-mbadolato/iTerm2-Color-Schemes corpus into TerminalProfilesKit theme JSON.
+mbadolato/iTerm2-Color-Schemes corpus into Tecolot theme JSON.
 
 Usage: convert_themes.py <path-to-iTerm2-Color-Schemes>/windowsterminal <output-dir>
 

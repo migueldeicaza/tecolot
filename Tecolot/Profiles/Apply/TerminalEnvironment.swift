@@ -1,6 +1,6 @@
 //
 //  TerminalEnvironment.swift
-//  TerminalProfilesKit
+//  Tecolot
 //
 //  Builds the complete environment for a terminal child process.
 //

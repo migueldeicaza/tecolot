@@ -1,6 +1,6 @@
 //
 //  TerminalProfile.swift
-//  TerminalProfilesKit
+//  Tecolot
 //
 //  A profile bundles the behavioral settings of a terminal window: which
 //  theme to use, font, window geometry, the shell to run and what happens

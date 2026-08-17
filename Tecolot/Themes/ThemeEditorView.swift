@@ -5,7 +5,6 @@
 //  A sheet for creating and editing user-owned terminal themes.
 //
 import SwiftUI
-import TerminalProfilesKit
 
 struct ThemeEditorView: View {
     @ObservedObject var themes: ThemeStore

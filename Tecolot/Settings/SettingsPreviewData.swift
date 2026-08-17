@@ -5,7 +5,6 @@
 //  Isolated sample data for Settings previews.
 //
 import Foundation
-import TerminalProfilesKit
 
 @MainActor
 enum SettingsPreviewData {

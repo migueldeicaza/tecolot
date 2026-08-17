@@ -9,7 +9,6 @@ import AppKit
 import Combine
 import Foundation
 import SwiftUI
-import TerminalProfilesKit
 
 struct SavedTerminalTab: Codable, Equatable, Sendable {
     var profileID: UUID?

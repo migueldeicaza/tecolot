@@ -10,7 +10,6 @@
 import AppKit
 import Observation
 import SwiftUI
-import TerminalProfilesKit
 
 enum TerminalPaneSplit: String, Codable, Sendable {
     /// A vertical divider puts panes next to each other.

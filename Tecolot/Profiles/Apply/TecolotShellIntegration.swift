@@ -1,6 +1,6 @@
 //
 //  TecolotShellIntegration.swift
-//  TerminalProfilesKit
+//  Tecolot
 //
 //  Adds terminal identity and automatic shell integration to child processes.
 //
@@ -15,7 +15,7 @@ public enum TecolotShellIntegration {
 
     /// The directory that contains Tecolot's installable shell integration.
     public static var resourcesDirectory: URL? {
-        guard let directory = Bundle.module.resourceURL else { return nil }
+        guard let directory = Bundle.main.resourceURL else { return nil }
         let integration = directory.appendingPathComponent("shell-integration", isDirectory: true)
         guard FileManager.default.fileExists(atPath: integration.path) else { return nil }
         return directory

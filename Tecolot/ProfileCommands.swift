@@ -9,7 +9,6 @@
 //
 import AppKit
 import SwiftUI
-import TerminalProfilesKit
 
 /// Opens document windows/tabs, threading a LaunchSpec through AppModel
 /// because the NSDocumentController path cannot carry parameters

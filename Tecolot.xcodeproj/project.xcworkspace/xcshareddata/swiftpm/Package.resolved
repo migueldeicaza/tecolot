@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/migueldeicaza/SwiftTerm",
       "state" : {
-        "branch" : "new-io",
-        "revision" : "d84ddd2f3d628dc0b1c9e7ee0d6eca2f414000e6"
+        "branch" : "new-io-perf-glyph-cache",
+        "revision" : "45dd274ea114d43c3321df767f99811991240561"
       }
     }
   ],

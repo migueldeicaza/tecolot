@@ -1,6 +1,6 @@
 //
 //  TerminalTheme.swift
-//  TerminalProfilesKit
+//  Tecolot
 //
 //  A theme is a named set of terminal colors: the 16 ANSI colors plus
 //  foreground/background/cursor/selection. Themes are the user-facing way

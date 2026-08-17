@@ -7,7 +7,6 @@
 
 import AppKit
 import SwiftUI
-import TerminalProfilesKit
 
 struct ContentView: View {
     @Binding var document: TerminalDocument

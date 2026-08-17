@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import TerminalProfilesKit
 
 private struct PreferencesV0 {
     var newTabsUseCurrentDirectory: Bool?

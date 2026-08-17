@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import TerminalProfilesKit
+@testable import Tecolot
 
 final class ProfileColorTests {
     @Test func hexRoundTrip () throws {
@@ -66,8 +66,10 @@ final class ThemeTests {
     }
 }
 
+private final class TestBundleMarker {}
+
 private func fixture(_ name: String, extension fileExtension: String = "json") throws -> Data {
-    let directory = try #require(Bundle.module.url(forResource: "Fixtures", withExtension: nil))
+    let directory = try #require(Bundle(for: TestBundleMarker.self).url(forResource: "Fixtures", withExtension: nil))
     let url = directory.appendingPathComponent(name).appendingPathExtension(fileExtension)
     return try Data(contentsOf: url)
 }

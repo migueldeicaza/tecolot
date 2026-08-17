@@ -1,5 +1,4 @@
 import SwiftUI
-import TerminalProfilesKit
 
 struct DataRecoveryView: View {
     @ObservedObject var issueCenter: PersistenceIssueCenter
