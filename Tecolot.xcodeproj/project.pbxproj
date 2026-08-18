@@ -502,7 +502,7 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
 			requirement = {
-				branch = "new-io-perf-glyph-cache";
+				branch = main;
 				kind = branch;
 			};
 		};
