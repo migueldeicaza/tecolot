@@ -334,7 +334,10 @@ struct AppInfoCommands: Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About Tecolot") {
                 let credits = NSAttributedString(
-                    string: "A native terminal built with SwiftTerm.\nCopyright © 2026 Miguel de Icaza."
+                    string: "A native terminal built with SwiftTerm.\n"
+                        + "Copyright © 2026 Miguel de Icaza.\n\n"
+                        + "Includes Symbols Nerd Font (Nerd Fonts 3.4.0),\n"
+                        + "© Nerd Fonts contributors, MIT License."
                 )
                 NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
             }

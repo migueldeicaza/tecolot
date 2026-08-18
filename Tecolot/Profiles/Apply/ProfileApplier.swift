@@ -93,7 +93,16 @@ public enum ProfileApplier {
         view.useBrightColors = profile.useBrightColorsForBold
         view.optionAsMetaKey = profile.optionAsMetaKey
         view.backspaceSendsControlH = profile.backspaceSendsControlH
-        view.getTerminal ().setCursorStyle (profile.cursorStyle)
+        let cursorStyleParameter: Int
+        switch profile.cursorStyle {
+        case .blinkBlock: cursorStyleParameter = 1
+        case .steadyBlock: cursorStyleParameter = 2
+        case .blinkUnderline: cursorStyleParameter = 3
+        case .steadyUnderline: cursorStyleParameter = 4
+        case .blinkBar: cursorStyleParameter = 5
+        case .steadyBar: cursorStyleParameter = 6
+        }
+        view.feed(text: "\u{1b}[\(cursorStyleParameter) q")
         view.changeScrollback (profile.scrollbackLines)
         view.bellStyle = profile.bellStyle
     }

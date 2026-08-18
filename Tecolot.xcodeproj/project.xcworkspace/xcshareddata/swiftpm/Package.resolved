@@ -1,5 +1,5 @@
 {
-  "originHash" : "58e9c44b93de3f1031691f676305e0c70e5c06fb677120802185ad841b046367",
+  "originHash" : "4d9d9af82f23f3c708bdd502fed3939413b4f2a95a79ae568364cc92bca1527e",
   "pins" : [
     {
       "identity" : "swift-argument-parser",
@@ -16,7 +16,7 @@
       "location" : "https://github.com/migueldeicaza/SwiftTerm",
       "state" : {
         "branch" : "new-io-perf-glyph-cache",
-        "revision" : "45dd274ea114d43c3321df767f99811991240561"
+        "revision" : "a5ae6f342cf428735001e720e6673871a32327a7"
       }
     }
   ],

@@ -11,6 +11,8 @@
 		4A6A1F111234567800000001 /* Themes in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000003 /* Themes */; };
 		4A6A1F111234567800000002 /* shell-integration in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000004 /* shell-integration */; };
 		4A6A1F111234567800000005 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000007 /* Fixtures */; };
+		4A6A1F111234567800000021 /* NerdFontResources in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000020 /* NerdFontResources */; };
+		4A6A1F111234567800000022 /* NerdFontResources in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000020 /* NerdFontResources */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -19,6 +21,7 @@
 		4A6A1F111234567800000004 /* shell-integration */ = {isa = PBXFileReference; lastKnownFileType = folder; name = shell-integration; path = Tecolot/Profiles/Resources/shell-integration; sourceTree = SOURCE_ROOT; };
 		4A6A1F111234567800000006 /* TecolotTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TecolotTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4A6A1F111234567800000007 /* Fixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fixtures; path = TecolotTests/Fixtures; sourceTree = SOURCE_ROOT; };
+		4A6A1F111234567800000020 /* NerdFontResources */ = {isa = PBXFileReference; lastKnownFileType = folder; name = NerdFontResources; path = Tecolot/NerdFont/NerdFontResources; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -26,6 +29,9 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				NerdFont/NerdFontResources/LICENSE,
+				NerdFont/NerdFontResources/SymbolsNerdFont-Regular.ttf,
+				NerdFont/NerdFontResources/THIRD_PARTY_NOTICES.md,
 			);
 			target = 497C9E162E426320008DBCC0 /* Tecolot */;
 		};
@@ -169,6 +175,7 @@
 			files = (
 				4A6A1F111234567800000001 /* Themes in Resources */,
 				4A6A1F111234567800000002 /* shell-integration in Resources */,
+				4A6A1F111234567800000021 /* NerdFontResources in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -177,6 +184,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4A6A1F111234567800000005 /* Fixtures in Resources */,
+				4A6A1F111234567800000022 /* NerdFontResources in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

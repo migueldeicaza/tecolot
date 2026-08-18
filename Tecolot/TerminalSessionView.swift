@@ -179,6 +179,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             options: options
         )
         terminal.sessionController = self
+        // Bundled Symbols Nerd Font supplies icons the profile font lacks.
+        terminal.glyphFallbackProvider = NerdFontFallbackProvider.shared
         attach(to: terminal)
         return terminal
     }
@@ -254,7 +256,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     func exportBuffer() {
         saveData {
-            self.terminal?.getTerminal().getBufferAsData() ?? Data()
+            self.terminal?.getBufferAsData() ?? Data()
         }
     }
 
@@ -266,7 +268,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     func printBuffer() {
-        guard let data = terminal?.getTerminal().getBufferAsData(),
+        guard let data = terminal?.getBufferAsData(),
               let text = String(data: data, encoding: .utf8) else { return }
         let printView = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 720))
         printView.string = text
@@ -294,39 +296,20 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     private func scrollToPrompt(searchingUpward: Bool) -> Bool {
         guard let view = terminal else { return false }
-        let terminalModel = view.getTerminal()
-        guard !terminalModel.isCurrentBufferAlternate else { return false }
-
-        let start = terminalModel.buffer.yDisp
-        let step = searchingUpward ? -1 : 1
-        // Rows below 0 do not exist; above, the buffer cannot hold more than
-        // the scrollback limit plus a screenful, and semanticRowKind returns
-        // nil for rows past the end
-        let limit = searchingUpward
-            ? -1
-            : start + (profile.scrollbackLines ?? 100_000) + terminalModel.rows + 1
-
-        var row = start + step
-        while row != limit {
-            if terminalModel.semanticRowKind(at: row) == .initial {
-                view.scrollTo(row: row)
-                return true
-            }
-            row += step
-        }
-        return false
+        let row = searchingUpward
+            ? view.previousSemanticPromptRow()
+            : view.nextSemanticPromptRow()
+        guard let row else { return false }
+        view.scrollTo(row: row)
+        return true
     }
 
     func softReset() {
-        terminal?.getTerminal().softReset()
-        // requestRedraw, not setNeedsDisplay: with a GPU renderer the view does
-        // not draw through AppKit, so an invalidation is dropped on the floor.
-        terminal?.requestRedraw()
+        terminal?.softReset()
     }
 
     func hardReset() {
-        terminal?.getTerminal().resetToInitialState()
-        terminal?.requestRedraw()
+        terminal?.resetToInitialState()
     }
 
     var allowMouseReporting: Bool {
@@ -484,9 +467,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         case .sendEscapeSequence:
             terminal.send(txt: "\u{1b}" + decodedKeyBindingText(keyBinding.value))
         case .scrollPageUp:
-            scroll(by: -terminal.getTerminal().rows)
+            scroll(by: -terminal.terminalDimensions.rows)
         case .scrollPageDown:
-            scroll(by: terminal.getTerminal().rows)
+            scroll(by: terminal.terminalDimensions.rows)
         case .scrollLineUp:
             scroll(by: -1)
         case .scrollLineDown:
@@ -497,8 +480,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     private func scroll(by rows: Int) {
         guard let terminal else { return }
-        let model = terminal.getTerminal()
-        terminal.scrollTo(row: max(0, model.buffer.yDisp + rows))
+        let state = terminal.terminalStateSnapshot()
+        terminal.scrollTo(row: max(0, state.viewportRow + rows))
     }
 
     private func terminalModifiers(for flags: NSEvent.ModifierFlags) -> TerminalKeyModifiers {
@@ -660,9 +643,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return
         }
         terminal.layoutSubtreeIfNeeded()
-        let cols = terminal.getTerminal().cols
-        let rows = terminal.getTerminal().rows
-        guard cols > 2, rows > 2 else {
+        let dimensions = terminal.terminalDimensions
+        guard dimensions.cols > 2, dimensions.rows > 2 else {
             scheduleStartIfNeeded()
             return
         }
@@ -676,7 +658,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
                               environment: params.environment,
                               execName: params.execName,
                               currentDirectory: params.currentDirectory)
-        terminal.sizeChanged(source: terminal.getTerminal())
+        terminal.sizeChanged(source: terminal,
+                             newCols: dimensions.cols,
+                             newRows: dimensions.rows)
     }
 
     private func restoreBufferIfNeeded(on terminal: LocalProcessTerminalView) {
@@ -709,7 +693,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         snapshotWorkItem?.cancel()
         snapshotWorkItem = nil
         guard let bufferSnapshotHandler,
-              let data = terminal?.getTerminal().getBufferAsData(),
+              let data = terminal?.getBufferAsData(),
               let content = String(data: data, encoding: .utf8) else { return }
         bufferSnapshotHandler(content)
     }
@@ -735,7 +719,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return
         }
         guard let terminal else { return }
-        let terminalModel = terminal.getTerminal()
+        let dimensions = terminal.terminalDimensions
         var components: [String] = []
 
         func appendIfPresent (_ value: String?) {
@@ -748,7 +732,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             appendIfPresent (displayedTerminalTitle)
         }
         if profile.titleComponents.contains (.dimensions) {
-            appendIfPresent ("\(terminalModel.cols) x \(terminalModel.rows)")
+            appendIfPresent ("\(dimensions.cols) x \(dimensions.rows)")
         }
         if let directory = currentWorkingDirectory {
             if profile.titleComponents.contains (.fullPath) {
