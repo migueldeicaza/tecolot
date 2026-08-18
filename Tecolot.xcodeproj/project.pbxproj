@@ -15,10 +15,20 @@
 		4A6A1F111234567800000022 /* NerdFontResources in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000020 /* NerdFontResources */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		490F1ED03033D4F000A84BCF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 497C9E0F2E426320008DBCC0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 497C9E162E426320008DBCC0;
+			remoteInfo = Tecolot;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		497C9E172E426320008DBCC0 /* Tecolot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tecolot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4A6A1F111234567800000003 /* Themes */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Themes; path = Tecolot/Profiles/Resources/Themes; sourceTree = SOURCE_ROOT; };
-		4A6A1F111234567800000004 /* shell-integration */ = {isa = PBXFileReference; lastKnownFileType = folder; name = shell-integration; path = Tecolot/Profiles/Resources/shell-integration; sourceTree = SOURCE_ROOT; };
+		4A6A1F111234567800000004 /* shell-integration */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "shell-integration"; path = "Tecolot/Profiles/Resources/shell-integration"; sourceTree = SOURCE_ROOT; };
 		4A6A1F111234567800000006 /* TecolotTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TecolotTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4A6A1F111234567800000007 /* Fixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fixtures; path = TecolotTests/Fixtures; sourceTree = SOURCE_ROOT; };
 		4A6A1F111234567800000020 /* NerdFontResources */ = {isa = PBXFileReference; lastKnownFileType = folder; name = NerdFontResources; path = Tecolot/NerdFont/NerdFontResources; sourceTree = SOURCE_ROOT; };
@@ -30,7 +40,7 @@
 			membershipExceptions = (
 				Info.plist,
 				NerdFont/NerdFontResources/LICENSE,
-				NerdFont/NerdFontResources/SymbolsNerdFont-Regular.ttf,
+				"NerdFont/NerdFontResources/SymbolsNerdFont-Regular.ttf",
 				NerdFont/NerdFontResources/THIRD_PARTY_NOTICES.md,
 			);
 			target = 497C9E162E426320008DBCC0 /* Tecolot */;
@@ -62,15 +72,34 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4A6A1F111234567800000012 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		490F1D323033D4F000A84BCF /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				4A6A1F111234567800000003 /* Themes */,
+				4A6A1F111234567800000004 /* shell-integration */,
+				4A6A1F111234567800000020 /* NerdFontResources */,
+				4A6A1F111234567800000007 /* Fixtures */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		497C9E0E2E426320008DBCC0 = {
 			isa = PBXGroup;
 			children = (
 				497C9E192E426320008DBCC0 /* Tecolot */,
 				4A6A1F111234567800000008 /* TecolotTests */,
 				497C9E182E426320008DBCC0 /* Products */,
+				490F1D323033D4F000A84BCF /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -205,19 +234,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		4A6A1F111234567800000012 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
 		4A6A1F111234567800000014 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 497C9E162E426320008DBCC0 /* Tecolot */;
+			targetProxy = 490F1ED03033D4F000A84BCF /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
