@@ -210,17 +210,31 @@ final class TerminalPaneHostView: NSView {
     }
 
     private func rebuild() {
+        // Removing a focused terminal does not always make AppKit resign it.
+        // Clear the first responder first so the old pane sends focus-out.
+        if let terminal = window?.firstResponder as? AppTerminalView,
+           terminal.isDescendant(of: self) {
+            window?.makeFirstResponder(nil)
+        }
         subviews.forEach { $0.removeFromSuperview() }
         let rootView = makeView(for: workspace.root)
         rootView.frame = bounds
         rootView.autoresizingMask = [.width, .height]
         addSubview(rootView)
+
+        // Reattaching a terminal view clears AppKit's first responder. Ask
+        // for focus after the new split hierarchy is in the window.
+        workspace.focusedController?.requestFocus()
     }
 
     private func makeView(for node: TerminalPaneNode) -> NSView {
         switch node.content {
         case .terminal(let controller):
-            return controller.makeTerminalView(document: document)
+            // The container supplies the terminal's Auto Layout constraints.
+            // NSSplitView must size the container, not the terminal itself.
+            return TerminalSessionContainerView(
+                terminal: controller.makeTerminalView(document: document)
+            )
         case .split(let orientation, let first, let second):
             let splitView = NSSplitView(frame: .zero)
             splitView.isVertical = orientation == .vertical
