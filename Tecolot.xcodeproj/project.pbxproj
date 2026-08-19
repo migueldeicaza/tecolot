@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		493909A0302C981500BCA769 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 4939099F302C981500BCA769 /* SwiftTerm */; };
 		4A6A1F111234567800000001 /* Themes in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000003 /* Themes */; };
 		4A6A1F111234567800000002 /* shell-integration in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000004 /* shell-integration */; };
 		4A6A1F111234567800000005 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000007 /* Fixtures */; };
@@ -68,7 +67,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				493909A0302C981500BCA769 /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -132,7 +130,6 @@
 			);
 			name = Tecolot;
 			packageProductDependencies = (
-				4939099F302C981500BCA769 /* SwiftTerm */,
 			);
 			productName = Tecolot;
 			productReference = 497C9E172E426320008DBCC0 /* Tecolot.app */;
@@ -184,7 +181,7 @@
 			mainGroup = 497C9E0E2E426320008DBCC0;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				490F2BC63036271200A84BCF /* XCLocalSwiftPackageReference "../SwiftTerm" */,
+				490F2F093036637800A84BCF /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 497C9E182E426320008DBCC0 /* Products */;
@@ -497,20 +494,16 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		490F2BC63036271200A84BCF /* XCLocalSwiftPackageReference "../SwiftTerm" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../SwiftTerm;
+/* Begin XCRemoteSwiftPackageReference section */
+		490F2F093036637800A84BCF /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
 		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		4939099F302C981500BCA769 /* SwiftTerm */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 490F2BC63036271200A84BCF /* XCLocalSwiftPackageReference "../SwiftTerm" */;
-			productName = SwiftTerm;
-		};
-/* End XCSwiftPackageProductDependency section */
+/* End XCRemoteSwiftPackageReference section */
 	};
 	rootObject = 497C9E0F2E426320008DBCC0 /* Project object */;
 }
