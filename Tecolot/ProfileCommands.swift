@@ -22,6 +22,11 @@ enum WindowOpener {
         }
         NSApp.activate(ignoringOtherApps: true)
         let window = document.windowControllers.first?.window
+        // An explicitly opened window starts at the selected profile's
+        // dimensions. Only windows restored by the system use a saved frame.
+        if let window {
+            TerminalWindowSizeStore.shared.configure(window, restoresFrame: false)
+        }
         window?.makeKeyAndOrderFront(nil)
         return window
     }
@@ -35,6 +40,9 @@ enum WindowOpener {
             return nil
         }
         NSApp.activate(ignoringOtherApps: true)
+        // A tab can be created in a new window before it is merged into its
+        // target tab group. Do not apply a saved frame during that interval.
+        TerminalWindowSizeStore.shared.configure(newWindow, restoresFrame: false)
         newWindow.tabbingMode = .preferred
         newWindow.tabbingIdentifier = "TerminalDocument"
 

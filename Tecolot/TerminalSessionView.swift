@@ -250,10 +250,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         scheduleFocusIfNeeded()
     }
 
-    func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {
-        // SwiftUI owns window sizing; SwiftTerm resizes the PTY. The size can
-        // also be part of the user-selected window title.
-        updateWindowTitle()
+    func sizeChanged(source _: LocalProcessTerminalView, newCols _: Int, newRows _: Int) {
+        // LocalProcessTerminalView updates the PTY. Do not resize the window here.
     }
 
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
