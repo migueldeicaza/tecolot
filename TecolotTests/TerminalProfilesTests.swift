@@ -485,6 +485,8 @@ final class ProfileStoreTests {
         #expect(profile.fontSize == TerminalProfile.standardValues.fontSize)
         #expect(profile.shell == .loginShell)
         #expect(profile.titleComponents == [.activeTitle, .workingDirectory])
+        #expect(profile.termProgram == "ghostty")
+        #expect(profile.termVersion == "1.3.1")
     }
 
     @Test func futureProfileRemainsUntouchedAndIsReported() throws {
@@ -616,8 +618,8 @@ final class LaunchParametersTests {
         let params = ProfileApplier.launchParameters (for: profile)
         #expect (params.execName?.hasPrefix ("-") == true)
         #expect (params.environment.contains ("TERM=xterm-256color"))
-        #expect (params.environment.contains ("TERM_PROGRAM=tecolot"))
         #expect (params.environment.contains ("TERM_FEATURES=\(TerminalFeatureReporting.featureString)"))
+        #expect (!params.environment.contains { $0.hasPrefix("TERM_PROGRAM=") })
         #expect (params.environment.contains { $0.hasPrefix("TECOLOT_RESOURCES_DIR=") })
     }
 
@@ -626,6 +628,43 @@ final class LaunchParametersTests {
         profile.termName = "xterm-direct"
         let params = ProfileApplier.launchParameters (for: profile)
         #expect (params.environment.contains ("TERM=xterm-direct"))
+    }
+
+    @Test func ghosttyTermNameAddsItsProgramIdentity() {
+        var profile = TerminalProfile(name: "Test")
+        profile.termName = "xterm-ghostty"
+        let params = ProfileApplier.launchParameters(for: profile)
+        let environment = environmentValues(params.environment)
+
+        #expect(environment["TERM"] == "xterm-ghostty")
+        #expect(environment["TERM_PROGRAM"] == "ghostty")
+        #expect(environment["TERM_VERSION"] == "1.3.1")
+        #expect(environment["TERM_PROGRAM_VERSION"] == nil)
+    }
+
+    @Test func ghosttyProgramIdentityUsesProfileValues() {
+        var profile = TerminalProfile(name: "Test")
+        profile.termName = "xterm-ghostty"
+        profile.termProgram = "custom-ghostty"
+        profile.termVersion = "2.0"
+        let params = ProfileApplier.launchParameters(for: profile)
+        let environment = environmentValues(params.environment)
+
+        #expect(environment["TERM_PROGRAM"] == "custom-ghostty")
+        #expect(environment["TERM_VERSION"] == "2.0")
+    }
+
+    @Test func otherTermNamesDoNotAddGhosttyProgramIdentity() {
+        var profile = TerminalProfile(name: "Test")
+        profile.termName = "vt100"
+        profile.termProgram = "hidden-program"
+        profile.termVersion = "hidden-version"
+        let params = ProfileApplier.launchParameters(for: profile)
+        let environment = environmentValues(params.environment)
+
+        #expect(environment["TERM_PROGRAM"] == nil)
+        #expect(environment["TERM_PROGRAM_VERSION"] == nil)
+        #expect(environment["TERM_VERSION"] == nil)
     }
 
     @Test func inheritsParentEnvironmentAndReplacesTerminalState() {
@@ -653,8 +692,8 @@ final class LaunchParametersTests {
         #expect(environment["LC_CTYPE"] == "en_GB.UTF-8")
         #expect(environment["TERM"] == "xterm-256color")
         #expect(environment["COLORTERM"] == "truecolor")
-        #expect(environment["TERM_PROGRAM"] == "tecolot")
         #expect(environment["TERM_FEATURES"] == TerminalFeatureReporting.featureString)
+        #expect(environment["TERM_PROGRAM"] == nil)
         #expect(environment["VTE_VERSION"] == nil)
         #expect(environment["PWD"] == nil)
         #expect(environment["SHLVL"] == nil)
@@ -746,6 +785,8 @@ final class LaunchParametersTests {
 final class TerminalEnvironmentVariableTests {
     @Test func profileRoundTripPreservesSetAndUnsetValues() throws {
         var profile = TerminalProfile(name: "Test")
+        profile.termProgram = "custom-ghostty"
+        profile.termVersion = "2.0"
         profile.environmentVariables = [
             TerminalEnvironmentVariable(name: "EDITOR", value: "nvim"),
             TerminalEnvironmentVariable(name: "SSH_AUTH_SOCK", value: nil),
@@ -758,6 +799,8 @@ final class TerminalEnvironmentVariableTests {
         )
 
         #expect(decoded.environmentVariables == profile.environmentVariables)
+        #expect(decoded.termProgram == profile.termProgram)
+        #expect(decoded.termVersion == profile.termVersion)
     }
 }
 

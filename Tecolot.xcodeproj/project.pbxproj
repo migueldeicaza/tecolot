@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		490F324E303671B100A84BCF /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 490F324D303671B100A84BCF /* SwiftTerm */; };
 		4A6A1F111234567800000001 /* Themes in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000003 /* Themes */; };
 		4A6A1F111234567800000002 /* shell-integration in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000004 /* shell-integration */; };
 		4A6A1F111234567800000005 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000007 /* Fixtures */; };
@@ -67,6 +68,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				490F324E303671B100A84BCF /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -91,6 +93,13 @@
 			name = "Recovered References";
 			sourceTree = "<group>";
 		};
+		490F324C303671B100A84BCF /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		497C9E0E2E426320008DBCC0 = {
 			isa = PBXGroup;
 			children = (
@@ -98,6 +107,7 @@
 				4A6A1F111234567800000008 /* TecolotTests */,
 				497C9E182E426320008DBCC0 /* Products */,
 				490F1D323033D4F000A84BCF /* Recovered References */,
+				490F324C303671B100A84BCF /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -130,6 +140,7 @@
 			);
 			name = Tecolot;
 			packageProductDependencies = (
+				490F324D303671B100A84BCF /* SwiftTerm */,
 			);
 			productName = Tecolot;
 			productReference = 497C9E172E426320008DBCC0 /* Tecolot.app */;
@@ -504,6 +515,14 @@
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		490F324D303671B100A84BCF /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 490F2F093036637800A84BCF /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 497C9E0F2E426320008DBCC0 /* Project object */;
 }

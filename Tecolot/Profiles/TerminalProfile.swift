@@ -169,6 +169,10 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     // MARK: Advanced
     /// Value for the TERM environment variable
     public var termName: String
+    /// Value for TERM_PROGRAM when TERM is xterm-ghostty
+    public var termProgram: String
+    /// Value for TERM_VERSION when TERM is xterm-ghostty
+    public var termVersion: String
     /// Set or unset values after Tecolot prepares the child environment.
     public var environmentVariables: [TerminalEnvironmentVariable]
     /// How the terminal responds to the bell character
@@ -197,6 +201,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.backspaceSendsControlH = defaults.backspaceSendsControlH
         self.keyBindings = defaults.keyBindings
         self.termName = defaults.termName
+        self.termProgram = defaults.termProgram
+        self.termVersion = defaults.termVersion
         self.environmentVariables = defaults.environmentVariables
         self.bellStyle = defaults.bellStyle
     }
@@ -210,6 +216,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
                                 titleOverride: String?, titleComponents: Set<TerminalTitleComponent>, shell: ShellCommand,
                                 whenShellExits: ShellExitBehavior, askBeforeClosing: AskBeforeClosing,
                                 optionAsMetaKey: Bool, backspaceSendsControlH: Bool, termName: String,
+                                termProgram: String, termVersion: String,
                                 environmentVariables: [TerminalEnvironmentVariable], bellStyle: BellStyle,
                                 keyBindings: [TerminalKeyBinding]) {
         (themeName: TerminalTheme.fallback.name, fontFamily: nil, fontSize: 12,
@@ -219,6 +226,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
          titleOverride: nil, titleComponents: [.activeTitle, .workingDirectory], shell: .loginShell,
          whenShellExits: .closeIfExitedCleanly, askBeforeClosing: .onlyIfProcessesRunning,
          optionAsMetaKey: true, backspaceSendsControlH: false, termName: "xterm-256color",
+         termProgram: "ghostty", termVersion: "1.3.1",
          environmentVariables: [], bellStyle: .sound, keyBindings: [])
     }
 
@@ -227,7 +235,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         case useBrightColorsForBold, cursorStyle, backgroundOpacity
         case columns, rows, scrollbackLines, titleOverride, titleComponents
         case shell, whenShellExits, askBeforeClosing
-        case optionAsMetaKey, backspaceSendsControlH, keyBindings, termName, environmentVariables, bellStyle
+        case optionAsMetaKey, backspaceSendsControlH, keyBindings, termName, termProgram, termVersion
+        case environmentVariables, bellStyle
     }
 
     // Hand-written decoding: every field except id/name falls back to the
@@ -267,6 +276,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.backspaceSendsControlH = try c.decodeIfPresent (Bool.self, forKey: .backspaceSendsControlH) ?? defaults.backspaceSendsControlH
         self.keyBindings = try c.decodeIfPresent ([TerminalKeyBinding].self, forKey: .keyBindings) ?? defaults.keyBindings
         self.termName = try c.decodeIfPresent (String.self, forKey: .termName) ?? defaults.termName
+        self.termProgram = try c.decodeIfPresent(String.self, forKey: .termProgram) ?? defaults.termProgram
+        self.termVersion = try c.decodeIfPresent(String.self, forKey: .termVersion) ?? defaults.termVersion
         self.environmentVariables = try c.decodeIfPresent ([TerminalEnvironmentVariable].self, forKey: .environmentVariables)
             ?? defaults.environmentVariables
         // BellStyle is deliberately not Codable in SwiftTerm; persist its tagName
@@ -301,6 +312,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode (backspaceSendsControlH, forKey: .backspaceSendsControlH)
         try c.encode (keyBindings, forKey: .keyBindings)
         try c.encode (termName, forKey: .termName)
+        try c.encode(termProgram, forKey: .termProgram)
+        try c.encode(termVersion, forKey: .termVersion)
         try c.encode (environmentVariables, forKey: .environmentVariables)
         try c.encode (bellStyle.tagName, forKey: .bellStyle)
     }

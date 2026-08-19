@@ -180,7 +180,13 @@ public enum ProfileApplier {
             processEnvironment: processEnvironment
         )
         var result = integrated
-        result.environment = TerminalEnvironment.applying(profile.environmentVariables, to: integrated.environment)
+        let identified = TerminalEnvironment.applyingTerminalIdentity(
+            termName: profile.termName,
+            termProgram: profile.termProgram,
+            termVersion: profile.termVersion,
+            to: integrated.environment
+        )
+        result.environment = TerminalEnvironment.applying(profile.environmentVariables, to: identified)
         return result
     }
 }

@@ -440,7 +440,13 @@ struct ProfileSettingsPage: View {
     private var advancedSettings: some View {
         Form {
             Section {
-                TextField("Declare terminal as:", text: binding(\.termName))
+                LabeledContent("Declare terminal as:") {
+                    TerminalNameComboBox(text: binding(\.termName))
+                }
+                if profile.termName == "xterm-ghostty" {
+                    TextField("TERM_PROGRAM:", text: binding(\.termProgram))
+                    TextField("TERM_VERSION:", text: binding(\.termVersion))
+                }
                 Picker("Bell:", selection: binding(\.bellStyle)) {
                     ForEach(BellStyle.allCases, id: \.tagName) { style in
                         Text(style.displayName).tag(style)
@@ -515,6 +521,58 @@ struct ProfileSettingsPage: View {
         case .fullPath: return "Full path"
         case .profileName: return "Profile name"
         case .dimensions: return "Dimensions"
+        }
+    }
+}
+
+private struct TerminalNameComboBox: NSViewRepresentable {
+    private static let values = [
+        "xterm-256color",
+        "xterm-color",
+        "xterm",
+        "vt100",
+        "xterm-ghostty"
+    ]
+
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> NSComboBox {
+        let comboBox = NSComboBox()
+        comboBox.addItems(withObjectValues: Self.values)
+        comboBox.isEditable = true
+        comboBox.completes = true
+        comboBox.delegate = context.coordinator
+        comboBox.stringValue = text
+        comboBox.setAccessibilityLabel(String(localized: "Declare terminal as"))
+        return comboBox
+    }
+
+    func updateNSView(_ comboBox: NSComboBox, context: Context) {
+        context.coordinator.text = $text
+        if comboBox.stringValue != text {
+            comboBox.stringValue = text
+        }
+    }
+
+    final class Coordinator: NSObject, NSComboBoxDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let comboBox = notification.object as? NSComboBox else { return }
+            text.wrappedValue = comboBox.stringValue
+        }
+
+        func comboBoxSelectionDidChange(_ notification: Notification) {
+            guard let comboBox = notification.object as? NSComboBox else { return }
+            text.wrappedValue = comboBox.stringValue
         }
     }
 }
