@@ -116,6 +116,8 @@ struct TabCommands: Commands {
 }
 
 struct TabSelectionCommands: Commands {
+    @State private var commandState = TerminalCommandState()
+
     var body: some Commands {
         CommandGroup(after: .windowArrangement) {
             Menu("Select Tab") {
@@ -131,7 +133,25 @@ struct TabSelectionCommands: Commands {
                 }
                 .keyboardShortcut("9", modifiers: [.command])
             }
+
+            Divider()
+
+            Button("Select Previous Split") {
+                commandState.controller?.workspace?.selectPreviousSplit()
+            }
+            .keyboardShortcut("[", modifiers: [.command])
+            .disabled(!hasMultipleSplits)
+
+            Button("Select Next Split") {
+                commandState.controller?.workspace?.selectNextSplit()
+            }
+            .keyboardShortcut("]", modifiers: [.command])
+            .disabled(!hasMultipleSplits)
         }
+    }
+
+    private var hasMultipleSplits: Bool {
+        (commandState.controller?.workspace?.paneCount ?? 0) > 1
     }
 
     private func selectTab(at index: Int) {
@@ -150,6 +170,80 @@ struct TabSelectionCommands: Commands {
             return
         }
         tabGroup.selectedWindow = lastWindow
+    }
+}
+
+struct SplitCommands: Commands {
+    @State private var commandState = TerminalCommandState()
+
+    private var workspace: TerminalPaneWorkspace? {
+        commandState.controller?.workspace
+    }
+
+    private var hasMultipleSplits: Bool {
+        (workspace?.paneCount ?? 0) > 1
+    }
+
+    var body: some Commands {
+        CommandMenu("Select Split") {
+            Button("Select Split Above") {
+                workspace?.selectSplit(in: .up)
+            }
+            .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+            .disabled(!hasMultipleSplits)
+
+            Button("Select Split Below") {
+                workspace?.selectSplit(in: .down)
+            }
+            .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+            .disabled(!hasMultipleSplits)
+
+            Button("Select Split Left") {
+                workspace?.selectSplit(in: .left)
+            }
+            .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+            .disabled(!hasMultipleSplits)
+
+            Button("Select Split Right") {
+                workspace?.selectSplit(in: .right)
+            }
+            .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+            .disabled(!hasMultipleSplits)
+        }
+
+        CommandMenu("Resize Split") {
+            Button("Equalize Split") {
+                workspace?.equalizeSplits()
+            }
+            .keyboardShortcut("=", modifiers: [.command, .control])
+            .disabled(!hasMultipleSplits)
+
+            Divider()
+
+            Button("Move Divider Up") {
+                workspace?.moveDivider(in: .up)
+            }
+            .keyboardShortcut(.upArrow, modifiers: [.command, .control])
+            .disabled(!hasMultipleSplits)
+
+            Button("Move Divider Down") {
+                workspace?.moveDivider(in: .down)
+            }
+            .keyboardShortcut(.downArrow, modifiers: [.command, .control])
+            .disabled(!hasMultipleSplits)
+
+            Button("Move Divider Left") {
+                workspace?.moveDivider(in: .left)
+            }
+            .keyboardShortcut(.leftArrow, modifiers: [.command, .control])
+            .disabled(!hasMultipleSplits)
+
+            Button("Move Divider Right") {
+                workspace?.moveDivider(in: .right)
+            }
+            .keyboardShortcut(.rightArrow, modifiers: [.command, .control])
+            .disabled(!hasMultipleSplits)
+        }
     }
 }
 
@@ -387,6 +481,7 @@ struct TecolotApp: App {
             SettingsCommands()
             TabCommands()
             TabSelectionCommands()
+            SplitCommands()
             ProfileCommands(profiles: model.profiles)
             WindowGroupCommands(store: model.windowGroups)
             TerminalCommands()

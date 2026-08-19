@@ -9,6 +9,7 @@
 
 import AppKit
 import Observation
+import SwiftTerm
 import SwiftUI
 
 enum TerminalPaneSplit: String, Codable, Sendable {
@@ -16,6 +17,13 @@ enum TerminalPaneSplit: String, Codable, Sendable {
     case vertical
     /// A horizontal divider stacks panes.
     case horizontal
+}
+
+enum TerminalPaneDirection {
+    case up
+    case down
+    case left
+    case right
 }
 
 @Observable
@@ -39,6 +47,7 @@ final class TerminalPaneWorkspace {
     private(set) var root: TerminalPaneNode
     private(set) var revision = 0
     private(set) var focusedControllerID: UUID
+    @ObservationIgnored weak var hostView: TerminalPaneHostView?
 
     init() {
         let controller = TerminalSessionController()
@@ -80,6 +89,26 @@ final class TerminalPaneWorkspace {
         revision += 1
     }
 
+    func selectPreviousSplit() {
+        selectSplit(offset: -1)
+    }
+
+    func selectNextSplit() {
+        selectSplit(offset: 1)
+    }
+
+    func selectSplit(in direction: TerminalPaneDirection) {
+        hostView?.selectSplit(in: direction)
+    }
+
+    func equalizeSplits() {
+        hostView?.equalizeSplits()
+    }
+
+    func moveDivider(in direction: TerminalPaneDirection) {
+        hostView?.moveDivider(in: direction)
+    }
+
     /// Removes a pane. Returns false when it is the only pane in the window.
     @discardableResult
     func close(_ controller: TerminalSessionController) -> Bool {
@@ -112,6 +141,18 @@ final class TerminalPaneWorkspace {
 
     private func contains(_ controller: TerminalSessionController) -> Bool {
         controllers.contains { $0 === controller }
+    }
+
+    private func selectSplit(offset: Int) {
+        let controllers = controllers
+        guard controllers.count > 1,
+              let currentIndex = controllers.firstIndex(where: { $0.id == focusedControllerID }) else {
+            return
+        }
+        let nextIndex = (currentIndex + offset + controllers.count) % controllers.count
+        let next = controllers[nextIndex]
+        focusedControllerID = next.id
+        next.requestFocus()
     }
 
     private func collectControllers(in node: TerminalPaneNode) -> [TerminalSessionController] {
@@ -185,11 +226,13 @@ final class TerminalPaneHostView: NSView {
     let workspace: TerminalPaneWorkspace
     private var document: TerminalDocument
     private var displayedRevision = -1
+    private var paneViews: [UUID: NSView] = [:]
 
     init(workspace: TerminalPaneWorkspace, document: TerminalDocument) {
         self.workspace = workspace
         self.document = document
         super.init(frame: .zero)
+        workspace.hostView = self
     }
 
     @available(*, unavailable)
@@ -217,6 +260,7 @@ final class TerminalPaneHostView: NSView {
             window?.makeFirstResponder(nil)
         }
         subviews.forEach { $0.removeFromSuperview() }
+        paneViews.removeAll()
         let rootView = makeView(for: workspace.root)
         rootView.frame = bounds
         rootView.autoresizingMask = [.width, .height]
@@ -227,14 +271,78 @@ final class TerminalPaneHostView: NSView {
         workspace.focusedController?.requestFocus()
     }
 
+    func selectSplit(in direction: TerminalPaneDirection) {
+        guard let focused = workspace.focusedController,
+              let source = paneViews[focused.id] else { return }
+
+        let sourceFrame = source.convert(source.bounds, to: self)
+        let candidates = workspace.controllers.compactMap { controller -> (TerminalSessionController, CGRect)? in
+            guard controller !== focused, let pane = paneViews[controller.id] else { return nil }
+            return (controller, pane.convert(pane.bounds, to: self))
+        }
+        guard let target = candidates
+            .filter({ isInDirection($0.1, from: sourceFrame, direction: direction) })
+            .min(by: { directionScore($0.1, from: sourceFrame, direction: direction)
+                < directionScore($1.1, from: sourceFrame, direction: direction) })?.0 else {
+            return
+        }
+        workspace.markFocused(target)
+        target.requestFocus()
+    }
+
+    func equalizeSplits() {
+        equalizeSplits(in: subviews.first)
+    }
+
+    func moveDivider(in direction: TerminalPaneDirection) {
+        guard let focused = workspace.focusedController,
+              let pane = paneViews[focused.id],
+              let splitView = nearestSplitView(for: pane, direction: direction) else {
+            return
+        }
+
+        let movesAlongHorizontalAxis = direction == .left || direction == .right
+        let cellSize = terminalCellSize(for: focused, horizontal: movesAlongHorizontalAxis)
+        let delta: CGFloat
+        switch direction {
+        case .up:
+            delta = -cellSize
+        case .down:
+            delta = cellSize
+        case .left:
+            delta = -cellSize
+        case .right:
+            delta = cellSize
+        }
+        let divider = splitView.dividerThickness
+        let availableLength = movesAlongHorizontalAxis ? splitView.bounds.width : splitView.bounds.height
+        let minimumLength = minimumPaneLength(in: splitView, horizontal: movesAlongHorizontalAxis)
+        let minimumPosition = max(
+            minimumLength,
+            splitView.minPossiblePositionOfDivider(at: 0)
+        )
+        let maximumPosition = min(
+            availableLength - divider - minimumLength,
+            splitView.maxPossiblePositionOfDivider(at: 0)
+        )
+        guard maximumPosition >= minimumPosition else { return }
+
+        let firstPane = splitView.arrangedSubviews[0]
+        let position = movesAlongHorizontalAxis ? firstPane.frame.width : firstPane.frame.height
+        splitView.setPosition(min(max(position + delta, minimumPosition), maximumPosition), ofDividerAt: 0)
+        splitView.adjustSubviews()
+    }
+
     private func makeView(for node: TerminalPaneNode) -> NSView {
         switch node.content {
         case .terminal(let controller):
             // The container supplies the terminal's Auto Layout constraints.
             // NSSplitView must size the container, not the terminal itself.
-            return TerminalSessionContainerView(
+            let view = TerminalSessionContainerView(
                 terminal: controller.makeTerminalView(document: document)
             )
+            paneViews[controller.id] = view
+            return view
         case .split(let orientation, let first, let second):
             let splitView = NSSplitView(frame: .zero)
             splitView.isVertical = orientation == .vertical
@@ -243,5 +351,81 @@ final class TerminalPaneHostView: NSView {
             splitView.addArrangedSubview(makeView(for: second))
             return splitView
         }
+    }
+
+    private func isInDirection(
+        _ candidate: CGRect,
+        from source: CGRect,
+        direction: TerminalPaneDirection
+    ) -> Bool {
+        switch direction {
+        case .up:
+            return candidate.minY >= source.maxY && candidate.maxX > source.minX && candidate.minX < source.maxX
+        case .down:
+            return candidate.maxY <= source.minY && candidate.maxX > source.minX && candidate.minX < source.maxX
+        case .left:
+            return candidate.maxX <= source.minX && candidate.maxY > source.minY && candidate.minY < source.maxY
+        case .right:
+            return candidate.minX >= source.maxX && candidate.maxY > source.minY && candidate.minY < source.maxY
+        }
+    }
+
+    private func directionScore(
+        _ candidate: CGRect,
+        from source: CGRect,
+        direction: TerminalPaneDirection
+    ) -> CGFloat {
+        switch direction {
+        case .up:
+            return candidate.minY - source.maxY + abs(candidate.midX - source.midX)
+        case .down:
+            return source.minY - candidate.maxY + abs(candidate.midX - source.midX)
+        case .left:
+            return source.minX - candidate.maxX + abs(candidate.midY - source.midY)
+        case .right:
+            return candidate.minX - source.maxX + abs(candidate.midY - source.midY)
+        }
+    }
+
+    private func equalizeSplits(in view: NSView?) {
+        guard let view else { return }
+        if let splitView = view as? NSSplitView, splitView.arrangedSubviews.count == 2 {
+            let length = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
+            splitView.setPosition((length - splitView.dividerThickness) / 2, ofDividerAt: 0)
+            splitView.adjustSubviews()
+        }
+        for subview in view.subviews {
+            equalizeSplits(in: subview)
+        }
+    }
+
+    private func nearestSplitView(for pane: NSView, direction: TerminalPaneDirection) -> NSSplitView? {
+        let wantsVertical = direction == .left || direction == .right
+        var view = pane.superview
+        while let current = view {
+            if let splitView = current as? NSSplitView, splitView.isVertical == wantsVertical {
+                return splitView
+            }
+            view = current.superview
+        }
+        return nil
+    }
+
+    private func terminalCellSize(for controller: TerminalSessionController, horizontal: Bool) -> CGFloat {
+        guard let terminal = controller.terminal else { return 1 }
+        let dimensions = terminal.terminalDimensions
+        let units = horizontal ? dimensions.cols : dimensions.rows
+        let length = horizontal ? terminal.bounds.width : terminal.bounds.height
+        guard units > 0, length > 0 else { return 1 }
+        return length / CGFloat(units)
+    }
+
+    private func minimumPaneLength(in splitView: NSSplitView, horizontal: Bool) -> CGFloat {
+        workspace.controllers
+            .compactMap { controller -> CGFloat? in
+                guard let pane = paneViews[controller.id], pane.isDescendant(of: splitView) else { return nil }
+                return terminalCellSize(for: controller, horizontal: horizontal)
+            }
+            .max() ?? 1
     }
 }
