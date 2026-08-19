@@ -184,7 +184,7 @@
 			mainGroup = 497C9E0E2E426320008DBCC0;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				493909D5302C98DD00BCA769 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				490F2BC63036271200A84BCF /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 497C9E182E426320008DBCC0 /* Products */;
@@ -498,7 +498,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		493909D5302C98DD00BCA769 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+		490F2BC63036271200A84BCF /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
 			requirement = {

@@ -12,6 +12,21 @@ import SwiftTerm
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum TerminalWindowTransparency {
+    @MainActor
+    static func apply(to window: NSWindow, isEnabled: Bool) {
+        if isEnabled {
+            guard window.isOpaque || window.backgroundColor != .clear else { return }
+            window.isOpaque = false
+            window.backgroundColor = .clear
+        } else {
+            guard !window.isOpaque || window.backgroundColor == .clear else { return }
+            window.isOpaque = true
+            window.backgroundColor = nil
+        }
+    }
+}
+
 @Observable
 final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegate {
     let id = UUID()
@@ -45,6 +60,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored private weak var observedWindow: NSWindow?
     @ObservationIgnored private var windowKeyObserver: NSObjectProtocol?
     @ObservationIgnored private var windowUpdateObserver: NSObjectProtocol?
+    @ObservationIgnored private var previewBackgroundOpacity: Double?
 
     private(set) var hasActivity = false
 
@@ -108,6 +124,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @MainActor
     func applyProfile(_ newProfile: TerminalProfile) {
         profile = newProfile
+        previewBackgroundOpacity = nil
         applyAppearance()
         updateWindowTitle()
     }
@@ -122,12 +139,50 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @MainActor
     func applyAppearance() {
         guard let terminal else { return }
-        ProfileApplier.apply(profile: profile,
+        if effectiveBackgroundOpacity < 1.0 {
+            updateWindowTransparency()
+        }
+        var appearanceProfile = profile
+        appearanceProfile.backgroundOpacity = effectiveBackgroundOpacity
+        ProfileApplier.apply(profile: appearanceProfile,
                              themeStore: AppModel.shared.themes,
                              sessionThemeOverride: themeOverride,
                              to: terminal)
         (terminal.superview as? TerminalSessionContainerView)?.updatePaddingColor()
-        updateWindowTransparency()
+        terminal.requestRedraw()
+        if effectiveBackgroundOpacity >= 1.0 {
+            updateWindowTransparency()
+        }
+    }
+
+    /// Applies an unsaved opacity value while the Settings slider is active.
+    /// A nil value restores the persisted profile value.
+    @MainActor
+    func previewBackgroundOpacity(_ opacity: Double?) {
+        let oldOpacity = effectiveBackgroundOpacity
+        previewBackgroundOpacity = opacity
+        let newOpacity = effectiveBackgroundOpacity
+        guard oldOpacity != newOpacity else { return }
+        guard let terminal else {
+            updateWindowTransparency()
+            return
+        }
+
+        // The window must support alpha before the terminal draws a translucent
+        // frame. Restore an opaque window only after the terminal is opaque.
+        if newOpacity < 1.0 {
+            updateWindowTransparency()
+        }
+        terminal.backgroundOpacity = CGFloat(newOpacity)
+        (terminal.superview as? TerminalSessionContainerView)?.updatePaddingColor()
+        terminal.requestRedraw()
+        if newOpacity >= 1.0 {
+            updateWindowTransparency()
+        }
+    }
+
+    var effectiveBackgroundOpacity: Double {
+        previewBackgroundOpacity ?? profile.backgroundOpacity
     }
 
     /// A translucent terminal background only composites when the hosting
@@ -139,13 +194,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return
         }
         guard let window = terminal?.window else { return }
-        if profile.backgroundOpacity < 1.0 {
-            window.isOpaque = false
-            window.backgroundColor = .clear
-        } else if !window.isOpaque {
-            window.isOpaque = true
-            window.backgroundColor = nil
-        }
+        TerminalWindowTransparency.apply(
+            to: window,
+            isEnabled: effectiveBackgroundOpacity < 1.0
+        )
     }
 
     func attach(to terminal: LocalProcessTerminalView) {
@@ -1111,6 +1163,14 @@ final class TerminalSessionRegistry {
         for window in NSApp.windows {
             for controller in controllers(for: window) {
                 controller.setUseMetalRenderer(enabled)
+            }
+        }
+    }
+
+    func previewBackgroundOpacity(_ opacity: Double?, forProfileID profileID: UUID) {
+        for window in NSApp.windows {
+            for controller in controllers(for: window) where controller.profile.id == profileID {
+                controller.previewBackgroundOpacity(opacity)
             }
         }
     }

@@ -691,6 +691,17 @@ struct ProfileTextSettingsFields: View {
     let profile: TerminalProfile
     let update: ((inout TerminalProfile) -> Void) -> Void
     @State private var fontPanelManager = FontPanelManager()
+    @State private var backgroundOpacityPreview: Double
+    @State private var isEditingBackgroundOpacity = false
+
+    init(
+        profile: TerminalProfile,
+        update: @escaping ((inout TerminalProfile) -> Void) -> Void
+    ) {
+        self.profile = profile
+        self.update = update
+        _backgroundOpacityPreview = State(initialValue: profile.backgroundOpacity)
+    }
 
     var body: some View {
         HStack {
@@ -729,12 +740,37 @@ struct ProfileTextSettingsFields: View {
             set: { newValue in update { $0.useBrightColorsForBold = newValue } }
         ))
         LabeledContent("Background opacity:") {
-            Slider(value: Binding(
-                get: { profile.backgroundOpacity },
-                set: { newValue in update { $0.backgroundOpacity = newValue } }
-            ), in: 0.3...1.0)
+            Slider(
+                value: $backgroundOpacityPreview,
+                in: 0.3...1.0,
+                onEditingChanged: backgroundOpacityEditingChanged
+            )
             .frame(maxWidth: 200)
         }
+        .onChange(of: backgroundOpacityPreview) { _, newValue in
+            TerminalSessionRegistry.shared.previewBackgroundOpacity(
+                newValue,
+                forProfileID: profile.id
+            )
+        }
+        .onChange(of: profile.backgroundOpacity) { _, newValue in
+            if !isEditingBackgroundOpacity {
+                backgroundOpacityPreview = newValue
+            }
+        }
+        .onChange(of: profile.id) { oldID, _ in
+            TerminalSessionRegistry.shared.previewBackgroundOpacity(nil, forProfileID: oldID)
+            backgroundOpacityPreview = profile.backgroundOpacity
+        }
+        .onDisappear {
+            TerminalSessionRegistry.shared.previewBackgroundOpacity(nil, forProfileID: profile.id)
+        }
+    }
+
+    private func backgroundOpacityEditingChanged(_ isEditing: Bool) {
+        isEditingBackgroundOpacity = isEditing
+        guard !isEditing else { return }
+        update { $0.backgroundOpacity = backgroundOpacityPreview }
     }
 
     private var fontDescription: String {

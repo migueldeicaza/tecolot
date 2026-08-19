@@ -130,13 +130,10 @@ final class TerminalPaneWorkspace {
 
     func updateWindowTransparency() {
         guard let window = controllers.compactMap(\.terminal?.window).first else { return }
-        if controllers.contains(where: { $0.profile.backgroundOpacity < 1.0 }) {
-            window.isOpaque = false
-            window.backgroundColor = .clear
-        } else if !window.isOpaque {
-            window.isOpaque = true
-            window.backgroundColor = nil
-        }
+        TerminalWindowTransparency.apply(
+            to: window,
+            isEnabled: controllers.contains { $0.effectiveBackgroundOpacity < 1.0 }
+        )
     }
 
     private func contains(_ controller: TerminalSessionController) -> Bool {

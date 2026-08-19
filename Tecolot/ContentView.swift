@@ -29,6 +29,8 @@ struct ContentView: View {
             revision: workspace.revision
         )
             .background(WindowTabbingConfigurator())
+            .toolbarBackground(Color(nsColor: .windowBackgroundColor), for: .windowToolbar)
+            .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
             .onAppear(perform: configureBufferPersistence)
             .onChange(of: fileURL) {
                 configureBufferPersistence()
