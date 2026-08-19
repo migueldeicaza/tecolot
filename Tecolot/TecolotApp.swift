@@ -185,64 +185,66 @@ struct SplitCommands: Commands {
     }
 
     var body: some Commands {
-        CommandMenu("Select Split") {
-            Button("Select Split Above") {
-                workspace?.selectSplit(in: .up)
-            }
-            .keyboardShortcut(.upArrow, modifiers: [.command, .option])
-            .disabled(!hasMultipleSplits)
+        CommandGroup(after: .windowArrangement) {
+            Menu("Select Split") {
+                Button("Select Split Above") {
+                    workspace?.selectSplit(in: .up)
+                }
+                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                .disabled(!hasMultipleSplits)
 
-            Button("Select Split Below") {
-                workspace?.selectSplit(in: .down)
-            }
-            .keyboardShortcut(.downArrow, modifiers: [.command, .option])
-            .disabled(!hasMultipleSplits)
+                Button("Select Split Below") {
+                    workspace?.selectSplit(in: .down)
+                }
+                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                .disabled(!hasMultipleSplits)
 
-            Button("Select Split Left") {
-                workspace?.selectSplit(in: .left)
-            }
-            .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
-            .disabled(!hasMultipleSplits)
+                Button("Select Split Left") {
+                    workspace?.selectSplit(in: .left)
+                }
+                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                .disabled(!hasMultipleSplits)
 
-            Button("Select Split Right") {
-                workspace?.selectSplit(in: .right)
+                Button("Select Split Right") {
+                    workspace?.selectSplit(in: .right)
+                }
+                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                .disabled(!hasMultipleSplits)
             }
-            .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
-            .disabled(!hasMultipleSplits)
-        }
 
-        CommandMenu("Resize Split") {
-            Button("Equalize Split") {
-                workspace?.equalizeSplits()
+            Menu("Resize Split") {
+                Button("Equalize Split") {
+                    workspace?.equalizeSplits()
+                }
+                .keyboardShortcut("=", modifiers: [.command, .control])
+                .disabled(!hasMultipleSplits)
+
+                Divider()
+
+                Button("Move Divider Up") {
+                    workspace?.moveDivider(in: .up)
+                }
+                .keyboardShortcut(.upArrow, modifiers: [.command, .control])
+                .disabled(!hasMultipleSplits)
+
+                Button("Move Divider Down") {
+                    workspace?.moveDivider(in: .down)
+                }
+                .keyboardShortcut(.downArrow, modifiers: [.command, .control])
+                .disabled(!hasMultipleSplits)
+
+                Button("Move Divider Left") {
+                    workspace?.moveDivider(in: .left)
+                }
+                .keyboardShortcut(.leftArrow, modifiers: [.command, .control])
+                .disabled(!hasMultipleSplits)
+
+                Button("Move Divider Right") {
+                    workspace?.moveDivider(in: .right)
+                }
+                .keyboardShortcut(.rightArrow, modifiers: [.command, .control])
+                .disabled(!hasMultipleSplits)
             }
-            .keyboardShortcut("=", modifiers: [.command, .control])
-            .disabled(!hasMultipleSplits)
-
-            Divider()
-
-            Button("Move Divider Up") {
-                workspace?.moveDivider(in: .up)
-            }
-            .keyboardShortcut(.upArrow, modifiers: [.command, .control])
-            .disabled(!hasMultipleSplits)
-
-            Button("Move Divider Down") {
-                workspace?.moveDivider(in: .down)
-            }
-            .keyboardShortcut(.downArrow, modifiers: [.command, .control])
-            .disabled(!hasMultipleSplits)
-
-            Button("Move Divider Left") {
-                workspace?.moveDivider(in: .left)
-            }
-            .keyboardShortcut(.leftArrow, modifiers: [.command, .control])
-            .disabled(!hasMultipleSplits)
-
-            Button("Move Divider Right") {
-                workspace?.moveDivider(in: .right)
-            }
-            .keyboardShortcut(.rightArrow, modifiers: [.command, .control])
-            .disabled(!hasMultipleSplits)
         }
     }
 }
