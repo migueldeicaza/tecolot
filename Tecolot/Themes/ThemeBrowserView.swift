@@ -22,13 +22,14 @@ struct ThemeBrowserView: View {
     var onSelect: (TerminalTheme) -> Void
 
     @State private var query = ""
+    @State private var page: ThemeBrowserPage = .popular
     @State private var editorPresentation: ThemeEditorPresentation?
     @State private var showImporter = false
     @State private var importError: String?
 
     private let columns = [GridItem(.adaptive(minimum: 148, maximum: 200), spacing: 10)]
 
-    private var visibleThemes: [TerminalTheme] {
+    private var matchingThemes: [TerminalTheme] {
         let matching = themes.themes(matching: query)
         // Favorites first, then the rest, both alphabetical
         let favorites = matching.filter { themes.isFavorite($0.name) }
@@ -36,11 +37,25 @@ struct ThemeBrowserView: View {
         return favorites + others
     }
 
+    private var visibleThemes: [TerminalTheme] {
+        guard query.isEmpty else { return matchingThemes }
+        return matchingThemes.filter { page.contains($0.name) }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             TextField("Search themes", text: $query)
                 .textFieldStyle(.roundedBorder)
                 .padding([.horizontal, .top], 10)
+
+            Picker("Themes", selection: $page) {
+                ForEach(ThemeBrowserPage.allCases) { page in
+                    Text(page.title).tag(page)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 10)
+            .padding(.top, 8)
 
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 12) {
@@ -154,6 +169,44 @@ struct ThemeBrowserView: View {
             try themes.importTheme(from: url)
         } catch {
             importError = error.localizedDescription
+        }
+    }
+}
+
+private enum ThemeBrowserPage: CaseIterable, Identifiable {
+    case popular
+    case more
+
+    static let popularThemeNames: Set<String> = [
+        "Atom One Dark",
+        "Ayu Mirage",
+        "Catppuccin Mocha",
+        "Dracula",
+        "GitHub Dark Default",
+        "Gruvbox Dark",
+        "iTerm2 Solarized Dark",
+        "iTerm2 Solarized Light",
+        "Monokai Pro",
+        "Nord",
+        "Rose Pine",
+        "TokyoNight"
+    ]
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .popular: return "Popular"
+        case .more: return "More"
+        }
+    }
+
+    func contains(_ themeName: String) -> Bool {
+        switch self {
+        case .popular:
+            Self.popularThemeNames.contains(themeName)
+        case .more:
+            !Self.popularThemeNames.contains(themeName)
         }
     }
 }
