@@ -800,6 +800,9 @@ final class TerminalSessionContainerView: NSView {
     private let leftPaddingView = NSView()
     private let rightPaddingView = NSView()
     private let bottomPaddingView = NSView()
+    private let resizeFeedbackView = TerminalResizeFeedbackView()
+    private var resizeObservers = [NSObjectProtocol]()
+    private var isShowingResizeFeedback = false
 
     init(terminal: LocalProcessTerminalView) {
         self.terminal = terminal
@@ -814,6 +817,8 @@ final class TerminalSessionContainerView: NSView {
         }
 
         addSubview(terminal)
+        resizeFeedbackView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(resizeFeedbackView)
         NSLayoutConstraint.activate([
             terminal.topAnchor.constraint(equalTo: topAnchor),
             terminal.leadingAnchor.constraint(equalTo: leftPaddingView.trailingAnchor),
@@ -834,8 +839,15 @@ final class TerminalSessionContainerView: NSView {
             bottomPaddingView.trailingAnchor.constraint(equalTo: trailingAnchor),
             bottomPaddingView.bottomAnchor.constraint(equalTo: bottomAnchor),
             bottomPaddingView.heightAnchor.constraint(equalToConstant: Self.padding),
+
+            resizeFeedbackView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            resizeFeedbackView.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         updatePaddingColor()
+    }
+
+    deinit {
+        resizeObservers.forEach(NotificationCenter.default.removeObserver)
     }
 
     @available(*, unavailable)
@@ -854,11 +866,109 @@ final class TerminalSessionContainerView: NSView {
         return size
     }
 
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        resizeObservers.forEach(NotificationCenter.default.removeObserver)
+        resizeObservers.removeAll()
+
+        guard let newWindow else { return }
+        observeLiveResize(of: newWindow)
+    }
+
+    override func layout() {
+        super.layout()
+        guard isShowingResizeFeedback else { return }
+        updateResizeFeedback()
+    }
+
     func updatePaddingColor() {
         let color = terminal.nativeBackgroundColor.cgColor
         leftPaddingView.layer?.backgroundColor = color
         rightPaddingView.layer?.backgroundColor = color
         bottomPaddingView.layer?.backgroundColor = color
+    }
+
+    private func observeLiveResize(of window: NSWindow) {
+        let center = NotificationCenter.default
+        resizeObservers = [
+            center.addObserver(
+                forName: NSWindow.willStartLiveResizeNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.beginResizeFeedback()
+            },
+            center.addObserver(
+                forName: NSWindow.didResizeNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.updateResizeFeedback()
+            },
+            center.addObserver(
+                forName: NSWindow.didEndLiveResizeNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.hideResizeFeedback()
+            },
+        ]
+    }
+
+    private func beginResizeFeedback() {
+        isShowingResizeFeedback = true
+        updateResizeFeedback()
+    }
+
+    private func updateResizeFeedback() {
+        guard isShowingResizeFeedback else { return }
+        terminal.layoutSubtreeIfNeeded()
+        let dimensions = terminal.terminalDimensions
+        resizeFeedbackView.show(columns: dimensions.cols, rows: dimensions.rows)
+    }
+
+    private func hideResizeFeedback() {
+        isShowingResizeFeedback = false
+        resizeFeedbackView.isHidden = true
+    }
+}
+
+private final class TerminalResizeFeedbackView: NSVisualEffectView {
+    private let dimensionsLabel = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        material = .hudWindow
+        blendingMode = .withinWindow
+        state = .active
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        isHidden = true
+
+        dimensionsLabel.font = .monospacedDigitSystemFont(ofSize: 18, weight: .semibold)
+        dimensionsLabel.textColor = .labelColor
+        dimensionsLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(dimensionsLabel)
+        NSLayoutConstraint.activate([
+            dimensionsLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            dimensionsLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            dimensionsLabel.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            dimensionsLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show(columns: Int, rows: Int) {
+        dimensionsLabel.stringValue = "\(columns) x \(rows)"
+        isHidden = false
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }
 
