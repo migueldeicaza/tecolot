@@ -169,14 +169,13 @@ final class WindowGroupStore: ObservableObject {
         var openedAny = false
         for savedWindow in group.windows {
             guard let firstTab = savedWindow.tabs.first,
-                  let firstWindow = WindowOpener.openWindow(spec: launchSpec(for: firstTab)) else {
+                  let firstWindow = WindowOpener.openWindow(
+                    spec: launchSpec(for: firstTab),
+                    initialFrame: .windowGroup(NSRectFromString(savedWindow.frame))
+                  ) else {
                 continue
             }
             openedAny = true
-            TerminalWindowSizeStore.shared.restoreWindowGroupFrame(
-                NSRectFromString(savedWindow.frame),
-                to: firstWindow
-            )
 
             var openedWindows = [firstWindow]
             for tab in savedWindow.tabs.dropFirst() {

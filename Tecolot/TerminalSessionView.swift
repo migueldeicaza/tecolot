@@ -846,6 +846,13 @@ final class TerminalSessionContainerView: NSView {
     // bottom padding keep terminal content clear of the window border.
     private static let padding: CGFloat = 2
 
+    static func contentSize(forTerminalSize terminalSize: NSSize) -> NSSize {
+        NSSize(
+            width: terminalSize.width + padding * 2,
+            height: terminalSize.height + padding
+        )
+    }
+
     let terminal: LocalProcessTerminalView
     private let leftPaddingView = NSView()
     private let rightPaddingView = NSView()

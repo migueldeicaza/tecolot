@@ -22,15 +22,26 @@ final class TerminalWindowSizeStore {
 
     private init() {}
 
-    func configure(_ window: NSWindow, restoresFrame: Bool = true) {
+    func setProfileContentSize(_ contentSize: NSSize, on window: NSWindow) {
+        let oldFrame = window.frame
+        let oldContentSize = window.contentLayoutRect.size
+        var frame = oldFrame
+        frame.size.width += contentSize.width - oldContentSize.width
+        frame.size.height += contentSize.height - oldContentSize.height
+        frame.origin.y = oldFrame.maxY - frame.height
+        window.setFrame(constrainedFrame(frame, for: window), display: false)
+    }
+
+    @discardableResult
+    func configure(_ window: NSWindow, restoresFrame: Bool = true) -> Bool {
         let identifier = ObjectIdentifier(window)
-        guard observers[identifier] == nil else { return }
+        guard observers[identifier] == nil else { return false }
 
         // macOS puts even a single document window in a tab group. All tabs
         // share one frame, so restoring each tab is safe and ensures that
         // startup document windows restore their saved frame.
-        if restoresFrame {
-            restoreFrame(to: window)
+        let didRestoreFrame = restoresFrame && restoreFrame(to: window)
+        if didRestoreFrame {
             recordFrame(of: window)
         }
         observers[identifier] = WindowObserver(
@@ -44,6 +55,7 @@ final class TerminalWindowSizeStore {
                 self?.suppressedWindowIDs.remove(identifier)
             }
         )
+        return didRestoreFrame
     }
 
     /// Applies a saved window-group frame without saving it as the normal
@@ -58,23 +70,24 @@ final class TerminalWindowSizeStore {
         }
     }
 
-    private func restoreFrame(to window: NSWindow) {
+    private func restoreFrame(to window: NSWindow) -> Bool {
         if let storedValue = UserDefaults.standard.string(forKey: DefaultsKey.lastFrame) {
             let savedFrame = NSRectFromString(storedValue)
             if isValid(savedFrame) {
                 window.setFrame(constrainedFrame(savedFrame, for: window), display: false)
-                return
+                return true
             }
         }
 
         guard let storedValue = UserDefaults.standard.string(forKey: DefaultsKey.lastFrameSize) else {
-            return
+            return false
         }
         let size = NSSizeFromString(storedValue)
-        guard isValid(size) else { return }
+        guard isValid(size) else { return false }
         var savedFrame = window.frame
         savedFrame.size = size
         window.setFrame(constrainedFrame(savedFrame, for: window), display: false)
+        return true
     }
 
     private func recordFrame(of window: NSWindow) {

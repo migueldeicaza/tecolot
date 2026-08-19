@@ -59,7 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let rawID = defaults.string(forKey: "startupProfileID") {
             spec.profileID = UUID(uuidString: rawID)
         }
-        WindowOpener.openWindow(spec: spec)
+        WindowOpener.openWindow(spec: spec, initialFrame: .saved)
     }
 }
 

@@ -185,6 +185,10 @@ final class AppModel {
         pendingLaunch = spec
     }
 
+    func discardPendingLaunch() {
+        pendingLaunch = nil
+    }
+
     /// Returns and clears the pending launch parameters
     func takePendingLaunch() -> LaunchSpec? {
         defer { pendingLaunch = nil }
