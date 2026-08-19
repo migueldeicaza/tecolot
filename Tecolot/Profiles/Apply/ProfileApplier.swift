@@ -38,6 +38,7 @@ public enum ProfileApplier {
         options.rows = profile.rows
         options.cursorStyle = profile.cursorStyle
         options.termName = profile.termName
+        options.featureReport = TerminalFeatureReporting.featureString
         if let lines = profile.scrollbackLines {
             options.scrollback = lines
         }

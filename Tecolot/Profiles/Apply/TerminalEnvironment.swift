@@ -35,6 +35,7 @@ public enum TerminalEnvironment {
         "COLORTERM",
         "TERM_PROGRAM",
         "TERM_PROGRAM_VERSION",
+        "TERM_FEATURES",
         "TERM_SESSION_ID",
         "ITERM_SESSION_ID",
         "VTE_VERSION",
@@ -98,6 +99,7 @@ public enum TerminalEnvironment {
 
         environment["TERM"] = termName
         environment["COLORTERM"] = "truecolor"
+        environment["TERM_FEATURES"] = TerminalFeatureReporting.featureString
         return encoded(environment)
     }
 

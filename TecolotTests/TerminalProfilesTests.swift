@@ -617,6 +617,7 @@ final class LaunchParametersTests {
         #expect (params.execName?.hasPrefix ("-") == true)
         #expect (params.environment.contains ("TERM=xterm-256color"))
         #expect (params.environment.contains ("TERM_PROGRAM=tecolot"))
+        #expect (params.environment.contains ("TERM_FEATURES=\(TerminalFeatureReporting.featureString)"))
         #expect (params.environment.contains { $0.hasPrefix("TECOLOT_RESOURCES_DIR=") })
     }
 
@@ -637,6 +638,7 @@ final class LaunchParametersTests {
                 "LC_CTYPE": "en_GB.UTF-8",
                 "TERM": "xterm-ghostty",
                 "TERM_PROGRAM": "Ghostty",
+                "TERM_FEATURES": "Old1",
                 "VTE_VERSION": "7600",
                 "PWD": "/stale",
                 "SHLVL": "4",
@@ -652,6 +654,7 @@ final class LaunchParametersTests {
         #expect(environment["TERM"] == "xterm-256color")
         #expect(environment["COLORTERM"] == "truecolor")
         #expect(environment["TERM_PROGRAM"] == "tecolot")
+        #expect(environment["TERM_FEATURES"] == TerminalFeatureReporting.featureString)
         #expect(environment["VTE_VERSION"] == nil)
         #expect(environment["PWD"] == nil)
         #expect(environment["SHLVL"] == nil)
@@ -755,6 +758,22 @@ final class TerminalEnvironmentVariableTests {
         )
 
         #expect(decoded.environmentVariables == profile.environmentVariables)
+    }
+}
+
+final class TerminalFeatureReportingTests {
+    @Test func featureStringMatchesSwiftTermCapabilities() {
+        #expect(TerminalFeatureReporting.featureString == "T3CwLrMSc7UUw17Ts3BFGsSyHSxP")
+        #expect(TerminalFeatureReporting.featureString.utf8.allSatisfy { byte in
+            (byte >= 0x30 && byte <= 0x39) ||
+            (byte >= 0x41 && byte <= 0x5a) ||
+            (byte >= 0x61 && byte <= 0x7a)
+        })
+    }
+
+    @Test func terminalOptionsUseTheSameFeatureReport() {
+        let options = ProfileApplier.terminalOptions(for: TerminalProfile(name: "Test"))
+        #expect(options.featureReport == TerminalFeatureReporting.featureString)
     }
 }
 
