@@ -792,11 +792,12 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 }
 
 final class TerminalSessionContainerView: NSView {
-    // Ghostty uses two points of window padding by default. The side and
-    // bottom padding keep terminal content clear of the window border.
+    // Ghostty uses two points of window padding by default, on all four sides.
+    // The top strip also keeps the OSC 9;4 progress bar off the tab bar.
     private static let padding: CGFloat = 2
 
     let terminal: LocalProcessTerminalView
+    private let topPaddingView = NSView()
     private let leftPaddingView = NSView()
     private let rightPaddingView = NSView()
     private let bottomPaddingView = NSView()
@@ -806,7 +807,7 @@ final class TerminalSessionContainerView: NSView {
         super.init(frame: .zero)
 
         terminal.translatesAutoresizingMaskIntoConstraints = false
-        let paddingViews = [leftPaddingView, rightPaddingView, bottomPaddingView]
+        let paddingViews = [topPaddingView, leftPaddingView, rightPaddingView, bottomPaddingView]
         for view in paddingViews {
             view.translatesAutoresizingMaskIntoConstraints = false
             view.wantsLayer = true
@@ -815,17 +816,22 @@ final class TerminalSessionContainerView: NSView {
 
         addSubview(terminal)
         NSLayoutConstraint.activate([
-            terminal.topAnchor.constraint(equalTo: topAnchor),
+            terminal.topAnchor.constraint(equalTo: topPaddingView.bottomAnchor),
             terminal.leadingAnchor.constraint(equalTo: leftPaddingView.trailingAnchor),
             terminal.trailingAnchor.constraint(equalTo: rightPaddingView.leadingAnchor),
             terminal.bottomAnchor.constraint(equalTo: bottomPaddingView.topAnchor),
 
-            leftPaddingView.topAnchor.constraint(equalTo: topAnchor),
+            topPaddingView.topAnchor.constraint(equalTo: topAnchor),
+            topPaddingView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            topPaddingView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            topPaddingView.heightAnchor.constraint(equalToConstant: Self.padding),
+
+            leftPaddingView.topAnchor.constraint(equalTo: topPaddingView.bottomAnchor),
             leftPaddingView.leadingAnchor.constraint(equalTo: leadingAnchor),
             leftPaddingView.bottomAnchor.constraint(equalTo: bottomPaddingView.topAnchor),
             leftPaddingView.widthAnchor.constraint(equalToConstant: Self.padding),
 
-            rightPaddingView.topAnchor.constraint(equalTo: topAnchor),
+            rightPaddingView.topAnchor.constraint(equalTo: topPaddingView.bottomAnchor),
             rightPaddingView.trailingAnchor.constraint(equalTo: trailingAnchor),
             rightPaddingView.bottomAnchor.constraint(equalTo: bottomPaddingView.topAnchor),
             rightPaddingView.widthAnchor.constraint(equalToConstant: Self.padding),
@@ -849,13 +855,14 @@ final class TerminalSessionContainerView: NSView {
             size.width += Self.padding * 2
         }
         if size.height >= 0 {
-            size.height += Self.padding
+            size.height += Self.padding * 2
         }
         return size
     }
 
     func updatePaddingColor() {
         let color = terminal.nativeBackgroundColor.cgColor
+        topPaddingView.layer?.backgroundColor = color
         leftPaddingView.layer?.backgroundColor = color
         rightPaddingView.layer?.backgroundColor = color
         bottomPaddingView.layer?.backgroundColor = color
