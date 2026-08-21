@@ -526,8 +526,9 @@ struct ProfileSettingsPage: View {
 }
 
 private struct TerminalNameComboBox: NSViewRepresentable {
+    private static let fallbackValue = "xterm-256color"
     private static let values = [
-        "xterm-256color",
+        fallbackValue,
         "xterm-color",
         "xterm",
         "vt100",
@@ -537,7 +538,7 @@ private struct TerminalNameComboBox: NSViewRepresentable {
     @Binding var text: String
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+        Coordinator(text: $text, fallbackValue: Self.fallbackValue)
     }
 
     func makeNSView(context: Context) -> NSComboBox {
@@ -560,9 +561,11 @@ private struct TerminalNameComboBox: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSComboBoxDelegate {
         var text: Binding<String>
+        let fallbackValue: String
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>, fallbackValue: String) {
             self.text = text
+            self.fallbackValue = fallbackValue
         }
 
         func controlTextDidChange(_ notification: Notification) {
@@ -570,9 +573,22 @@ private struct TerminalNameComboBox: NSViewRepresentable {
             text.wrappedValue = comboBox.stringValue
         }
 
+        func controlTextDidEndEditing(_ notification: Notification) {
+            guard
+                let comboBox = notification.object as? NSComboBox,
+                comboBox.stringValue.isEmpty
+            else { return }
+            comboBox.stringValue = fallbackValue
+            text.wrappedValue = fallbackValue
+        }
+
         func comboBoxSelectionDidChange(_ notification: Notification) {
-            guard let comboBox = notification.object as? NSComboBox else { return }
-            text.wrappedValue = comboBox.stringValue
+            guard
+                let comboBox = notification.object as? NSComboBox,
+                let selectedValue = comboBox.objectValueOfSelectedItem as? String
+            else { return }
+            comboBox.stringValue = selectedValue
+            text.wrappedValue = selectedValue
         }
     }
 }
