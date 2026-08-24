@@ -102,9 +102,14 @@ final class SecureKeyboardEntry {
     }
 }
 
-struct TabCommands: Commands {
+struct NewItemCommands: Commands {
     var body: some Commands {
-        CommandGroup(after: .newItem) {
+        CommandGroup(replacing: .newItem) {
+            Button("New Window") {
+                WindowOpener.openWindow(spec: LaunchSpec())
+            }
+            .keyboardShortcut("n", modifiers: [.command])
+
             Button("New Tab") {
                 // Inherits working directory and profile from the current
                 // tab per the General settings
@@ -481,7 +486,7 @@ struct TecolotApp: App {
         .commands {
             AppInfoCommands()
             SettingsCommands()
-            TabCommands()
+            NewItemCommands()
             TabSelectionCommands()
             SplitCommands()
             ProfileCommands(profiles: model.profiles)

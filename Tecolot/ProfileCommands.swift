@@ -182,13 +182,6 @@ struct ProfileCommands: Commands {
     @State private var commandState = TerminalCommandState()
 
     var body: some Commands {
-        CommandGroup(replacing: .newItem) {
-            Button("New Window") {
-                WindowOpener.openWindow(spec: LaunchSpec())
-            }
-            .keyboardShortcut("n", modifiers: [.command])
-        }
-
         CommandGroup(after: .newItem) {
             Menu("New Window with Profile") {
                 ForEach(profiles.profiles) { profile in
