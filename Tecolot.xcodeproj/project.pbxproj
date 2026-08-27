@@ -13,6 +13,7 @@
 		4A6A1F111234567800000005 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000007 /* Fixtures */; };
 		4A6A1F111234567800000021 /* NerdFontResources in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000020 /* NerdFontResources */; };
 		4A6A1F111234567800000022 /* NerdFontResources in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000020 /* NerdFontResources */; };
+		4A6A1F111234567800000032 /* terminfo in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000031 /* terminfo */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -32,6 +33,7 @@
 		4A6A1F111234567800000006 /* TecolotTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TecolotTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4A6A1F111234567800000007 /* Fixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fixtures; path = TecolotTests/Fixtures; sourceTree = SOURCE_ROOT; };
 		4A6A1F111234567800000020 /* NerdFontResources */ = {isa = PBXFileReference; lastKnownFileType = folder; name = NerdFontResources; path = Tecolot/NerdFont/NerdFontResources; sourceTree = SOURCE_ROOT; };
+		4A6A1F111234567800000031 /* terminfo */ = {isa = PBXFileReference; lastKnownFileType = folder; path = terminfo; sourceTree = DERIVED_FILE_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -88,6 +90,7 @@
 				4A6A1F111234567800000003 /* Themes */,
 				4A6A1F111234567800000004 /* shell-integration */,
 				4A6A1F111234567800000020 /* NerdFontResources */,
+				4A6A1F111234567800000031 /* terminfo */,
 				4A6A1F111234567800000007 /* Fixtures */,
 			);
 			name = "Recovered References";
@@ -129,6 +132,7 @@
 			buildPhases = (
 				497C9E132E426320008DBCC0 /* Sources */,
 				497C9E142E426320008DBCC0 /* Frameworks */,
+				4A6A1F111234567800000030 /* Compile SwiftTerm terminfo */,
 				497C9E152E426320008DBCC0 /* Resources */,
 			);
 			buildRules = (
@@ -213,6 +217,7 @@
 				4A6A1F111234567800000001 /* Themes in Resources */,
 				4A6A1F111234567800000002 /* shell-integration in Resources */,
 				4A6A1F111234567800000021 /* NerdFontResources in Resources */,
+				4A6A1F111234567800000032 /* terminfo in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -226,6 +231,33 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		4A6A1F111234567800000030 /* Compile SwiftTerm terminfo */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(BUILD_DIR)/../../SourcePackages/checkouts/SwiftTerm/swifterm-terminfo",
+			);
+			name = "Compile SwiftTerm terminfo";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/terminfo",
+				"$(DERIVED_FILE_DIR)/terminfo/73",
+				"$(DERIVED_FILE_DIR)/terminfo/73/swifterm-terminfo",
+				"$(DERIVED_FILE_DIR)/terminfo/78",
+				"$(DERIVED_FILE_DIR)/terminfo/78/xterm-256color",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\n\nsource_file=\"${BUILD_DIR}/../../SourcePackages/checkouts/SwiftTerm/swifterm-terminfo\"\noutput_directory=\"${DERIVED_FILE_DIR}/terminfo\"\n# macOS tic uses hexadecimal directory names.\ncompiled_entry=\"${output_directory}/73/swifterm-terminfo\"\nxterm_entry=\"${output_directory}/78/xterm-256color\"\n\nif [ ! -f \"${source_file}\" ]; then\n    echo \"error: SwiftTerm terminfo source not found at ${source_file}\" >&2\n    exit 1\nfi\n\n/usr/bin/tic -x -o \"${output_directory}\" \"${source_file}\"\n/usr/bin/sed 's/^swifterm-terminfo,/xterm-256color,/' \"${source_file}\" | \\\n    /usr/bin/tic -x -o \"${output_directory}\" /dev/stdin\n\nif [ ! -f \"${compiled_entry}\" ]; then\n    echo \"error: tic did not create ${compiled_entry}\" >&2\n    exit 1\nfi\n\nif [ ! -f \"${xterm_entry}\" ]; then\n    echo \"error: tic did not create ${xterm_entry}\" >&2\n    exit 1\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		497C9E132E426320008DBCC0 /* Sources */ = {

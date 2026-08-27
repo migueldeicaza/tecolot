@@ -691,6 +691,8 @@ final class LaunchParametersTests {
         #expect(environment["SSH_AUTH_SOCK"] == "/tmp/agent.sock")
         #expect(environment["LC_CTYPE"] == "en_GB.UTF-8")
         #expect(environment["TERM"] == "xterm-256color")
+        #expect(environment["TERMINFO"] == Bundle.main.resourceURL?
+            .appendingPathComponent("terminfo", isDirectory: true).path)
         #expect(environment["COLORTERM"] == "truecolor")
         #expect(environment["TERM_FEATURES"] == TerminalFeatureReporting.featureString)
         #expect(environment["TERM_PROGRAM"] == nil)
@@ -698,6 +700,31 @@ final class LaunchParametersTests {
         #expect(environment["PWD"] == nil)
         #expect(environment["SHLVL"] == nil)
         #expect(environment["DYLD_LIBRARY_PATH"] == nil)
+    }
+
+    @Test func bundleContainsCompiledSwiftTermTerminfoForBothNames() throws {
+        let resourceURL = try #require(Bundle.main.resourceURL)
+        let terminfoURL = resourceURL.appendingPathComponent("terminfo", isDirectory: true)
+        let enumerator = try #require(
+            FileManager.default.enumerator(
+                at: terminfoURL,
+                includingPropertiesForKeys: [.isRegularFileKey]
+            )
+        )
+        let entries = enumerator.compactMap { $0 as? URL }
+        let compiledEntry = try #require(
+            entries.first { $0.lastPathComponent == "swifterm-terminfo" }
+        )
+        let xtermEntry = try #require(
+            entries.first { $0.lastPathComponent == "xterm-256color" }
+        )
+
+        #expect(try compiledEntry.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true)
+        let compiledData = try Data(contentsOf: compiledEntry)
+        let xtermData = try Data(contentsOf: xtermEntry)
+        #expect(compiledData.isEmpty == false)
+        #expect(xtermData.isEmpty == false)
+        #expect(String(decoding: xtermData, as: UTF8.self).contains("xterm-256color"))
     }
 
     @Test func suppliesUTF8LocaleWhenParentHasNone() {

@@ -32,6 +32,8 @@ public enum TerminalEnvironment {
 
     private static let staleTerminalVariables: Set<String> = [
         "TERM",
+        "TERMINFO",
+        "TERMINFO_DIRS",
         "COLORTERM",
         "TERM_PROGRAM",
         "TERM_PROGRAM_VERSION",
@@ -99,6 +101,11 @@ public enum TerminalEnvironment {
         }
 
         environment["TERM"] = termName
+        if let resourceURL = Bundle.main.resourceURL {
+            environment["TERMINFO"] = resourceURL
+                .appendingPathComponent("terminfo", isDirectory: true)
+                .path
+        }
         environment["COLORTERM"] = "truecolor"
         environment["TERM_FEATURES"] = TerminalFeatureReporting.featureString
         return encoded(environment)
