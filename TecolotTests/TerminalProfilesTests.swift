@@ -770,6 +770,8 @@ final class LaunchParametersTests {
         #expect (options.scrollback == 5000)
         #expect (options.cursorStyle == .steadyBar)
         #expect (options.termName == "xterm-256color")
+        #expect (options.kittyGraphics.storageLimitBytesPerScreen == 320_000_000)
+        #expect (options.kittyGraphics.localMediaPolicy == [.regularFiles])
     }
 
     @Test func shellIntegrationDoesNotOverrideProfileCursor() {

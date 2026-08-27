@@ -39,6 +39,10 @@ public enum ProfileApplier {
         options.cursorStyle = profile.cursorStyle
         options.termName = profile.termName
         options.featureReport = TerminalFeatureReporting.featureString
+        options.kittyGraphics = KittyGraphicsConfiguration(
+            storageLimitBytesPerScreen: 320_000_000,
+            localMediaPolicy: [.regularFiles]
+        )
         if let lines = profile.scrollbackLines {
             options.scrollback = lines
         }
