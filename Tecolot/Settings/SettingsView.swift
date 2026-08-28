@@ -7,6 +7,7 @@
 //
 import Combine
 import AppKit
+import Sparkle
 import SwiftUI
 
 struct SettingsView: View {
@@ -297,6 +298,11 @@ struct GeneralSettingsView: View {
             Section("Rendering") {
                 Toggle("Use Metal", isOn: metalRendererBinding)
             }
+            Section("Updates") {
+                Toggle("Check for updates automatically", isOn: automaticUpdateChecksBinding)
+                Toggle("Download updates automatically", isOn: automaticUpdateDownloadsBinding)
+                    .disabled(!updater.automaticallyChecksForUpdates)
+            }
             Section("Resume") {
                 Stepper(
                     "Restore up to \(restoredRowsLimit) rows when a saved session opens",
@@ -330,6 +336,24 @@ struct GeneralSettingsView: View {
                     errorMessage = error.localizedDescription
                 }
             }
+        )
+    }
+
+    // Sparkle keeps these in UserDefaults itself, so they are read straight from
+    // the updater rather than mirrored through @AppStorage.
+    private var updater: SPUUpdater { UpdaterModel.shared.updater }
+
+    private var automaticUpdateChecksBinding: Binding<Bool> {
+        Binding(
+            get: { updater.automaticallyChecksForUpdates },
+            set: { updater.automaticallyChecksForUpdates = $0 }
+        )
+    }
+
+    private var automaticUpdateDownloadsBinding: Binding<Bool> {
+        Binding(
+            get: { updater.automaticallyDownloadsUpdates },
+            set: { updater.automaticallyDownloadsUpdates = $0 }
         )
     }
 

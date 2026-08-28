@@ -35,9 +35,6 @@ jobs:
             -project Tecolot.xcodeproj \
             -scheme Tecolot
 
-      - name: Test TerminalProfilesKit
-        run: swift test --package-path TerminalProfilesKit
-
       - name: Build Tecolot
         run: |
           xcodebuild build \

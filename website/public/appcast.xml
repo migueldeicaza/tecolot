@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>Tecolot</title>
+    <link>https://tecolot.com/appcast.xml</link>
+    <description>Updates for Tecolot, a native terminal for macOS.</description>
+    <language>en</language>
+  </channel>
+</rss>

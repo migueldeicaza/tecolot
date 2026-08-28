@@ -14,6 +14,7 @@
 		4A6A1F111234567800000021 /* NerdFontResources in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000020 /* NerdFontResources */; };
 		4A6A1F111234567800000022 /* NerdFontResources in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000020 /* NerdFontResources */; };
 		4A6A1F111234567800000032 /* terminfo in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000031 /* terminfo */; };
+		5A81CE0000000001AAAA0001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5A81CE0000000001AAAA0002 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -71,6 +72,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				490F324E303671B100A84BCF /* SwiftTerm in Frameworks */,
+				5A81CE0000000001AAAA0001 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -145,6 +147,7 @@
 			name = Tecolot;
 			packageProductDependencies = (
 				490F324D303671B100A84BCF /* SwiftTerm */,
+				5A81CE0000000001AAAA0002 /* Sparkle */,
 			);
 			productName = Tecolot;
 			productReference = 497C9E172E426320008DBCC0 /* Tecolot.app */;
@@ -197,6 +200,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				490F2F093036637800A84BCF /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				5A81CE0000000001AAAA0003 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 497C9E182E426320008DBCC0 /* Products */;
@@ -242,6 +246,7 @@
 			);
 			inputPaths = (
 				"$(BUILD_DIR)/../../SourcePackages/checkouts/SwiftTerm/swifterm-terminfo",
+				"$(BUILD_DIR)/../../../../../SourcePackages/checkouts/SwiftTerm/swifterm-terminfo",
 			);
 			name = "Compile SwiftTerm terminfo";
 			outputFileListPaths = (
@@ -255,7 +260,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\n\nsource_file=\"${BUILD_DIR}/../../SourcePackages/checkouts/SwiftTerm/swifterm-terminfo\"\noutput_directory=\"${DERIVED_FILE_DIR}/terminfo\"\n# macOS tic uses hexadecimal directory names.\ncompiled_entry=\"${output_directory}/73/swifterm-terminfo\"\nxterm_entry=\"${output_directory}/78/xterm-256color\"\n\nif [ ! -f \"${source_file}\" ]; then\n    echo \"error: SwiftTerm terminfo source not found at ${source_file}\" >&2\n    exit 1\nfi\n\n/usr/bin/tic -x -o \"${output_directory}\" \"${source_file}\"\n/usr/bin/sed 's/^swifterm-terminfo,/xterm-256color,/' \"${source_file}\" | \\\n    /usr/bin/tic -x -o \"${output_directory}\" /dev/stdin\n\nif [ ! -f \"${compiled_entry}\" ]; then\n    echo \"error: tic did not create ${compiled_entry}\" >&2\n    exit 1\nfi\n\nif [ ! -f \"${xterm_entry}\" ]; then\n    echo \"error: tic did not create ${xterm_entry}\" >&2\n    exit 1\nfi\n";
+			shellScript = "set -eu\n\n# Xcode lays SourcePackages out differently for `build` and `archive`, so both\n# candidates are declared as inputs of this phase and we use whichever exists.\n# Reading an undeclared path would be denied by the user script sandbox.\nsource_file=\"\"\nfor candidate in \"${SCRIPT_INPUT_FILE_0}\" \"${SCRIPT_INPUT_FILE_1}\"; do\n    if [ -f \"${candidate}\" ]; then\n        source_file=\"${candidate}\"\n        break\n    fi\ndone\n\noutput_directory=\"${DERIVED_FILE_DIR}/terminfo\"\n# macOS tic uses hexadecimal directory names.\ncompiled_entry=\"${output_directory}/73/swifterm-terminfo\"\nxterm_entry=\"${output_directory}/78/xterm-256color\"\n\nif [ -z \"${source_file}\" ]; then\n    echo \"error: SwiftTerm terminfo source not found. Looked in:\" >&2\n    echo \"error:   ${SCRIPT_INPUT_FILE_0}\" >&2\n    echo \"error:   ${SCRIPT_INPUT_FILE_1}\" >&2\n    exit 1\nfi\n\n/usr/bin/tic -x -o \"${output_directory}\" \"${source_file}\"\n/usr/bin/sed 's/^swifterm-terminfo,/xterm-256color,/' \"${source_file}\" | \\\n    /usr/bin/tic -x -o \"${output_directory}\" /dev/stdin\n\nif [ ! -f \"${compiled_entry}\" ]; then\n    echo \"error: tic did not create ${compiled_entry}\" >&2\n    exit 1\nfi\n\nif [ ! -f \"${xterm_entry}\" ]; then\n    echo \"error: tic did not create ${xterm_entry}\" >&2\n    exit 1\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -546,6 +551,14 @@
 				kind = branch;
 			};
 		};
+		5A81CE0000000001AAAA0003 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.6;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -553,6 +566,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 490F2F093036637800A84BCF /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
+		};
+		5A81CE0000000001AAAA0002 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5A81CE0000000001AAAA0003 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -485,6 +485,7 @@ struct TecolotApp: App {
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             AppInfoCommands()
+            UpdateCommands()
             SettingsCommands()
             NewItemCommands()
             TabSelectionCommands()

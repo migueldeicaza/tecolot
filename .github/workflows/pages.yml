@@ -1,0 +1,69 @@
+name: Publish website
+
+# GitHub Pages for this repository uses a workflow build type, so the site is
+# deployed from here and not from a branch. A CNAME file is not used: the custom
+# domain is set in the repository Pages settings.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "website/**"
+      - ".github/workflows/pages.yml"
+  # release.yml calls this after it commits a new appcast entry. A push made
+  # with the automatic GITHUB_TOKEN does not start other workflows, but a
+  # workflow_dispatch always does, so this is what keeps the feed reaching
+  # users after a release.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      PUBLISH_DIRECTORY: website/public
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Check the update feed
+        run: |
+          set -euo pipefail
+
+          # Tecolot reads the feed from the URL in Info.plist, and an installed
+          # copy cannot be told about a different one. Deploying a site that
+          # does not carry the feed at that exact path would stop every update,
+          # so the deploy stops here instead.
+          feed_url="$(/usr/bin/plutil -extract SUFeedURL raw -o - Tecolot/Info.plist)"
+          feed_file="$PUBLISH_DIRECTORY/${feed_url##*/}"
+
+          if [[ ! -f "$feed_file" ]]; then
+            echo "Info.plist points at $feed_url, but $feed_file does not exist." >&2
+            exit 1
+          fi
+          python3 -c "import sys, xml.etree.ElementTree as E; E.parse(sys.argv[1])" "$feed_file"
+          echo "$feed_url will be served from $feed_file."
+
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: ${{ env.PUBLISH_DIRECTORY }}
+
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5

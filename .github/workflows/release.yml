@@ -20,6 +20,8 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       DEVELOPMENT_TEAM: PJQC57N853
+      SPARKLE_VERSION: 2.9.6
+      SPARKLE_SHA256: 52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192
 
     steps:
       - name: Check out repository
@@ -35,6 +37,7 @@ jobs:
           NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           NOTARY_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+          SPARKLE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
           set -euo pipefail
 
@@ -48,7 +51,8 @@ jobs:
             P12_PASSWORD \
             NOTARY_KEY_ID \
             NOTARY_ISSUER_ID \
-            NOTARY_KEY_BASE64
+            NOTARY_KEY_BASE64 \
+            SPARKLE_KEY
           do
             if [[ -z "${!variable:-}" ]]; then
               echo "The $variable secret is not set." >&2
@@ -120,6 +124,43 @@ jobs:
           codesign --display --verbose=2 "$app_path"
           echo "APP_PATH=$app_path" >> "$GITHUB_ENV"
 
+      - name: Notarize and staple app
+        shell: bash
+        env:
+          NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          NOTARY_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          # The app is notarized and stapled before the DMG is built, so the
+          # ticket travels inside every artifact. Sparkle installs the app out
+          # of the ZIP, and an unstapled app there would force each user through
+          # an online Gatekeeper check on first launch.
+          notary_key_path="$RUNNER_TEMP/AuthKey_$NOTARY_KEY_ID.p8"
+          printf '%s' "$NOTARY_KEY_BASE64" | base64 --decode > "$notary_key_path"
+          echo "NOTARY_KEY_PATH=$notary_key_path" >> "$GITHUB_ENV"
+
+          submission_path="$RUNNER_TEMP/Tecolot-notarize.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$submission_path"
+
+          xcrun notarytool submit "$submission_path" \
+            --key "$notary_key_path" \
+            --key-id "$NOTARY_KEY_ID" \
+            --issuer "$NOTARY_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+
+      - name: Create update ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          zip_path="$RUNNER_TEMP/Tecolot-$RELEASE_VERSION.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$zip_path"
+          echo "ZIP_PATH=$zip_path" >> "$GITHUB_ENV"
+
       - name: Create and sign DMG
         shell: bash
         run: |
@@ -140,15 +181,11 @@ jobs:
         env:
           NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
-          NOTARY_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
         run: |
           set -euo pipefail
 
-          notary_key_path="$RUNNER_TEMP/AuthKey_$NOTARY_KEY_ID.p8"
-          printf '%s' "$NOTARY_KEY_BASE64" | base64 --decode > "$notary_key_path"
-
           xcrun notarytool submit "$DMG_PATH" \
-            --key "$notary_key_path" \
+            --key "$NOTARY_KEY_PATH" \
             --key-id "$NOTARY_KEY_ID" \
             --issuer "$NOTARY_ISSUER_ID" \
             --wait
@@ -160,11 +197,46 @@ jobs:
             --verbose=2 \
             "$DMG_PATH"
 
+      - name: Sign update for Sparkle
+        shell: bash
+        env:
+          SPARKLE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          archive_path="$RUNNER_TEMP/sparkle-$SPARKLE_VERSION.tar.xz"
+          tools_directory="$RUNNER_TEMP/sparkle"
+          curl --fail --silent --show-error --location \
+            --output "$archive_path" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
+          echo "$SPARKLE_SHA256  $archive_path" | shasum -a 256 -c -
+          mkdir -p "$tools_directory"
+          tar -xf "$archive_path" -C "$tools_directory"
+
+          # sign_update reads the key from standard input when the file is "-",
+          # which keeps the secret out of the process table and off the disk.
+          # tr strips any stray newline the secret picked up when it was set,
+          # which sign_update would otherwise read as part of the key.
+          signature_line="$(printf '%s' "$SPARKLE_KEY" | tr -d '[:space:]' \
+            | "$tools_directory/bin/sign_update" --ed-key-file - "$ZIP_PATH")"
+
+          signature="$(echo "$signature_line" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')"
+          length="$(echo "$signature_line" | sed -n 's/.*length="\([^"]*\)".*/\1/p')"
+          if [[ -z "$signature" || -z "$length" ]]; then
+            echo "sign_update produced no signature: $signature_line" >&2
+            exit 1
+          fi
+
+          echo "SPARKLE_SIGNATURE=$signature" >> "$GITHUB_ENV"
+          echo "SPARKLE_LENGTH=$length" >> "$GITHUB_ENV"
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Tecolot-${{ env.RELEASE_VERSION }}
-          path: ${{ env.DMG_PATH }}
+          path: |
+            ${{ env.DMG_PATH }}
+            ${{ env.ZIP_PATH }}
           if-no-files-found: error
 
       - name: Create GitHub release
@@ -175,14 +247,65 @@ jobs:
           set -euo pipefail
 
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$DMG_PATH" --clobber
+            gh release upload "$GITHUB_REF_NAME" "$DMG_PATH" "$ZIP_PATH" --clobber
           else
             gh release create "$GITHUB_REF_NAME" \
               "$DMG_PATH" \
+              "$ZIP_PATH" \
               --verify-tag \
               --generate-notes \
               --title "Tecolot $RELEASE_VERSION"
           fi
+
+      - name: Publish appcast
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # The appcast points at the release assets, so it is published only
+          # after they exist. Until this commit lands, running copies of Tecolot
+          # see the previous release and nothing breaks.
+          download_url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/$(basename "$ZIP_PATH")"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          published=false
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git checkout -B appcast-update origin/main
+
+            python3 scripts/update-appcast.py \
+              --appcast website/public/appcast.xml \
+              --version "$RELEASE_VERSION" \
+              --build "$GITHUB_RUN_NUMBER" \
+              --url "$download_url" \
+              --length "$SPARKLE_LENGTH" \
+              --signature "$SPARKLE_SIGNATURE" \
+              --minimum-system-version 15.5.0 \
+              --release-notes-link "https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
+
+            git add website/public/appcast.xml
+            git commit -m "Appcast: Tecolot $RELEASE_VERSION"
+            if git push origin HEAD:main; then
+              published=true
+              break
+            fi
+            echo "Push $attempt failed, main probably moved. Retrying."
+          done
+
+          if [[ "$published" != true ]]; then
+            echo "Could not publish the appcast after three attempts." >&2
+            exit 1
+          fi
+
+          # That push used GITHUB_TOKEN, and such a push starts no other
+          # workflow. A workflow_dispatch is the documented exception, so the
+          # website deploy that carries the new feed is asked for by name.
+          # Without this the release would ship and no user would be offered it.
+          gh workflow run pages.yml --ref main
 
       - name: Remove temporary keychain
         if: always()
