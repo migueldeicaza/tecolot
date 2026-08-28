@@ -38,23 +38,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # This job runs on Linux, so the check reads the plist with Python rather
+      # than plutil, which exists only on macOS.
       - name: Check the update feed
-        run: |
-          set -euo pipefail
-
-          # Tecolot reads the feed from the URL in Info.plist, and an installed
-          # copy cannot be told about a different one. Deploying a site that
-          # does not carry the feed at that exact path would stop every update,
-          # so the deploy stops here instead.
-          feed_url="$(/usr/bin/plutil -extract SUFeedURL raw -o - Tecolot/Info.plist)"
-          feed_file="$PUBLISH_DIRECTORY/${feed_url##*/}"
-
-          if [[ ! -f "$feed_file" ]]; then
-            echo "Info.plist points at $feed_url, but $feed_file does not exist." >&2
-            exit 1
-          fi
-          python3 -c "import sys, xml.etree.ElementTree as E; E.parse(sys.argv[1])" "$feed_file"
-          echo "$feed_url will be served from $feed_file."
+        run: python3 scripts/check-feed.py "$PUBLISH_DIRECTORY"
 
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
