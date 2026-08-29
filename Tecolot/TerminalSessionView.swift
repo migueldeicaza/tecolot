@@ -623,12 +623,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return
         }
         registerWindowIfAvailable()
-        if !NSApp.isActive {
-            NSApp.activate(ignoringOtherApps: true)
-        }
-        if !window.isKeyWindow {
-            window.makeKeyAndOrderFront(nil)
-        }
+        // A view update can request focus while the app is in the background.
+        // Do not let an internal focus request activate the app or raise a window.
+        guard NSApp.isActive, window.isKeyWindow else { return }
         window.makeFirstResponder(terminal)
         didRequestFocus = true
         didBecomeFocused()
