@@ -5,5 +5,14 @@
     <link>https://tecolot.com/appcast.xml</link>
     <description>Updates for Tecolot, a native terminal for macOS.</description>
     <language>en</language>
+    <item>
+      <title>0.0.17</title>
+      <pubDate>Sat, 29 Aug 2026 01:15:58 +0000</pubDate>
+      <sparkle:version>17</sparkle:version>
+      <sparkle:shortVersionString>0.0.17</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.5.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink>https://github.com/migueldeicaza/tecolot/releases/tag/v0.0.17</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/migueldeicaza/tecolot/releases/download/v0.0.17/Tecolot-0.0.17.zip" length="9291096" type="application/octet-stream" sparkle:edSignature="TwQOMcVsqper6LCVbpcsV8uYlZdKPr33HIcpz585vkvFJOc+zZ1Ql83Gf6p4PYEevhd78WENccd2kQEXGmwDAA==" />
+    </item>
   </channel>
 </rss>
