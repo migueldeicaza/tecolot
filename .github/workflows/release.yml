@@ -119,9 +119,25 @@ jobs:
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
             OTHER_CODE_SIGN_FLAGS="--timestamp"
 
-          app_path="$RUNNER_TEMP/Tecolot.xcarchive/Products/Applications/Tecolot.app"
-          codesign --verify --deep --strict --verbose=2 "$app_path"
-          codesign --display --verbose=2 "$app_path"
+          echo "ARCHIVE_PATH=$RUNNER_TEMP/Tecolot.xcarchive" >> "$GITHUB_ENV"
+
+      - name: Export signed app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Exporting is what re-signs Sparkle's helper tools. Xcode leaves
+          # Updater.app, Autoupdate and the two XPC services ad-hoc signed
+          # inside the archive, and the notary service rejects ad-hoc nested
+          # code, so the app must not be taken straight out of the .xcarchive.
+          export_path="$RUNNER_TEMP/export"
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportOptionsPlist scripts/ExportOptions.plist \
+            -exportPath "$export_path"
+
+          app_path="$export_path/Tecolot.app"
+          scripts/check-signing.sh "$app_path"
           echo "APP_PATH=$app_path" >> "$GITHUB_ENV"
 
       - name: Notarize and staple app
@@ -144,13 +160,9 @@ jobs:
           submission_path="$RUNNER_TEMP/Tecolot-notarize.zip"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$submission_path"
 
-          xcrun notarytool submit "$submission_path" \
-            --key "$notary_key_path" \
-            --key-id "$NOTARY_KEY_ID" \
-            --issuer "$NOTARY_ISSUER_ID" \
-            --wait
-          xcrun stapler staple "$APP_PATH"
-          xcrun stapler validate "$APP_PATH"
+          # A ticket cannot be stapled to a ZIP, so the app is the staple target.
+          NOTARY_KEY_PATH="$notary_key_path" scripts/notarize.sh \
+            "$submission_path" "$APP_PATH"
 
       - name: Create update ZIP
         shell: bash
@@ -184,13 +196,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          xcrun notarytool submit "$DMG_PATH" \
-            --key "$NOTARY_KEY_PATH" \
-            --key-id "$NOTARY_KEY_ID" \
-            --issuer "$NOTARY_ISSUER_ID" \
-            --wait
-          xcrun stapler staple "$DMG_PATH"
-          xcrun stapler validate "$DMG_PATH"
+          scripts/notarize.sh "$DMG_PATH" "$DMG_PATH"
           spctl --assess \
             --type open \
             --context context:primary-signature \

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Exporting the archive is what re-signs Sparkle's helper tools, which
+	     Xcode leaves ad-hoc signed inside the archive. Taking the app straight
+	     out of the .xcarchive ships ad-hoc nested code and notarization
+	     rejects it. -->
+	<key>method</key>
+	<string>developer-id</string>
+	<key>teamID</key>
+	<string>PJQC57N853</string>
+	<key>signingStyle</key>
+	<string>manual</string>
+	<key>signingCertificate</key>
+	<string>Developer ID Application</string>
+	<!-- The workflow notarizes and staples in its own steps. -->
+	<key>destination</key>
+	<string>export</string>
+</dict>
+</plist>

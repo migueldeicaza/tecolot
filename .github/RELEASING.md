@@ -10,6 +10,14 @@ The app is notarized before the DMG is built so that the ticket is stapled to
 no stapled ticket makes every user wait for an online Gatekeeper check the first
 time they open it.
 
+The workflow exports the archive with `xcodebuild -exportArchive` and ships the
+exported app, never the one inside the `.xcarchive`. Xcode signs an embedded
+`Sparkle.framework` but leaves the helper tools inside it, `Updater.app`,
+`Autoupdate` and the two XPC services, ad-hoc signed. Exporting re-signs them.
+Apple rejects ad-hoc nested code, so an app taken straight from the archive
+fails notarization. `scripts/check-signing.sh` runs after the export and stops
+the release if any ad-hoc code is left.
+
 ## One-time Apple setup
 
 You need an active Apple Developer Program membership.
