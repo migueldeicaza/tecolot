@@ -300,7 +300,7 @@ enum ProfileSettingsSection {
 
     var title: String {
         switch self {
-        case .text: return "Text"
+        case .text: return "Appearance"
         case .window: return "Window"
         case .shell: return "Shell"
         case .keyboard: return "Keyboard"
@@ -993,12 +993,14 @@ struct ProfileExportDocument: FileDocument {
     ProfilesSettingsView(activeProfileID: $activeProfileID)
         .environmentObject(SettingsPreviewData.profiles)
         .environmentObject(SettingsPreviewData.themes)
+        .environmentObject(SettingsPreviewData.themeIndex)
         .frame(width: 640, height: 520)
 }
 
 #Preview("Text Settings") {
     ProfileSettingsPagePreview(section: .text)
         .environmentObject(SettingsPreviewData.themes)
+        .environmentObject(SettingsPreviewData.themeIndex)
         .frame(width: 720, height: 720)
 }
 

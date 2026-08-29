@@ -200,7 +200,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
         switch self {
         case .general: return "General"
         case .profiles: return "Profiles"
-        case .text: return "Text"
+        case .text: return "Appearance"
         case .window: return "Window"
         case .shell: return "Shell"
         case .keyboard: return "Keyboard"
@@ -386,6 +386,7 @@ struct GeneralSettingsView: View {
     )
     .environmentObject(SettingsPreviewData.profiles)
     .environmentObject(SettingsPreviewData.themes)
+    .environmentObject(SettingsPreviewData.themeIndex)
     .defaultAppStorage(SettingsPreviewData.defaults)
     .frame(width: 960, height: 640)
 }

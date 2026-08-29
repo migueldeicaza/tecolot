@@ -490,6 +490,7 @@ struct TecolotApp: App {
             ContentView(document: file.$document, fileURL: file.fileURL)
                 .environmentObject(model.profiles)
                 .environmentObject(model.themes)
+                .environmentObject(model.themeIndex)
         }
         .windowToolbarStyle(.unifiedCompact)
         .commands {
@@ -509,6 +510,7 @@ struct TecolotApp: App {
             SettingsView(issueCenter: model.issueCenter, recovery: model.recovery)
                 .environmentObject(model.profiles)
                 .environmentObject(model.themes)
+                .environmentObject(model.themeIndex)
         }
         .defaultSize(width: 820, height: 560)
         .windowResizability(.contentMinSize)

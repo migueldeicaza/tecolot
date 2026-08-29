@@ -8,6 +8,7 @@
 //  commands deposit a consume-once LaunchSpec here that the new session's
 //  controller picks up; every fallback path uses the default profile.
 //
+import Combine
 import Foundation
 
 /// Parameters for the next session to be created
@@ -23,10 +24,12 @@ final class AppModel {
 
     let profiles: ProfileStore
     let themes: ThemeStore
+    let themeIndex: ThemeCatalogIndex
     let windowGroups: WindowGroupStore
     let issueCenter: PersistenceIssueCenter
     let recovery: DataRecoveryCoordinator
     private let preferences: PreferenceMigrator
+    private var themeSubscription: AnyCancellable?
 
     /// Consume-once parameters for the next terminal session
     private var pendingLaunch: LaunchSpec?
@@ -67,6 +70,13 @@ final class AppModel {
             issueCenter: issueCenter,
             backupDirectory: backups
         )
+        let themeIndex = ThemeCatalogIndex()
+        self.themeIndex = themeIndex
+        themeIndex.update(themes: themes.themes)
+        // @Published emits on willSet, so use the emitted value, not the store
+        themeSubscription = themes.$themes.sink { newThemes in
+            themeIndex.update(themes: newThemes)
+        }
         windowGroups = WindowGroupStore(
             directory: applicationSupport,
             issueCenter: issueCenter,

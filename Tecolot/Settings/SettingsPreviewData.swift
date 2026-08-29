@@ -37,6 +37,12 @@ enum SettingsPreviewData {
         backupDirectory: backupDirectory
     )
 
+    static let themeIndex: ThemeCatalogIndex = {
+        let index = ThemeCatalogIndex()
+        index.update(themes: themes.themes)
+        return index
+    }()
+
     static let windowGroups = WindowGroupStore(
         directory: directory,
         issueCenter: issueCenter,

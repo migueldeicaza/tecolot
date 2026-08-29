@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var workspace = TerminalPaneWorkspace()
     @EnvironmentObject private var profiles: ProfileStore
     @EnvironmentObject private var themes: ThemeStore
+    @EnvironmentObject private var themeIndex: ThemeCatalogIndex
 
     private var rootController: TerminalSessionController? {
         workspace.controllers.first
@@ -75,6 +76,7 @@ struct ContentView: View {
                             ThemePickerPopover(
                                 controller: controller,
                                 themes: themes,
+                                themeIndex: themeIndex,
                                 profiles: profiles
                             )
                         }
@@ -109,12 +111,14 @@ struct ContentView: View {
 struct ThemePickerPopover: View {
     var controller: TerminalSessionController
     @ObservedObject var themes: ThemeStore
+    @ObservedObject var themeIndex: ThemeCatalogIndex
     @ObservedObject var profiles: ProfileStore
     @State private var errorMessage: String?
 
     var body: some View {
         VStack(spacing: 0) {
             ThemeBrowserView(themes: themes,
+                             themeIndex: themeIndex,
                              selectedThemeName: controller.effectiveTheme.name) { theme in
                 controller.applyThemeOverride(theme.name)
             }

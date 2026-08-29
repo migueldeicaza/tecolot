@@ -9,6 +9,9 @@ import SwiftUI
 
 struct ThemeSectionView: View {
     @ObservedObject var themes: ThemeStore
+    // The chooser sheet is presented from a regular hierarchy (not an
+    // NSToolbar popover), where environment propagation is reliable
+    @EnvironmentObject private var themeIndex: ThemeCatalogIndex
     let selectedThemeName: String
     /// Returns false when the selection could not be stored in the profile;
     /// operations then roll back instead of assuming it took effect.
@@ -104,6 +107,7 @@ struct ThemeSectionView: View {
         .sheet(isPresented: $showsChooser) {
             ThemeChooserSheet(
                 themes: themes,
+                themeIndex: themeIndex,
                 selectedThemeName: selectedThemeName,
                 onSelectTheme: selectTheme
             )
@@ -341,6 +345,7 @@ struct ThemeSectionView: View {
 
 struct ThemeChooserSheet: View {
     @ObservedObject var themes: ThemeStore
+    @ObservedObject var themeIndex: ThemeCatalogIndex
     let selectedThemeName: String
     let onSelectTheme: (String) -> Void
 
@@ -355,6 +360,7 @@ struct ThemeChooserSheet: View {
             Divider()
             ThemeBrowserView(
                 themes: themes,
+                themeIndex: themeIndex,
                 selectedThemeName: selectedThemeName,
                 onSelect: { onSelectTheme($0.name) },
                 style: .all,
@@ -491,5 +497,6 @@ private struct ThemeColorSwatch: View {
         }
     }
     .formStyle(.grouped)
+    .environmentObject(SettingsPreviewData.themeIndex)
     .frame(width: 720, height: 520)
 }

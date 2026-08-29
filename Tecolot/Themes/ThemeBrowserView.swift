@@ -2,9 +2,10 @@
 //  ThemeBrowserView.swift
 //  Tecolot
 //
-//  A searchable grid of theme cards. Selecting a card reports the theme to
-//  the owner; the browser itself holds no terminal state so it can back the
-//  per-window picker popover and the Appearance settings pane alike.
+//  A searchable grid of theme cards with an alternate 2D map display.
+//  Selecting a card or a map marker reports the theme to the owner; the
+//  browser itself holds no terminal state so it can back the per-window
+//  picker popover and the Appearance settings pane alike.
 //
 import SwiftUI
 import UniformTypeIdentifiers
@@ -20,6 +21,11 @@ enum ThemeBrowserStyle {
     case all
 }
 
+enum ThemeBrowserDisplayMode: String {
+    case grid
+    case map
+}
+
 struct ThemeBrowserSections: Equatable {
     var favorites: [TerminalTheme]
     var others: [TerminalTheme]
@@ -30,20 +36,35 @@ struct ThemeBrowserSections: Equatable {
         query: String,
         page: ThemeBrowserPage?
     ) -> ThemeBrowserSections {
-        let matching = themes.filter {
-            query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
-        }
-        let favoriteThemes = matching
-            .filter { favorites.contains($0.name) }
-            .sorted(by: alphabetically)
+        compute(themes: themes, favorites: favorites, query: query, page: page, order: nil)
+    }
+
+    /// Sort-mode-aware variant: `order` sorts each section in place of the
+    /// alphabetical default; favorites-first sectioning is preserved.
+    static func compute(
+        themes: [TerminalTheme],
+        favorites: Set<String>,
+        query: String,
+        page: ThemeBrowserPage?,
+        order: (([TerminalTheme]) -> [TerminalTheme])?
+    ) -> ThemeBrowserSections {
+        let matching = themes.filter { matches($0.name, query: query) }
+        let sort = order ?? { $0.sorted(by: alphabetically) }
+        let favoriteThemes = sort(matching.filter { favorites.contains($0.name) })
         var otherThemes = matching.filter { !favorites.contains($0.name) }
         if let page {
             otherThemes = otherThemes.filter { page.contains($0.name) }
         }
         return ThemeBrowserSections(
             favorites: favoriteThemes,
-            others: otherThemes.sorted(by: alphabetically)
+            others: sort(otherThemes)
         )
+    }
+
+    /// The one search predicate for both browser displays: the grid sections
+    /// and the map's marker dimming must always match the same theme set
+    static func matches(_ name: String, query: String) -> Bool {
+        query.isEmpty || name.localizedCaseInsensitiveContains(query)
     }
 
     private static func alphabetically(_ left: TerminalTheme, _ right: TerminalTheme) -> Bool {
@@ -51,8 +72,18 @@ struct ThemeBrowserSections: Equatable {
     }
 }
 
+// Persisted-view-preference keys; read once per browser instance so one
+// browser's mode changes never live-flip another open browser (file-scope so
+// @State default expressions can reference them)
+private let displayModeDefaultsKey = "themeBrowserDisplayMode"
+private let plotModeDefaultsKey = "themeBrowserPlotMode"
+
 struct ThemeBrowserView: View {
     @ObservedObject var themes: ThemeStore
+    /// The metrics/plot engine; passed explicitly because the browser is
+    /// hosted inside an NSToolbar popover, where environment-object
+    /// propagation is not guaranteed
+    @ObservedObject var themeIndex: ThemeCatalogIndex
     /// Name of the currently active theme (shown selected)
     var selectedThemeName: String
     var onSelect: (TerminalTheme) -> Void
@@ -61,18 +92,40 @@ struct ThemeBrowserView: View {
 
     @State private var query = ""
     @State private var page: ThemeBrowserPage = .popular
+    @State private var sortMode: ThemeSortMode = .name
+    @State private var pinnedThemeName: String?
     @State private var editorPresentation: ThemeEditorPresentation?
     @State private var showImporter = false
     @State private var importError: String?
+    // Per-instance display state, seeded from and persisted to UserDefaults;
+    // deliberately not @AppStorage so mode changes stay local to this browser
+    @State private var displayMode: ThemeBrowserDisplayMode = ThemeBrowserDisplayMode(
+        rawValue: UserDefaults.standard.string(forKey: displayModeDefaultsKey) ?? ""
+    ) ?? .grid
+    @State private var plotMode: ThemePlotMode = ThemePlotMode(
+        rawValue: UserDefaults.standard.string(forKey: plotModeDefaultsKey) ?? ""
+    ) ?? .brightnessAndColorfulness
 
     private let columns = [GridItem(.adaptive(minimum: 148, maximum: 200), spacing: 10)]
 
+    /// The stored sort mode keeps an empty similarity anchor; the real
+    /// anchor is resolved here on every render, so anything sorted by
+    /// "Similar to Current" re-sorts the moment the current theme changes.
+    private var resolvedSortMode: ThemeSortMode {
+        if case .similarity = sortMode {
+            return .similarity(to: selectedThemeName)
+        }
+        return sortMode
+    }
+
     private var sections: ThemeBrowserSections {
-        ThemeBrowserSections.compute(
+        let mode = resolvedSortMode
+        return ThemeBrowserSections.compute(
             themes: themes.themes,
             favorites: themes.favorites,
             query: query,
-            page: style == .paged ? page : nil
+            page: style == .paged ? page : nil,
+            order: mode == .name ? nil : { themeIndex.sorted($0, by: mode) }
         )
     }
 
@@ -85,50 +138,39 @@ struct ThemeBrowserView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TextField("Search themes", text: $query)
-                .textFieldStyle(.roundedBorder)
-                .padding([.horizontal, .top], 10)
-
-            if style == .paged {
-                Picker("Themes", selection: $page) {
-                    ForEach(ThemeBrowserPage.allCases) { page in
-                        Text(page.title).tag(page)
-                    }
+            HStack(spacing: 8) {
+                TextField("Search themes", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                Picker("Display", selection: $displayMode) {
+                    Image(systemName: "square.grid.2x2")
+                        .tag(ThemeBrowserDisplayMode.grid)
+                        .help("Show themes as a grid")
+                        .accessibilityLabel("Grid")
+                    Image(systemName: "map")
+                        .tag(ThemeBrowserDisplayMode.map)
+                        .help("Show themes as a map")
+                        .accessibilityLabel("Map")
                 }
                 .pickerStyle(.segmented)
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
+                .labelsHidden()
+                .fixedSize()
+            }
+            .padding([.horizontal, .top], 10)
+
+            switch displayMode {
+            case .grid:
+                gridContent
+            case .map:
+                mapContent
             }
 
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    if sections.favorites.isEmpty {
-                        ForEach(sections.others) { theme in
-                            themeCell(theme)
-                        }
-                    } else {
-                        Section {
-                            ForEach(sections.favorites) { theme in
-                                themeCell(theme)
-                            }
-                        } header: {
-                            ThemeBrowserSectionHeader(title: "Favorites")
-                        }
-                        Section {
-                            ForEach(sections.others) { theme in
-                                themeCell(theme)
-                            }
-                        } header: {
-                            ThemeBrowserSectionHeader(title: othersTitle)
-                        }
-                    }
-                }
-                .padding(10)
-            }
             Divider()
             HStack {
                 Button("Import Theme…") {
                     showImporter = true
+                }
+                if displayMode == .grid {
+                    sortMenu
                 }
                 Spacer()
                 Link(
@@ -141,6 +183,12 @@ struct ThemeBrowserView: View {
                 }
             }
             .padding(10)
+        }
+        .onChange(of: displayMode) { _, newValue in
+            UserDefaults.standard.set(newValue.rawValue, forKey: displayModeDefaultsKey)
+        }
+        .onChange(of: plotMode) { _, newValue in
+            UserDefaults.standard.set(newValue.rawValue, forKey: plotModeDefaultsKey)
         }
         .sheet(item: $editorPresentation) { presentation in
             ThemeEditorView(theme: presentation.theme,
@@ -162,6 +210,115 @@ struct ThemeBrowserView: View {
         }
     }
 
+    // MARK: - Grid display
+
+    @ViewBuilder
+    private var gridContent: some View {
+        // Computed once per body pass; each access re-filters and re-sorts
+        let sections = sections
+        if style == .paged {
+            Picker("Themes", selection: $page) {
+                ForEach(ThemeBrowserPage.allCases) { page in
+                    Text(page.title).tag(page)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 10)
+            .padding(.top, 8)
+        }
+
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 12) {
+                if sections.favorites.isEmpty {
+                    ForEach(sections.others) { theme in
+                        themeCell(theme)
+                    }
+                } else {
+                    Section {
+                        ForEach(sections.favorites) { theme in
+                            themeCell(theme)
+                        }
+                    } header: {
+                        ThemeBrowserSectionHeader(title: "Favorites")
+                    }
+                    Section {
+                        ForEach(sections.others) { theme in
+                            themeCell(theme)
+                        }
+                    } header: {
+                        ThemeBrowserSectionHeader(title: othersTitle)
+                    }
+                }
+            }
+            .padding(10)
+        }
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort", selection: $sortMode) {
+                ForEach(sortModes, id: \.self) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            Label("Sort: \(sortMode.title)", systemImage: "arrow.up.arrow.down")
+        }
+        .fixedSize()
+    }
+
+    /// Menu entries. The similarity entry carries an empty anchor on
+    /// purpose: the stored state and the Picker tag stay identical however
+    /// often the selection moves, and resolvedSortMode substitutes the
+    /// current theme when the sort actually runs.
+    private var sortModes: [ThemeSortMode] {
+        [
+            .name, .backgroundLightness, .backgroundHue, .backgroundChroma,
+            .foregroundContrast, .ansiVisibility, .ansiDistinctness,
+            .colorfulness, .dynamicRange, .temperature, .hueDiversity,
+            .brightPairSeparation, .cursorVisibility, .selectionVisibility,
+            .similarity(to: "")
+        ]
+    }
+
+    // MARK: - Map display
+
+    @ViewBuilder
+    private var mapContent: some View {
+        // The map always plots the full catalog; Popular/More do not apply
+        Picker("Plot", selection: $plotMode) {
+            ForEach(ThemePlotMode.v1Tabs) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+
+        ThemeMapView(
+            themes: themes.themes,
+            metrics: themeIndex.metrics,
+            catalog: themeIndex.catalog,
+            mode: plotMode,
+            query: query,
+            selectedThemeName: selectedThemeName,
+            pinnedThemeName: $pinnedThemeName,
+            onSelect: onSelect,
+            onShowSimilar: { showSimilarThemes(to: $0) }
+        )
+    }
+
+    private func showSimilarThemes(to name: String) {
+        displayMode = .map
+        plotMode = .similarityMap
+        pinnedThemeName = name
+    }
+
+    // MARK: - Cells and actions
+
     private func themeCell(_ theme: TerminalTheme) -> some View {
         ThemeCard(
             theme: theme,
@@ -173,6 +330,9 @@ struct ThemeBrowserView: View {
         .contextMenu {
             Button(themes.isFavorite(theme.name) ? "Remove from Favorites" : "Add to Favorites") {
                 toggleFavorite(theme.name)
+            }
+            Button("Show Similar Themes") {
+                showSimilarThemes(to: theme.name)
             }
             Button(theme.isBuiltIn ? "Duplicate & Edit…" : "Edit…") {
                 presentEditor(for: theme)

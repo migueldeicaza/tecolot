@@ -68,11 +68,12 @@ public struct TerminalTheme: Identifiable, Codable, Equatable, Sendable {
 
     /// True when the background is dark (used to pick contrasting UI chrome)
     public var isDark: Bool {
-        // Relative luminance, sRGB approximation
-        let r = Double (background.red) / 65535.0
-        let g = Double (background.green) / 65535.0
-        let b = Double (background.blue) / 65535.0
-        return (0.2126 * r + 0.7152 * g + 0.0722 * b) < 0.5
+        // Exact WCAG relative luminance on linearized channels
+        ThemeColorMath.relativeLuminance(
+            linearRed: ThemeColorMath.linearize(Double (background.red) / 65535.0),
+            linearGreen: ThemeColorMath.linearize(Double (background.green) / 65535.0),
+            linearBlue: ThemeColorMath.linearize(Double (background.blue) / 65535.0)
+        ) < 0.5
     }
 
     public static func slug (for name: String) -> String {
