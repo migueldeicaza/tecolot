@@ -6,7 +6,12 @@ on:
       - "*"
 
 permissions:
+  # contents: the release assets and the appcast commit.
+  # actions: asking the website workflow to publish the appcast. An explicit
+  # permissions block is a whitelist, so this has to be named or the dispatch
+  # comes back as HTTP 403.
   contents: write
+  actions: write
 
 concurrency:
   group: release-${{ github.ref }}
