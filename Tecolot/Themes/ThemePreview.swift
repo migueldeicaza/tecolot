@@ -32,6 +32,7 @@ extension ProfileColor {
 struct ThemePreview: View {
     let theme: TerminalTheme
     var fontSize: CGFloat = 9
+    var extended = false
 
     private var mono: Font {
         .system(size: fontSize, design: .monospaced)
@@ -67,7 +68,13 @@ struct ThemePreview: View {
     private var listingLine: some View {
         HStack(spacing: fontSize * 0.6) {
             Text("docs").foregroundStyle(theme.ansi[4].swiftUIColor)
-            Text("main.swift").foregroundStyle(theme.foreground.swiftUIColor)
+            if extended {
+                Text("main.swift")
+                    .foregroundStyle((theme.selectionText ?? theme.foreground).swiftUIColor)
+                    .background(selectionBackground)
+            } else {
+                Text("main.swift").foregroundStyle(theme.foreground.swiftUIColor)
+            }
             Text("build.sh").foregroundStyle(theme.ansi[2].swiftUIColor)
             Text("a.out").foregroundStyle(theme.ansi[1].swiftUIColor)
         }
@@ -85,7 +92,17 @@ struct ThemePreview: View {
             Text("warn").foregroundStyle(theme.ansi[3].swiftUIColor)
             Text("info").foregroundStyle(theme.ansi[6].swiftUIColor)
             Text("note").foregroundStyle(theme.ansi[5].swiftUIColor)
+            if extended {
+                Text("bold text")
+                    .bold()
+                    .foregroundStyle(theme.foreground.swiftUIColor)
+            }
         }
+    }
+
+    private var selectionBackground: Color {
+        theme.selectionBackground?.swiftUIColor
+            ?? Color(nsColor: .selectedTextBackgroundColor)
     }
 }
 
@@ -94,6 +111,53 @@ struct ThemeCard: View {
     let theme: TerminalTheme
     let isSelected: Bool
     let isFavorite: Bool
+    var onSelect: (() -> Void)? = nil
+    var onToggleFavorite: (() -> Void)? = nil
+
+    @State private var isHovering = false
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if let onSelect {
+                Button(action: onSelect) {
+                    ThemeCardContent(theme: theme, isSelected: isSelected)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Select \(theme.name) theme")
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            } else {
+                ThemeCardContent(theme: theme, isSelected: isSelected)
+            }
+            if let onToggleFavorite {
+                Button(action: onToggleFavorite) {
+                    Image(systemName: isFavorite ? "star.fill" : "star")
+                        .font(.caption)
+                        .foregroundStyle(isFavorite ? .yellow : .secondary)
+                        .frame(width: 22, height: 22)
+                        .background(.regularMaterial, in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    isFavorite ? "Remove from Favorites" : "Add to Favorites"
+                )
+                .opacity(isFavorite || isHovering ? 1 : 0)
+                .allowsHitTesting(isFavorite || isHovering)
+                .accessibilityHidden(!isFavorite && !isHovering)
+                .padding(5)
+            }
+        }
+        .onHover { hovering in
+            if isHovering != hovering {
+                isHovering = hovering
+            }
+        }
+    }
+}
+
+private struct ThemeCardContent: View {
+    let theme: TerminalTheme
+    let isSelected: Bool
 
     var body: some View {
         VStack(spacing: 4) {
@@ -105,16 +169,21 @@ struct ThemeCard: View {
                         .strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.15),
                                       lineWidth: isSelected ? 2 : 1)
                 )
-            HStack(spacing: 3) {
-                if isFavorite {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 8))
-                        .foregroundStyle(.yellow)
+                .overlay(alignment: .topTrailing) {
+                    if !theme.isBuiltIn {
+                        Text("CUSTOM")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(.regularMaterial, in: Capsule())
+                            .padding(5)
+                            .accessibilityLabel("Custom theme")
+                    }
                 }
-                Text(theme.name)
-                    .font(.caption)
-                    .lineLimit(1)
-            }
+            Text(theme.name)
+                .font(.caption)
+                .lineLimit(1)
         }
     }
 }

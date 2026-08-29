@@ -15,6 +15,9 @@ public struct TerminalTheme: Identifiable, Codable, Equatable, Sendable {
     /// Display name, unique within a store
     public var name: String
 
+    /// Name of the built-in theme from which this theme was forked
+    public var baseThemeName: String?
+
     /// The 16 ANSI colors: 0-7 normal (black, red, green, yellow, blue,
     /// magenta, cyan, white), 8-15 their bright variants
     public var ansi: [ProfileColor]
@@ -37,15 +40,17 @@ public struct TerminalTheme: Identifiable, Codable, Equatable, Sendable {
     public var isBuiltIn: Bool = false
 
     enum CodingKeys: String, CodingKey {
-        case name, ansi, foreground, background, cursor, cursorText
+        case name, baseThemeName, ansi, foreground, background, cursor, cursorText
         case selectionBackground, selectionText
     }
 
     public init (name: String, ansi: [ProfileColor], foreground: ProfileColor,
                  background: ProfileColor, cursor: ProfileColor? = nil,
                  cursorText: ProfileColor? = nil, selectionBackground: ProfileColor? = nil,
-                 selectionText: ProfileColor? = nil, isBuiltIn: Bool = false) {
+                 selectionText: ProfileColor? = nil, isBuiltIn: Bool = false,
+                 baseThemeName: String? = nil) {
         self.name = name
+        self.baseThemeName = baseThemeName
         self.ansi = ansi
         self.foreground = foreground
         self.background = background

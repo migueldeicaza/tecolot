@@ -145,6 +145,34 @@ public final class ThemeStore: ObservableObject {
         return themes.filter { $0.name.localizedCaseInsensitiveContains(query) }
     }
 
+    public func forkName(basedOn base: String) -> String {
+        deduplicatedName("\(base) (Custom)")
+    }
+
+    public func copyName(basedOn base: String) -> String {
+        deduplicatedName("\(base) copy")
+    }
+
+    public func fork(of theme: TerminalTheme) -> TerminalTheme {
+        var fork = theme
+        fork.name = forkName(basedOn: theme.name)
+        fork.isBuiltIn = false
+        fork.baseThemeName = theme.name
+        return fork
+    }
+
+    public func duplicate(of theme: TerminalTheme) -> TerminalTheme {
+        var copy = theme
+        copy.isBuiltIn = false
+        if theme.isBuiltIn {
+            copy.name = forkName(basedOn: theme.name)
+            copy.baseThemeName = theme.name
+        } else {
+            copy.name = copyName(basedOn: theme.name)
+        }
+        return copy
+    }
+
     public func isFavorite(_ name: String) -> Bool {
         favorites.contains(name)
     }
@@ -399,6 +427,18 @@ public final class ThemeStore: ObservableObject {
             return candidate
         }
         return base
+    }
+
+    private func deduplicatedName(_ base: String) -> String {
+        var candidate = base
+        var number = 2
+        while themes.contains(where: {
+            $0.name.localizedCaseInsensitiveCompare(candidate) == .orderedSame
+        }) {
+            candidate = "\(base) \(number)"
+            number += 1
+        }
+        return candidate
     }
 
     nonisolated private static func iTermTheme(from data: Data, name: String) -> TerminalTheme? {

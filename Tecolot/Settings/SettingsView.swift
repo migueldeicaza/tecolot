@@ -156,13 +156,17 @@ struct SettingsView: View {
         return name
     }
 
-    private func updateActiveProfile(_ mutate: (inout TerminalProfile) -> Void) {
-        guard var profile = activeProfile else { return }
+    /// Returns false when the change could not be stored, so callers that
+    /// coordinate multi-step operations (theme forking) can roll back.
+    private func updateActiveProfile(_ mutate: (inout TerminalProfile) -> Void) -> Bool {
+        guard var profile = activeProfile else { return false }
         mutate(&profile)
         do {
             try profiles.update(profile)
+            return true
         } catch {
             profileErrorMessage = error.localizedDescription
+            return false
         }
     }
 

@@ -313,9 +313,16 @@ enum ProfileSettingsSection {
 struct ProfileSettingsPage: View {
     let section: ProfileSettingsSection
     let profile: TerminalProfile
-    let update: ((inout TerminalProfile) -> Void) -> Void
+    /// Reports whether the change was stored; most controls ignore the
+    /// result, but theme operations roll back on failure.
+    let update: ((inout TerminalProfile) -> Void) -> Bool
 
     @EnvironmentObject private var themes: ThemeStore
+
+    /// Adapter for child views that have no rollback path of their own.
+    private var updateIgnoringResult: ((inout TerminalProfile) -> Void) -> Void {
+        { mutate in _ = update(mutate) }
+    }
 
     var body: some View {
         Group {
@@ -339,14 +346,20 @@ struct ProfileSettingsPage: View {
     private var textSettings: some View {
         Form {
             Section {
-                ProfileTextSettings(profile: profile, update: update)
+                ProfileTextSettings(profile: profile, update: updateIgnoringResult)
                     .padding(.horizontal)
                     .frame(maxHeight: 190)
             }
             Section {
-                ThemeBrowserView(themes: themes, selectedThemeName: profile.themeName) { theme in
-                    update { $0.themeName = theme.name }
-                }
+                ThemeSectionView(
+                    themes: themes,
+                    selectedThemeName: profile.themeName,
+                    onSelectTheme: { themeName in
+                        update { $0.themeName = themeName }
+                    }
+                )
+            } header: {
+                Text("Theme")
             }
         }
     }
@@ -431,7 +444,7 @@ struct ProfileSettingsPage: View {
                 Toggle("Delete sends Control-H", isOn: binding(\.backspaceSendsControlH))
             }
             Section("Key Mappings"){
-                TerminalKeyBindingsEditor(profile: profile, update: update)
+                TerminalKeyBindingsEditor(profile: profile, update: updateIgnoringResult)
             }
         }
     }
@@ -986,7 +999,7 @@ struct ProfileExportDocument: FileDocument {
 #Preview("Text Settings") {
     ProfileSettingsPagePreview(section: .text)
         .environmentObject(SettingsPreviewData.themes)
-        .frame(width: 720, height: 620)
+        .frame(width: 720, height: 720)
 }
 
 #Preview("Window Settings") {
@@ -1055,7 +1068,8 @@ private struct ProfileSettingsPagePreview: View {
         ProfileSettingsPage(section: section, profile: profile, update: apply)
     }
 
-    private func apply(_ mutate: (inout TerminalProfile) -> Void) {
+    private func apply(_ mutate: (inout TerminalProfile) -> Void) -> Bool {
         mutate(&profile)
+        return true
     }
 }

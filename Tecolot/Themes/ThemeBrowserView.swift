@@ -15,11 +15,49 @@ private struct ThemeEditorPresentation: Identifiable {
     let existingUserThemeName: String?
 }
 
+enum ThemeBrowserStyle {
+    case paged
+    case all
+}
+
+struct ThemeBrowserSections: Equatable {
+    var favorites: [TerminalTheme]
+    var others: [TerminalTheme]
+
+    static func compute(
+        themes: [TerminalTheme],
+        favorites: Set<String>,
+        query: String,
+        page: ThemeBrowserPage?
+    ) -> ThemeBrowserSections {
+        let matching = themes.filter {
+            query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
+        }
+        let favoriteThemes = matching
+            .filter { favorites.contains($0.name) }
+            .sorted(by: alphabetically)
+        var otherThemes = matching.filter { !favorites.contains($0.name) }
+        if let page {
+            otherThemes = otherThemes.filter { page.contains($0.name) }
+        }
+        return ThemeBrowserSections(
+            favorites: favoriteThemes,
+            others: otherThemes.sorted(by: alphabetically)
+        )
+    }
+
+    private static func alphabetically(_ left: TerminalTheme, _ right: TerminalTheme) -> Bool {
+        left.name.localizedCaseInsensitiveCompare(right.name) == .orderedAscending
+    }
+}
+
 struct ThemeBrowserView: View {
     @ObservedObject var themes: ThemeStore
     /// Name of the currently active theme (shown selected)
     var selectedThemeName: String
     var onSelect: (TerminalTheme) -> Void
+    var style: ThemeBrowserStyle = .paged
+    var onDone: (() -> Void)? = nil
 
     @State private var query = ""
     @State private var page: ThemeBrowserPage = .popular
@@ -29,17 +67,20 @@ struct ThemeBrowserView: View {
 
     private let columns = [GridItem(.adaptive(minimum: 148, maximum: 200), spacing: 10)]
 
-    private var matchingThemes: [TerminalTheme] {
-        let matching = themes.themes(matching: query)
-        // Favorites first, then the rest, both alphabetical
-        let favorites = matching.filter { themes.isFavorite($0.name) }
-        let others = matching.filter { !themes.isFavorite($0.name) }
-        return favorites + others
+    private var sections: ThemeBrowserSections {
+        ThemeBrowserSections.compute(
+            themes: themes.themes,
+            favorites: themes.favorites,
+            query: query,
+            page: style == .paged ? page : nil
+        )
     }
 
-    private var visibleThemes: [TerminalTheme] {
-        guard query.isEmpty else { return matchingThemes }
-        return matchingThemes.filter { page.contains($0.name) }
+    private var othersTitle: String {
+        switch style {
+        case .paged: page.title
+        case .all: "All Themes"
+        }
     }
 
     var body: some View {
@@ -48,19 +89,38 @@ struct ThemeBrowserView: View {
                 .textFieldStyle(.roundedBorder)
                 .padding([.horizontal, .top], 10)
 
-            Picker("Themes", selection: $page) {
-                ForEach(ThemeBrowserPage.allCases) { page in
-                    Text(page.title).tag(page)
+            if style == .paged {
+                Picker("Themes", selection: $page) {
+                    ForEach(ThemeBrowserPage.allCases) { page in
+                        Text(page.title).tag(page)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 10)
+                .padding(.top, 8)
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 10)
-            .padding(.top, 8)
 
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(visibleThemes) { theme in
-                        themeCell(theme)
+                    if sections.favorites.isEmpty {
+                        ForEach(sections.others) { theme in
+                            themeCell(theme)
+                        }
+                    } else {
+                        Section {
+                            ForEach(sections.favorites) { theme in
+                                themeCell(theme)
+                            }
+                        } header: {
+                            ThemeBrowserSectionHeader(title: "Favorites")
+                        }
+                        Section {
+                            ForEach(sections.others) { theme in
+                                themeCell(theme)
+                            }
+                        } header: {
+                            ThemeBrowserSectionHeader(title: othersTitle)
+                        }
                     }
                 }
                 .padding(10)
@@ -75,6 +135,10 @@ struct ThemeBrowserView: View {
                     "Get More Themes…",
                     destination: URL(string: "https://github.com/mbadolato/iTerm2-Color-Schemes")!
                 )
+                if let onDone {
+                    Button("Done", action: onDone)
+                        .keyboardShortcut(.defaultAction)
+                }
             }
             .padding(10)
         }
@@ -99,21 +163,16 @@ struct ThemeBrowserView: View {
     }
 
     private func themeCell(_ theme: TerminalTheme) -> some View {
-        Button {
-            onSelect(theme)
-        } label: {
-            ThemeCard(theme: theme,
-                      isSelected: theme.name == selectedThemeName,
-                      isFavorite: themes.isFavorite(theme.name))
-        }
-        .buttonStyle(.plain)
+        ThemeCard(
+            theme: theme,
+            isSelected: theme.name == selectedThemeName,
+            isFavorite: themes.isFavorite(theme.name),
+            onSelect: { onSelect(theme) },
+            onToggleFavorite: { toggleFavorite(theme.name) }
+        )
         .contextMenu {
             Button(themes.isFavorite(theme.name) ? "Remove from Favorites" : "Add to Favorites") {
-                do {
-                    try themes.toggleFavorite(theme.name)
-                } catch {
-                    importError = error.localizedDescription
-                }
+                toggleFavorite(theme.name)
             }
             Button(theme.isBuiltIn ? "Duplicate & Edit…" : "Edit…") {
                 presentEditor(for: theme)
@@ -136,25 +195,20 @@ struct ThemeBrowserView: View {
 
     private func presentEditor(for theme: TerminalTheme) {
         if theme.isBuiltIn {
-            var copy = theme
-            copy.name = duplicateName(for: theme.name)
-            copy.isBuiltIn = false
-            editorPresentation = ThemeEditorPresentation(theme: copy, existingUserThemeName: nil)
+            // duplicate(of:) records the built-in as the copy's base theme
+            editorPresentation = ThemeEditorPresentation(theme: themes.duplicate(of: theme),
+                                                         existingUserThemeName: nil)
         } else {
             editorPresentation = ThemeEditorPresentation(theme: theme, existingUserThemeName: theme.name)
         }
     }
 
-    private func duplicateName(for base: String) -> String {
-        var name = "\(base) copy"
-        var number = 2
-        while themes.themes.contains(where: {
-            $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
-        }) {
-            name = "\(base) copy \(number)"
-            number += 1
+    private func toggleFavorite(_ name: String) {
+        do {
+            try themes.toggleFavorite(name)
+        } catch {
+            importError = error.localizedDescription
         }
-        return name
     }
 
     private func importTheme(_ result: Result<URL, Error>) {
@@ -173,7 +227,18 @@ struct ThemeBrowserView: View {
     }
 }
 
-private enum ThemeBrowserPage: CaseIterable, Identifiable {
+private struct ThemeBrowserSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.headline)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 2)
+    }
+}
+
+enum ThemeBrowserPage: CaseIterable, Identifiable {
     case popular
     case more
 
