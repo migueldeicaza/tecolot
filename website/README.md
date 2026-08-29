@@ -5,11 +5,22 @@ GitHub Pages serves this site at `https://tecolot.com/`. It is published by
 with a `workflow` build type, so a `CNAME` file is neither used nor needed. The
 custom domain lives in the repository Pages settings.
 
-`public/` holds files that are copied to the site root without change. Astro,
-which `PLAN.md` proposes for the real site, uses the same convention, so these
-files keep their URLs when the site gets built for real. At that point,
-`pages.yml` gains a build step and uploads `website/dist` instead of
-`website/public`.
+`public/` holds the complete site and is uploaded without a build step.
+`index.html` is an interactive Design Canvas document. It uses `support.js` for
+the client-side component runtime and `assets/owl.png` for the site artwork.
+The runtime loads pinned React and Babel releases from unpkg. The site also
+loads Archivo and JetBrains Mono from Google Fonts.
+
+Serve this directory through HTTP for local development. Do not open
+`index.html` through a `file:` URL:
+
+```sh
+python3 -m http.server 8000 --directory website/public
+```
+
+The site reads the current public version from `appcast.xml`. If the feed is not
+available, the interface shows `LATEST` and still links to the stable GitHub
+Releases URL.
 
 ## public/appcast.xml
 

@@ -1,13 +1,526 @@
-<!doctype html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tecolot</title>
+<meta name="theme-color" content="#0A0F0D">
+<meta name="description" content="Tecolot is a native terminal for macOS, built with SwiftTerm, CoreText and Metal.">
+<title>Tecolot — Native terminal for macOS</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<title>Tecolot — Native terminal for macOS</title>
+<meta name="description" content="Tecolot is a native terminal for macOS, built with SwiftTerm, CoreText and Metal." />
+<meta property="og:title" content="Tecolot — Native terminal for macOS" />
+<meta property="og:description" content="Native tabs and splits, rich terminal compatibility, profiles, and 141 bundled themes." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://tecolot.com/" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin" />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet" />
 <style>
-  :root { color-scheme: light dark; }
-  body { font: 16px/1.6 -apple-system, system-ui, sans-serif;
-         margin: 0 auto; padding: 4rem 1.5rem; max-width: 34rem; }
+  html, body { margin: 0; padding: 0; background: #0A0F0D; }
+  * { box-sizing: border-box; }
+  a { color: #F1CC7C; text-decoration: none; }
+  a:hover { color: #FBE3AE; }
+  button { font: inherit; }
+  .tec-nav-link { appearance:none; border:0; background:transparent; color:inherit; padding:0; cursor:pointer; }
+  .tec-nav-link:hover, .tec-nav-link:focus-visible { color:#E7E3D6; }
+  .tec-button { appearance:none; border:0; cursor:pointer; display:inline-block; }
+  .tec-button:focus-visible, a:focus-visible, .tec-nav-link:focus-visible { outline:2px solid #F1CC7C; outline-offset:4px; }
+  .tec-hero-grid > *, .tec-config-grid > *, .tec-docs-grid > *, .tec-download-detail > *, .tec-four-grid > *, .tec-two-grid > * { min-width:0; }
+  ::selection { background: #F1CC7C; color: #0A0F0D; }
+  @keyframes tec-blink { 0%, 49% { opacity: 1 } 50%, 100% { opacity: 0 } }
+  @keyframes tec-rise { from { opacity: 0; transform: translateY(14px) } to { opacity: 1; transform: none } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration:0.01ms !important; animation-iteration-count:1 !important; scroll-behavior:auto !important; }
+  }
+  @media (max-width: 900px) {
+    .tec-header-inner { flex-wrap:wrap; gap:18px !important; }
+    .tec-header-nav { order:3; width:100%; overflow-x:auto; padding-bottom:2px; }
+    .tec-hero-grid, .tec-config-grid, .tec-docs-grid, .tec-download-detail { grid-template-columns:1fr !important; }
+    .tec-four-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
+    .tec-two-grid { grid-template-columns:1fr !important; }
+    .tec-feature-row { grid-template-columns:52px 1fr !important; gap:22px !important; }
+    .tec-feature-row > div:last-child { grid-column:2; }
+    .tec-docs-aside { position:static !important; }
+    .tec-footer-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
+  }
+  @media (max-width: 600px) {
+    .tec-header-inner, .tec-section-pad, .tec-page-pad, .tec-footer-inner { padding-left:20px !important; padding-right:20px !important; }
+    .tec-header-nav { gap:20px !important; }
+    .tec-version { display:none; }
+    .tec-hero-grid { padding-top:68px !important; padding-bottom:64px !important; gap:48px !important; }
+    .tec-hero-title { font-size:50px !important; }
+    .tec-page-title { font-size:42px !important; }
+    .tec-four-grid, .tec-footer-grid { grid-template-columns:1fr !important; }
+    .tec-feature-row { grid-template-columns:1fr !important; padding:28px 22px !important; }
+    .tec-feature-row > div:last-child { grid-column:1; }
+    .tec-action-row { align-items:stretch !important; flex-direction:column; }
+    .tec-action-row > * { text-align:center; }
+  }
 </style>
-<h1>Tecolot</h1>
-<p>A native terminal for macOS, built with SwiftTerm.</p>
-<p><a href="https://github.com/migueldeicaza/tecolot/releases/latest">Download the latest release</a></p>
-<!-- Placeholder. website/PLAN.md describes the real site that replaces this. -->
+</helmet>
+<div style="position:absolute;width:0;height:0;overflow:hidden">
+  <svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true">
+    <defs>
+      <pattern id="greca" width="64" height="20" patternUnits="userSpaceOnUse">
+        <path d="M2 18 H14 V8 H26 V18 H38 V2 H50 V12 H62" fill="none" stroke="#B4834A" stroke-width="2.5" />
+      </pattern>
+      <pattern id="grecaGold" width="64" height="20" patternUnits="userSpaceOnUse">
+        <path d="M2 18 H14 V8 H26 V18 H38 V2 H50 V12 H62" fill="none" stroke="#F1CC7C" stroke-width="2.5" />
+      </pattern>
+      <pattern id="grecaFaint" width="128" height="128" patternUnits="userSpaceOnUse">
+        <path d="M0 96 H32 V64 H64 V96 H96 V32 H128" fill="none" stroke="#1D2B24" stroke-width="6" />
+        <path d="M0 32 H32 V0" fill="none" stroke="#1D2B24" stroke-width="6" />
+      </pattern>
+    </defs>
+  </svg>
+</div>
+
+<div style="font-family:Archivo,system-ui,sans-serif;background:#0A0F0D;color:#E7E3D6;min-height:100vh">
+
+  <header style="position:sticky;top:0;z-index:40;background:rgba(10,15,13,0.86);backdrop-filter:blur(12px);border-bottom:1px solid #1B2721">
+    <div class="tec-header-inner" style="max-width:1240px;margin:0 auto;padding:14px 32px;display:flex;align-items:center;gap:40px">
+      <a href="./" onClick="{{ goHome }}" style="display:flex;align-items:center;gap:12px">
+        <img src="assets/owl.png" alt="Tecolot" style="width:34px;height:auto;display:block" />
+        <span style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:16px;letter-spacing:0.22em;color:#F1CC7C">TECOLOT</span>
+      </a>
+      <nav class="tec-header-nav" aria-label="Main navigation" style="display:flex;align-items:center;gap:30px;font-size:14px;font-weight:500;color:#9AA5A0">
+        <a href="#features" onClick="{{ goFeatures }}" style="color:inherit">Features</a>
+        <a href="#themes" onClick="{{ goThemes }}" style="color:inherit">Themes</a>
+        <a href="#docs" onClick="{{ goDocs }}" style="color:inherit">Docs</a>
+        <a href="#download" onClick="{{ goDownload }}" style="color:inherit">Download</a>
+      </nav>
+      <div style="flex:1"></div>
+      <div style="display:flex;align-items:center;gap:14px">
+        <span class="tec-version" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6E7A75">{{ versionLabel }}</span>
+        <a href="#download" onClick="{{ goDownload }}" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:500;letter-spacing:0.04em;color:#0A0F0D;background:#F1CC7C;padding:9px 18px" style-hover="background:#FBE3AE">Install</a>
+      </div>
+    </div>
+  </header>
+
+  <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+  <div>
+    <section style="position:relative;overflow:hidden;border-bottom:1px solid #1B2721">
+      <div style="position:absolute;inset:0;background:radial-gradient(120% 80% at 50% 0%, #12201A 0%, #0A0F0D 62%)"></div>
+      <div style="position:absolute;inset:0;opacity:0.5">
+        <svg xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%"><rect width="100%" height="100%" fill="url(#grecaFaint)" /></svg>
+      </div>
+      <div class="tec-hero-grid tec-section-pad" style="position:relative;max-width:1240px;margin:0 auto;padding:104px 32px 96px;display:grid;grid-template-columns:1.05fr 1fr;gap:64px;align-items:center">
+        <div>
+          <div style="display:flex;align-items:center;gap:12px;font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:0.28em;color:#7E9188;margin-bottom:26px">
+            <span>TECOLOTL</span>
+            <span style="width:44px;height:1px;background:#3A4B43"></span>
+            <span>NAHUATL FOR OWL</span>
+          </div>
+          <h1 class="tec-hero-title" style="margin:0;font-size:76px;line-height:0.98;letter-spacing:-0.035em;font-weight:800;color:#F5F1E6;text-wrap:balance">A terminal that<br />sees in the dark.</h1>
+          <p style="margin:28px 0 0;max-width:540px;font-size:19px;line-height:1.6;color:#A3ADA8">A native macOS terminal with CoreText and Metal rendering, native tabs and splits, rich terminal compatibility, and profiles that make every window yours.</p>
+          <div class="tec-action-row" style="display:flex;gap:14px;margin-top:40px;align-items:center">
+            <a href="#download" onClick="{{ goDownload }}" style="background:#F1CC7C;color:#0A0F0D;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;letter-spacing:0.04em;padding:16px 30px" style-hover="background:#FBE3AE">DOWNLOAD {{ versionLabel }}</a>
+            <a href="#docs" onClick="{{ goDocs }}" style="border:1px solid #2E3B34;color:#D5D0C2;font-family:'JetBrains Mono',monospace;font-size:14px;padding:16px 26px" style-hover="border-color:#F1CC7C;color:#F1CC7C">Get started →</a>
+          </div>
+          <div style="margin-top:34px;font-family:'JetBrains Mono',monospace;font-size:13px;color:#6E7A75">macOS 15.5+ &nbsp;|&nbsp; signed &amp; notarized &nbsp;|&nbsp; open source</div>
+        </div>
+        <div style="position:relative">
+          <img src="assets/owl.png" alt="" style="position:absolute;right:-90px;top:-150px;width:420px;opacity:0.09;pointer-events:none" />
+          <div style="position:relative;border:1px solid #2A3831;background:#0C1310;box-shadow:0 40px 90px rgba(0,0,0,0.55)">
+            <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #1E2A24;background:#101815">
+              <span style="width:9px;height:9px;border-radius:50%;background:#B4834A"></span>
+              <span style="width:9px;height:9px;border-radius:50%;background:#7E9188"></span>
+              <span style="width:9px;height:9px;border-radius:50%;background:#2E3B34"></span>
+              <span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#6E7A75">tecolot — ~/src/tecolot</span>
+            </div>
+            <div style="padding:22px 20px 26px;font-family:'JetBrains Mono',monospace;font-size:13.5px;line-height:1.85;min-height:280px">
+              <sc-for list="{{ lines }}" as="line" hint-placeholder-count="7">
+                <div style="display:flex;gap:10px;white-space:pre"><span style="color:{{ line.tone }}">{{ line.text }}</span></div>
+              </sc-for>
+              <div style="display:flex;gap:10px;align-items:center"><span style="color:#7E9188">λ</span><span style="width:8px;height:16px;background:#F1CC7C;animation:tec-blink 1.05s step-end infinite"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <svg xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%;height:20px;opacity:0.55"><rect width="100%" height="20" fill="url(#greca)" /></svg>
+    </section>
+
+    <section class="tec-section-pad" style="max-width:1240px;margin:0 auto;padding:96px 32px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:40px;margin-bottom:56px">
+        <h2 style="margin:0;font-size:42px;letter-spacing:-0.025em;font-weight:700;color:#F5F1E6;max-width:520px">Built for people who live in the shell</h2>
+        <a href="#features" onClick="{{ goFeatures }}" style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#F1CC7C;white-space:nowrap">All features →</a>
+      </div>
+      <div class="tec-four-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#1B2721;border:1px solid #1B2721">
+        <div style="background:#0D1411;padding:34px 28px 40px" style-hover="background:#111A16">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#B4834A;letter-spacing:0.2em;margin-bottom:22px">01</div>
+          <h3 style="margin:0 0 12px;font-size:20px;font-weight:600;color:#F5F1E6">Native rendering</h3>
+          <p style="margin:0;font-size:15px;line-height:1.65;color:#98A29D">CoreText layout and optional Metal drawing, with a dedicated render loop that coalesces terminal updates.</p>
+        </div>
+        <div style="background:#0D1411;padding:34px 28px 40px" style-hover="background:#111A16">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#B4834A;letter-spacing:0.2em;margin-bottom:22px">02</div>
+          <h3 style="margin:0 0 12px;font-size:20px;font-weight:600;color:#F5F1E6">Native tabs &amp; splits</h3>
+          <p style="margin:0;font-size:15px;line-height:1.65;color:#98A29D">Open native macOS tabs, split panes in either direction, and move focus without leaving the keyboard.</p>
+        </div>
+        <div style="background:#0D1411;padding:34px 28px 40px" style-hover="background:#111A16">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#B4834A;letter-spacing:0.2em;margin-bottom:22px">03</div>
+          <h3 style="margin:0 0 12px;font-size:20px;font-weight:600;color:#F5F1E6">Modern terminal core</h3>
+          <p style="margin:0;font-size:15px;line-height:1.65;color:#98A29D">Unicode, TrueColor, bidirectional text, rich keyboard and mouse protocols, and inline graphics.</p>
+        </div>
+        <div style="background:#0D1411;padding:34px 28px 40px" style-hover="background:#111A16">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#B4834A;letter-spacing:0.2em;margin-bottom:22px">04</div>
+          <h3 style="margin:0 0 12px;font-size:20px;font-weight:600;color:#F5F1E6">141 bundled themes</h3>
+          <p style="margin:0;font-size:15px;line-height:1.65;color:#98A29D">Search and favorite built-in themes, import iTerm2 colors, or duplicate a theme and edit every color.</p>
+        </div>
+      </div>
+    </section>
+
+    <section style="border-top:1px solid #1B2721;border-bottom:1px solid #1B2721;background:#0C1310">
+      <div class="tec-config-grid tec-section-pad" style="max-width:1240px;margin:0 auto;padding:90px 32px;display:grid;grid-template-columns:0.9fr 1.1fr;gap:72px;align-items:center">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:0.26em;color:#7E9188;margin-bottom:20px">PROFILES</div>
+          <h2 style="margin:0 0 20px;font-size:40px;letter-spacing:-0.025em;font-weight:700;color:#F5F1E6">A terminal that fits your work</h2>
+          <p style="margin:0 0 28px;font-size:17px;line-height:1.65;color:#A3ADA8">Create profiles for different shells, fonts, themes, working directories, environment values, and window behavior. Switch profiles without rebuilding your setup.</p>
+          <a href="#docs" onClick="{{ goDocs }}" style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#F1CC7C">Getting started →</a>
+        </div>
+        <div style="border:1px solid #23302A;background:#080D0B">
+          <div style="padding:11px 16px;border-bottom:1px solid #1B2721;font-family:'JetBrains Mono',monospace;font-size:12px;color:#6E7A75">Developer profile</div>
+          <div style="padding:24px 22px;font-family:'JetBrains Mono',monospace;font-size:13.5px;line-height:1.9;color:#C9D2CD;overflow-x:auto">
+            <div style="white-space:pre"><span style="color:#7E9188">SHELL</span>       Login shell</div>
+            <div style="white-space:pre"><span style="color:#7E9188">START IN</span>    Home directory</div>
+            <div style="height:1.9em"></div>
+            <div style="white-space:pre"><span style="color:#7E9188">FONT</span>        Berkeley Mono</div>
+            <div style="white-space:pre"><span style="color:#7E9188">SIZE</span>        <span style="color:#B4834A">13.5</span></div>
+            <div style="white-space:pre"><span style="color:#7E9188">CURSOR</span>      <span style="color:#F1CC7C">Beam · blink</span></div>
+            <div style="height:1.9em"></div>
+            <div style="white-space:pre"><span style="color:#7E9188">THEME</span>       <span style="color:#F1CC7C">Night Owl</span></div>
+            <div style="white-space:pre"><span style="color:#7E9188">BACKGROUND</span>  94% opacity</div>
+            <div style="white-space:pre"><span style="color:#7E9188">OPTION KEY</span>  Meta</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tec-section-pad" style="max-width:1240px;margin:0 auto;padding:96px 32px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:40px;margin-bottom:48px">
+        <h2 style="margin:0;font-size:40px;letter-spacing:-0.025em;font-weight:700;color:#F5F1E6">141 palettes, shipped</h2>
+        <a href="#themes" onClick="{{ goThemes }}" style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#F1CC7C;white-space:nowrap">Theme gallery →</a>
+      </div>
+      <div class="tec-four-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:20px">
+        <sc-for list="{{ themes }}" as="t" hint-placeholder-count="4">
+          <div style="border:1px solid #23302A;background:#0D1411" style-hover="border-color:#3E5148">
+            <div style="height:118px;padding:16px;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.7;background:{{ t.bg }}">
+              <div style="color:{{ t.a }}">λ git status</div>
+              <div style="color:{{ t.b }}">On branch main</div>
+              <div style="color:{{ t.c }}">λ echo $TERM</div>
+            </div>
+            <div style="padding:16px;display:flex;align-items:center;justify-content:space-between">
+              <span style="font-size:15px;font-weight:600;color:#E7E3D6">{{ t.name }}</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#6E7A75">{{ t.kind }}</span>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <section style="position:relative;overflow:hidden;border-top:1px solid #1B2721;background:#0C1310">
+      <img src="assets/owl.png" alt="" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:520px;opacity:0.07;pointer-events:none" />
+      <div style="position:relative;max-width:760px;margin:0 auto;padding:110px 32px;text-align:center">
+        <h2 style="margin:0 0 18px;font-size:46px;letter-spacing:-0.03em;font-weight:800;color:#F5F1E6">Download. Drag. Open.</h2>
+        <p style="margin:0 0 36px;font-size:17px;color:#A3ADA8">Get the signed and notarized DMG from the latest GitHub release.</p>
+        <div style="display:inline-flex;align-items:center;gap:18px;border:1px solid #2E3B34;background:#080D0B;padding:16px 20px;font-family:'JetBrains Mono',monospace;font-size:14px">
+          <span style="color:#7E9188">↗</span><a href="https://github.com/migueldeicaza/tecolot/releases/latest" style="color:#E7E3D6">github.com/.../releases/latest</a>
+          <button class="tec-nav-link" onClick="{{ copyRelease }}" style="color:#F1CC7C;font-size:12px;letter-spacing:0.1em">{{ copyLabel }}</button>
+        </div>
+      </div>
+      <svg xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%;height:20px;opacity:0.4"><rect width="100%" height="20" fill="url(#greca)" /></svg>
+    </section>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isFeatures }}" hint-placeholder-val="{{ true }}">
+  <div class="tec-page-pad" style="max-width:1240px;margin:0 auto;padding:88px 32px 40px">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:0.26em;color:#7E9188;margin-bottom:22px">FEATURES</div>
+    <h1 class="tec-page-title" style="margin:0;font-size:60px;line-height:1.02;letter-spacing:-0.035em;font-weight:800;color:#F5F1E6;max-width:760px">Everything a modern terminal should understand</h1>
+    <p style="margin:26px 0 64px;max-width:680px;font-size:18px;line-height:1.6;color:#A3ADA8">Tecolot uses SwiftTerm for terminal emulation and adds a native macOS application around it. The result handles modern text, input, graphics, and shell protocols without a plugin layer.</p>
+    <div style="display:grid;gap:1px;background:#1B2721;border:1px solid #1B2721">
+      <sc-for list="{{ featureRows }}" as="f" hint-placeholder-count="11">
+        <div class="tec-feature-row" style="background:#0D1411;display:grid;grid-template-columns:80px 1fr 1.2fr;gap:40px;padding:38px 34px;align-items:start" style-hover="background:#111A16">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#B4834A;letter-spacing:0.16em">{{ f.n }}</div>
+          <h3 style="margin:0;font-size:23px;font-weight:600;letter-spacing:-0.01em;color:#F5F1E6">{{ f.title }}</h3>
+          <div>
+            <p style="margin:0 0 14px;font-size:16px;line-height:1.7;color:#A3ADA8">{{ f.body }}</p>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#7E9188">{{ f.meta }}</span>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isThemes }}" hint-placeholder-val="{{ true }}">
+  <div class="tec-page-pad" style="max-width:1240px;margin:0 auto;padding:88px 32px 40px">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:0.26em;color:#7E9188;margin-bottom:22px">THEMES</div>
+    <h1 class="tec-page-title" style="margin:0;font-size:60px;line-height:1.02;letter-spacing:-0.035em;font-weight:800;color:#F5F1E6;max-width:700px">141 palettes, ready to explore</h1>
+    <p style="margin:26px 0 60px;max-width:680px;font-size:18px;line-height:1.6;color:#A3ADA8">Search and favorite the bundled collection. Import an iTerm2 color scheme, or duplicate any theme and edit its foreground, background, cursor, selection, and ANSI colors.</p>
+    <div class="tec-two-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:24px">
+      <sc-for list="{{ themeDetail }}" as="t" hint-placeholder-count="6">
+        <div style="border:1px solid #23302A;background:#0D1411">
+          <div style="padding:26px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.9;background:{{ t.bg }}">
+            <div style="color:{{ t.c }}">λ git status</div>
+            <div style="color:{{ t.a }}">On branch main</div>
+            <div style="color:{{ t.b }}">modified: TerminalSessionView.swift</div>
+            <div style="color:{{ t.d }}">λ echo $TERM</div>
+            <div style="color:{{ t.a }}">xterm-256color</div>
+          </div>
+          <div style="padding:20px 24px;display:flex;align-items:center;justify-content:space-between;gap:20px;border-top:1px solid #1B2721">
+            <div>
+              <div style="font-size:17px;font-weight:600;color:#F5F1E6;margin-bottom:5px">{{ t.name }}</div>
+              <div style="font-size:14px;color:#8B9590">{{ t.note }}</div>
+            </div>
+            <div style="display:flex;gap:6px">
+              <span style="width:20px;height:20px;background:{{ t.bg }};border:1px solid #33423B"></span>
+              <span style="width:20px;height:20px;background:{{ t.a }}"></span>
+              <span style="width:20px;height:20px;background:{{ t.b }}"></span>
+              <span style="width:20px;height:20px;background:{{ t.c }}"></span>
+              <span style="width:20px;height:20px;background:{{ t.d }}"></span>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isDocs }}" hint-placeholder-val="{{ true }}">
+  <div class="tec-docs-grid tec-page-pad" style="max-width:1240px;margin:0 auto;padding:72px 32px 40px;display:grid;grid-template-columns:230px 1fr;gap:64px;align-items:start">
+    <aside class="tec-docs-aside" style="position:sticky;top:110px;border-left:1px solid #1B2721;padding-left:22px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:0.24em;color:#6E7A75;margin-bottom:18px">CONTENTS</div>
+      <div style="display:flex;flex-direction:column;gap:12px;font-size:14.5px">
+        <button class="tec-nav-link" onClick="{{ scrollInstall }}" style="color:#F1CC7C;text-align:left">Install</button>
+        <button class="tec-nav-link" onClick="{{ scrollProfiles }}" style="color:#8B9590;text-align:left">Profiles</button>
+        <button class="tec-nav-link" onClick="{{ scrollKeys }}" style="color:#8B9590;text-align:left">Key bindings</button>
+        <button class="tec-nav-link" onClick="{{ scrollSupport }}" style="color:#8B9590;text-align:left">Support</button>
+      </div>
+    </aside>
+    <div style="max-width:720px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:0.26em;color:#7E9188;margin-bottom:20px">GETTING STARTED · {{ versionLabel }}</div>
+      <h1 class="tec-page-title" style="margin:0 0 22px;font-size:48px;letter-spacing:-0.03em;font-weight:800;color:#F5F1E6">Make Tecolot yours</h1>
+      <p style="margin:0 0 40px;font-size:18px;line-height:1.7;color:#A3ADA8">Install the signed macOS application, choose a profile, and start a local shell. The standard terminal behavior works without extra setup.</p>
+
+      <h2 id="docs-install" style="margin:0 0 16px;font-size:24px;font-weight:600;color:#F5F1E6">1 · Install</h2>
+      <p style="margin:0 0 18px;font-size:16.5px;line-height:1.75;color:#A3ADA8">Download the latest DMG, open it, and drag Tecolot to Applications. Releases are signed and notarized for macOS.</p>
+      <a href="https://github.com/migueldeicaza/tecolot/releases/latest" style="display:inline-block;border:1px solid #2E3B34;background:#080D0B;padding:14px 18px;font-family:'JetBrains Mono',monospace;font-size:13px;margin-bottom:36px">Open the latest release ↗</a>
+
+      <h2 id="docs-profiles" style="margin:0 0 16px;font-size:24px;font-weight:600;color:#F5F1E6">2 · Choose a profile</h2>
+      <p style="margin:0 0 36px;font-size:16.5px;line-height:1.75;color:#A3ADA8">Open Settings to create or duplicate a profile. A profile controls the shell, startup directory, environment, font, theme, cursor, background opacity, and terminal behavior. You can also import iTerm2 color schemes.</p>
+
+      <h2 id="docs-keys" style="margin:0 0 16px;font-size:24px;font-weight:600;color:#F5F1E6">3 · Learn five keys</h2>
+      <div style="border:1px solid #1B2721;margin-bottom:36px">
+        <sc-for list="{{ keybinds }}" as="k" hint-placeholder-count="5">
+          <div style="display:grid;grid-template-columns:200px 1fr;gap:24px;padding:15px 20px;border-bottom:1px solid #16211C;align-items:center">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#F1CC7C">{{ k.combo }}</span>
+            <span style="font-size:15px;color:#A3ADA8">{{ k.what }}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <div id="docs-support" style="border-left:2px solid #B4834A;padding:4px 0 4px 20px;margin-bottom:20px">
+        <p style="margin:0;font-size:16px;line-height:1.7;color:#98A29D">Need help or found a terminal compatibility problem? <a href="https://github.com/migueldeicaza/tecolot/issues">Open an issue on GitHub</a> with the command, shell, and steps that reproduce it.</p>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isDownload }}" hint-placeholder-val="{{ true }}">
+  <div class="tec-page-pad" style="max-width:1240px;margin:0 auto;padding:88px 32px 40px">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:0.26em;color:#7E9188;margin-bottom:22px">DOWNLOAD · {{ versionLabel }}</div>
+    <h1 class="tec-page-title" style="margin:0;font-size:60px;line-height:1.02;letter-spacing:-0.035em;font-weight:800;color:#F5F1E6">Get Tecolot</h1>
+    <p style="margin:26px 0 56px;max-width:600px;font-size:18px;line-height:1.6;color:#A3ADA8">Download the signed and notarized DMG from GitHub Releases. Tecolot requires macOS 15.5 or later.</p>
+    <div style="max-width:560px;border:1px solid #23302A;background:#0D1411;padding:34px 30px;margin-bottom:56px" style-hover="border-color:#3E5148">
+      <div style="font-size:22px;font-weight:600;color:#F5F1E6;margin-bottom:7px">Tecolot for macOS</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6E7A75;margin-bottom:28px">macOS 15.5+ · signed · notarized</div>
+      <a href="https://github.com/migueldeicaza/tecolot/releases/latest" style="display:inline-block;background:#F1CC7C;color:#0A0F0D;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;padding:14px 22px">VIEW LATEST RELEASE ↗</a>
+    </div>
+    <div class="tec-download-detail" style="border-top:1px solid #1B2721;padding-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:56px">
+      <div>
+        <h2 style="margin:0 0 14px;font-size:22px;font-weight:600;color:#F5F1E6">Build from source</h2>
+        <p style="margin:0 0 18px;font-size:16px;line-height:1.7;color:#A3ADA8">Clone the Swift project and open it in Xcode.</p>
+        <div style="border:1px solid #23302A;background:#080D0B;padding:16px 18px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.9;color:#C9D2CD;overflow-x:auto"><span style="color:#7E9188">$</span> git clone https://github.com/migueldeicaza/tecolot.git<br /><span style="color:#7E9188">$</span> open tecolot/Tecolot.xcodeproj</div>
+      </div>
+      <div>
+        <h2 style="margin:0 0 14px;font-size:22px;font-weight:600;color:#F5F1E6">Release notes</h2>
+        <p style="margin:0 0 18px;font-size:16px;line-height:1.7;color:#A3ADA8">The release page includes the current DMG, the Sparkle update archive, and the changes in each version.</p>
+        <a href="https://github.com/migueldeicaza/tecolot/releases" style="font-family:'JetBrains Mono',monospace;font-size:13px">Browse all releases →</a>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <footer style="border-top:1px solid #1B2721;margin-top:96px;background:#080D0B">
+    <svg xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%;height:20px;opacity:0.3"><rect width="100%" height="20" fill="url(#greca)" /></svg>
+    <div class="tec-footer-grid tec-footer-inner" style="max-width:1240px;margin:0 auto;padding:56px 32px 40px;display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:48px">
+      <div>
+        <div style="display:flex;align-items:center;gap:11px;margin-bottom:16px">
+          <img src="assets/owl.png" alt="" style="width:30px;height:auto;display:block" />
+          <span style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:14px;letter-spacing:0.22em;color:#F1CC7C">TECOLOT</span>
+        </div>
+        <p style="margin:0;max-width:280px;font-size:14.5px;line-height:1.65;color:#7E8883">From <em style="font-style:italic;color:#A3ADA8">tecolotl</em>, Nahuatl for owl. A terminal for working after dark.</p>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:11px;font-size:14px;color:#8B9590">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:0.2em;color:#5E6A65;margin-bottom:5px">PRODUCT</span>
+        <a href="#features" onClick="{{ goFeatures }}" style="color:inherit">Features</a>
+        <a href="#themes" onClick="{{ goThemes }}" style="color:inherit">Themes</a>
+        <a href="#download" onClick="{{ goDownload }}" style="color:inherit">Download</a>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:11px;font-size:14px;color:#8B9590">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:0.2em;color:#5E6A65;margin-bottom:5px">LEARN</span>
+        <a href="#docs" onClick="{{ goDocs }}" style="color:inherit">Getting started</a>
+        <a href="https://github.com/migueldeicaza/tecolot/releases" style="color:inherit">Release notes</a>
+        <a href="https://github.com/migueldeicaza/tecolot/issues" style="color:inherit">Support</a>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:11px;font-size:14px;color:#8B9590">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:0.2em;color:#5E6A65;margin-bottom:5px">COMMUNITY</span>
+        <a href="https://github.com/migueldeicaza/tecolot" style="color:inherit">GitHub</a>
+        <a href="https://github.com/migueldeicaza/tecolot/issues" style="color:inherit">Issues</a>
+        <a href="https://github.com/migueldeicaza/tecolot/releases" style="color:inherit">Releases</a>
+      </div>
+    </div>
+    <div class="tec-footer-inner" style="max-width:1240px;margin:0 auto;padding:0 32px 44px;display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:12px;color:#5E6A65">
+      <span>MIT LICENSED</span>
+      <span>MADE IN MÉXICO</span>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{}">
+class Component extends DCLogic {
+  state = { page: 'home', shown: 0, copyLabel: 'COPY LINK', version: '' };
+
+  script = [
+    { text: 'λ open -a Tecolot', tone: '#E7E3D6' },
+    { text: 'native   macOS · SwiftTerm · CoreText · Metal', tone: '#6E7A75' },
+    { text: 'text     Unicode · emoji · bidi · TrueColor', tone: '#7E9188' },
+    { text: 'graphics Sixel · iTerm2 · Kitty', tone: '#7E9188' },
+    { text: 'input    Kitty keyboard · mouse reporting', tone: '#7E9188' },
+    { text: 'workspace native tabs · split panes · profiles', tone: '#7E9188' },
+    { text: 'themes   141 bundled · import · edit', tone: '#F1CC7C' }
+  ];
+
+  componentDidMount() {
+    this.syncPage = () => this.setState({ page: this.pageFromLocation() });
+    window.addEventListener('hashchange', this.syncPage);
+    window.addEventListener('popstate', this.syncPage);
+    this.syncPage();
+
+    this.timer = setInterval(() => {
+      this.setState(s => {
+        if (s.shown >= this.script.length) return { shown: 0 };
+        return { shown: s.shown + 1 };
+      });
+    }, 620);
+
+    fetch('./appcast.xml', { cache: 'no-cache' })
+      .then(response => response.ok ? response.text() : Promise.reject(new Error('feed unavailable')))
+      .then(xml => {
+        const document = new DOMParser().parseFromString(xml, 'application/xml');
+        const node = document.getElementsByTagNameNS(
+          'http://www.andymatuschak.org/xml-namespaces/sparkle',
+          'shortVersionString'
+        )[0];
+        const version = node && node.textContent ? node.textContent.trim() : '';
+        if (version) this.setState({ version });
+      })
+      .catch(() => {});
+  }
+  componentWillUnmount() {
+    clearInterval(this.timer);
+    window.removeEventListener('hashchange', this.syncPage);
+    window.removeEventListener('popstate', this.syncPage);
+  }
+
+  pageFromLocation() {
+    const page = window.location.hash.slice(1);
+    return ['features', 'themes', 'docs', 'download'].includes(page) ? page : 'home';
+  }
+
+  go(page) {
+    return event => {
+      if (event && event.preventDefault) event.preventDefault();
+      const destination = page === 'home'
+        ? window.location.pathname + window.location.search
+        : '#' + page;
+      window.history.pushState(null, '', destination);
+      this.setState({ page });
+      window.scrollTo(0, 0);
+    };
+  }
+
+  scrollTo(id) {
+    return () => {
+      const element = document.getElementById(id);
+      if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+
+  renderVals() {
+    const p = this.state.page;
+    const versionLabel = this.state.version ? 'v' + this.state.version : 'LATEST';
+    return {
+      isHome: p === 'home', isFeatures: p === 'features', isThemes: p === 'themes',
+      isDocs: p === 'docs', isDownload: p === 'download',
+      goHome: this.go('home'), goFeatures: this.go('features'), goThemes: this.go('themes'),
+      goDocs: this.go('docs'), goDownload: this.go('download'),
+      lines: this.script.slice(0, this.state.shown),
+      versionLabel,
+      copyLabel: this.state.copyLabel,
+      copyRelease: () => {
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText('https://github.com/migueldeicaza/tecolot/releases/latest');
+        }
+        this.setState({ copyLabel: 'COPIED' });
+        setTimeout(() => this.setState({ copyLabel: 'COPY LINK' }), 1600);
+      },
+      scrollInstall: this.scrollTo('docs-install'),
+      scrollProfiles: this.scrollTo('docs-profiles'),
+      scrollKeys: this.scrollTo('docs-keys'),
+      scrollSupport: this.scrollTo('docs-support'),
+      themes: [
+        { name: 'Night Owl', kind: 'dark', bg: '#011627', a: '#addb67', b: '#7fdbca', c: '#d6deeb' },
+        { name: 'Dracula', kind: 'dark', bg: '#282a36', a: '#f1fa8c', b: '#50fa7b', c: '#f8f8f2' },
+        { name: 'Catppuccin Mocha', kind: 'dark', bg: '#1e1e2e', a: '#f9e2af', b: '#a6e3a1', c: '#cdd6f4' },
+        { name: 'Apple System Colors Light', kind: 'light', bg: '#feffff', a: '#cdac08', b: '#26a439', c: '#000000' }
+      ],
+      themeDetail: [
+        { name: 'Night Owl', note: 'Bundled dark theme.', bg: '#011627', a: '#addb67', b: '#7fdbca', c: '#d6deeb', d: '#ef5350' },
+        { name: 'Dracula', note: 'Bundled dark theme.', bg: '#282a36', a: '#f1fa8c', b: '#50fa7b', c: '#f8f8f2', d: '#ff5555' },
+        { name: 'Catppuccin Mocha', note: 'Bundled dark theme.', bg: '#1e1e2e', a: '#f9e2af', b: '#a6e3a1', c: '#cdd6f4', d: '#f38ba8' },
+        { name: 'Gruvbox Dark', note: 'Bundled dark theme.', bg: '#282828', a: '#d79921', b: '#98971a', c: '#ebdbb2', d: '#cc241d' },
+        { name: 'Solarized Dark Higher Contrast', note: 'Bundled high-contrast theme.', bg: '#001e27', a: '#a57706', b: '#6cbe6c', c: '#9cc2c3', d: '#d11c24' },
+        { name: 'Apple System Colors Light', note: 'Bundled light theme.', bg: '#feffff', a: '#cdac08', b: '#26a439', c: '#000000', d: '#cc372e' }
+      ],
+      featureRows: [
+        { n: '01', title: 'Windows, tabs, and panes', body: 'Use native macOS tabs, split panes in either direction, move focus by direction, adjust dividers by one terminal cell, and save named window groups for later.', meta: 'native tabs · splits · window groups · restoration' },
+        { n: '02', title: 'Sessions and shell integration', body: 'Run a login shell or custom command, control process-exit behavior, save terminal sessions as documents, and restore their text, profile, and theme.', meta: 'Zsh · Fish · Nushell · Elvish · Bash' },
+        { n: '03', title: 'Profiles', body: 'Create, duplicate, rename, import, export, and apply profiles. Configure the shell, window title, dimensions, scrollback, environment, key mappings, and terminal identity.', meta: 'JSON import/export · environment · key mappings' },
+        { n: '04', title: 'Themes and appearance', body: 'Search 141 built-in themes in a grid or visual color map. Sort by color and contrast, import iTerm2 themes, and edit fonts, colors, cursors, and opacity.', meta: '141 themes · visual map · Nerd Font Symbols' },
+        { n: '05', title: 'Text and emulation', body: 'Emulates VT100 and Xterm behavior with ANSI and VT500 sequences, Unicode 17 width data, bidirectional text, TrueColor, styled text, and synchronized output.', meta: 'VT100 · Xterm · Unicode 17 · TrueColor' },
+        { n: '06', title: 'Keyboard and mouse', body: 'Supports the Kitty keyboard protocol, application modes, configurable Backspace and Option behavior, profile key mappings, terminal mouse reporting, and shell-escaped paste.', meta: 'Kitty keyboard · X10 · SGR · URxvt' },
+        { n: '07', title: 'Selection, search, and output', body: 'Select and search terminal text, use the native find interface, keep selections during new output, export or print content, and use the macOS clipboard and OSC 52.', meta: 'Find · Quick Look · export · print · OSC 52' },
+        { n: '08', title: 'Links, prompts, and reports', body: 'Open OSC 8 hyperlinks and detected URLs, read working directories and OSC 133 prompt markers, and report titles, colors, cursor styles, and terminal size.', meta: 'OSC 8 · OSC 133 · CWD · terminal reports' },
+        { n: '09', title: 'Images and graphics', body: 'Displays Sixel, iTerm2, and Kitty graphics. Decodes PNG, JPEG, RGB, and RGBA data and supports Kitty placements, crops, layers, animation, and placeholders.', meta: 'Sixel · iTerm2 · Kitty · PNG · JPEG' },
+        { n: '10', title: 'Performance and reliability', body: 'Uses Metal rendering with a Core Graphics fallback, stays responsive during large output, reduces work for hidden windows, and delivers pending output before process exit.', meta: 'Metal · Core Graphics · responsive output' },
+        { n: '11', title: 'macOS integration', body: 'Uses native menus, toolbars, settings, find, print, and font panels. Includes Secure Keyboard Entry, terminal notifications, diagnostics, data recovery, and automatic updates.', meta: 'native UI · Secure Keyboard Entry · Sparkle' }
+      ],
+      keybinds: [
+        { combo: 'cmd + d', what: 'Split the pane vertically' },
+        { combo: 'cmd + option + d', what: 'Split the pane horizontally' },
+        { combo: 'cmd + [ / ]', what: 'Select the previous or next pane' },
+        { combo: 'cmd + k', what: 'Clear scrollback' },
+        { combo: 'cmd + f', what: 'Find terminal text' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
