@@ -22,6 +22,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows: Bool
+    ) -> Bool {
+        guard !hasVisibleWindows else { return true }
+        WindowOpener.openWindow(spec: LaunchSpec())
+        return false
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let hasLiveProcess = sender.windows.contains { window in
             TerminalSessionRegistry.shared.controllers(for: window)
