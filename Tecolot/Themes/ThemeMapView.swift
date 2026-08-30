@@ -441,3 +441,22 @@ private struct PlotCanvas: View, Animatable {
         }
     }
 }
+
+
+#Preview("Theme Map") {
+    @Previewable @State var pinnedThemeName: String? = SettingsPreviewData.profile.themeName
+
+    ThemeMapView(
+        themes: SettingsPreviewData.themes.themes,
+        metrics: SettingsPreviewData.themeIndex.metrics,
+        catalog: SettingsPreviewData.themeIndex.catalog,
+        mode: .brightnessAndColorfulness,
+        query: "",
+        selectedThemeName: SettingsPreviewData.profile.themeName,
+        pinnedThemeName: $pinnedThemeName,
+        onSelect: { _ in },
+        onShowSimilar: { _ in }
+    )
+    .frame(width: 720, height: 480)
+    .padding()
+}

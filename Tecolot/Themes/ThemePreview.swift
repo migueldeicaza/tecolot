@@ -106,11 +106,242 @@ struct ThemePreview: View {
     }
 }
 
+enum ThemePreviewPage: Int, CaseIterable, Identifiable {
+    case shell
+    case midnightCommander
+    case claudeCode
+
+    var id: Self { self }
+
+    var title: LocalizedStringResource {
+        switch self {
+        case .shell: "Shell"
+        case .midnightCommander: "mc"
+        case .claudeCode: "Claude"
+        }
+    }
+}
+
+/// Shows small terminal samples that the user can page through.
+struct ThemePreviewPager: View {
+    let theme: TerminalTheme
+    @Binding var selectedPage: ThemePreviewPage?
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 0) {
+                    ForEach(ThemePreviewPage.allCases) { page in
+                        ThemePreviewPageView(page: page, theme: theme)
+                            .containerRelativeFrame(.horizontal)
+                            .id(page)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollPosition(id: $selectedPage)
+            .scrollTargetBehavior(.paging)
+            .scrollIndicators(.hidden)
+            .clipShape(.rect(cornerRadius: 8))
+
+            HStack(spacing: 8) {
+                Text("Sample Usage")
+                    .foregroundStyle(.secondary)
+                Picker("Sample Usage", selection: $selectedPage) {
+                    ForEach(ThemePreviewPage.allCases) { page in
+                        Text(page.title).tag(Optional(page))
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .frame(maxWidth: 260)
+                .accessibilityLabel("Sample Usage")
+            }
+        }
+    }
+}
+
+private struct ThemePreviewPageView: View {
+    let page: ThemePreviewPage
+    let theme: TerminalTheme
+    var compact = false
+
+    var body: some View {
+        ZStack {
+            switch page {
+            case .shell:
+                ThemePreview(
+                    theme: theme,
+                    fontSize: compact ? 8 : 12,
+                    extended: !compact
+                )
+            case .midnightCommander:
+                MidnightCommanderThemePreview(theme: theme)
+            case .claudeCode:
+                ClaudeCodeThemePreview(theme: theme, compact: compact)
+            }
+        }
+    }
+}
+
+/// Reproduces the stable regions of an 80-column Midnight Commander capture.
+private struct MidnightCommanderThemePreview: View {
+    let theme: TerminalTheme
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Text("Left")
+                Text("File")
+                Text("Command")
+                Text("Options")
+                Text("Right")
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(theme.ansi[0].swiftUIColor)
+            .padding(.horizontal, 5)
+            .background(theme.ansi[6].swiftUIColor)
+
+            HStack(spacing: 4) {
+                MidnightCommanderPanel(
+                    path: "~/cvs/tecolot",
+                    selectedEntry: "/Tecolot",
+                    secondEntry: "/TecolotTests",
+                    thirdEntry: "/scripts",
+                    fileEntry: "README.md",
+                    theme: theme
+                )
+                MidnightCommanderPanel(
+                    path: "~/src/SwiftTerm",
+                    selectedEntry: "/Sources",
+                    secondEntry: "/Tests",
+                    thirdEntry: "/Tools",
+                    fileEntry: "Package.swift",
+                    theme: theme
+                )
+            }
+            .padding(4)
+
+            Spacer(minLength: 1)
+
+            Text("bash-3.2$ ")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(theme.foreground.swiftUIColor)
+                .padding(.horizontal, 5)
+
+            HStack(spacing: 0) {
+                Text(" 1").foregroundStyle(theme.ansi[15].swiftUIColor)
+                Text("Help  ").foregroundStyle(theme.ansi[0].swiftUIColor)
+                Text(" 3").foregroundStyle(theme.ansi[15].swiftUIColor)
+                Text("View  ").foregroundStyle(theme.ansi[0].swiftUIColor)
+                Text(" 5").foregroundStyle(theme.ansi[15].swiftUIColor)
+                Text("Copy  ").foregroundStyle(theme.ansi[0].swiftUIColor)
+                Text("10").foregroundStyle(theme.ansi[15].swiftUIColor)
+                Text("Quit").foregroundStyle(theme.ansi[0].swiftUIColor)
+                Spacer(minLength: 0)
+            }
+            .background(theme.ansi[6].swiftUIColor)
+        }
+        .font(.system(size: 8, design: .monospaced))
+        .background(theme.ansi[4].swiftUIColor)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Midnight Commander preview with the \(theme.name) theme")
+    }
+}
+
+private struct MidnightCommanderPanel: View {
+    let path: String
+    let selectedEntry: String
+    let secondEntry: String
+    let thirdEntry: String
+    let fileEntry: String
+    let theme: TerminalTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("<─ \(path) ─>")
+                .lineLimit(1)
+            Text("Name                 Size")
+                .foregroundStyle(theme.ansi[11].swiftUIColor)
+            Text(selectedEntry)
+                .foregroundStyle(theme.ansi[0].swiftUIColor)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(theme.ansi[14].swiftUIColor)
+            Text(secondEntry)
+            Text(thirdEntry)
+            Text(fileEntry)
+                .foregroundStyle(theme.ansi[11].swiftUIColor)
+            Spacer(minLength: 0)
+            Divider().overlay(theme.ansi[15].swiftUIColor)
+            Text("698G / 3722G (18%)")
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .foregroundStyle(theme.ansi[15].swiftUIColor)
+        .padding(3)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay {
+            Rectangle().stroke(theme.ansi[15].swiftUIColor.opacity(0.8))
+        }
+    }
+}
+
+/// Reproduces the stable regions of an 80-column Claude Code capture.
+private struct ClaudeCodeThemePreview: View {
+    let theme: TerminalTheme
+    let compact: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: compact ? 2 : 5) {
+            HStack(spacing: compact ? 4 : 7) {
+                Text("✻")
+                    .foregroundStyle(theme.ansi[3].swiftUIColor)
+                Text("Claude Code")
+                    .bold()
+                Spacer(minLength: 4)
+                Text("Opus")
+                    .foregroundStyle(theme.ansi[8].swiftUIColor)
+            }
+
+            if !compact {
+                Text("~/cvs/tecolot")
+                    .foregroundStyle(theme.ansi[8].swiftUIColor)
+                Text("Good morning! How can I help you?")
+                Spacer(minLength: 0)
+            }
+
+            Divider()
+                .overlay(theme.ansi[8].swiftUIColor)
+            HStack(spacing: 5) {
+                Text("❯")
+                    .foregroundStyle(theme.ansi[13].swiftUIColor)
+                Text(compact ? "Ask Claude…" : "Try “explain the theme preview code”")
+                    .foregroundStyle(theme.ansi[8].swiftUIColor)
+                    .lineLimit(1)
+            }
+            if !compact {
+                Divider()
+                    .overlay(theme.ansi[8].swiftUIColor)
+                Text("⏵⏵ auto mode on · shift+tab to cycle")
+                    .foregroundStyle(theme.ansi[8].swiftUIColor)
+            }
+        }
+        .font(.system(size: compact ? 8 : 9, design: .monospaced))
+        .foregroundStyle(theme.foreground.swiftUIColor)
+        .padding(compact ? 6 : 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(theme.background.swiftUIColor)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Claude Code preview with the \(theme.name) theme")
+    }
+}
+
 /// A selectable card wrapping the preview with its name and selection ring
 struct ThemeCard: View {
     let theme: TerminalTheme
     let isSelected: Bool
     let isFavorite: Bool
+    var samplePage: ThemePreviewPage = .shell
     var onSelect: (() -> Void)? = nil
     var onToggleFavorite: (() -> Void)? = nil
 
@@ -120,13 +351,21 @@ struct ThemeCard: View {
         ZStack(alignment: .topLeading) {
             if let onSelect {
                 Button(action: onSelect) {
-                    ThemeCardContent(theme: theme, isSelected: isSelected)
+                    ThemeCardContent(
+                        theme: theme,
+                        isSelected: isSelected,
+                        samplePage: samplePage
+                    )
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Select \(theme.name) theme")
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             } else {
-                ThemeCardContent(theme: theme, isSelected: isSelected)
+                ThemeCardContent(
+                    theme: theme,
+                    isSelected: isSelected,
+                    samplePage: samplePage
+                )
             }
             if let onToggleFavorite {
                 Button(action: onToggleFavorite) {
@@ -158,10 +397,11 @@ struct ThemeCard: View {
 private struct ThemeCardContent: View {
     let theme: TerminalTheme
     let isSelected: Bool
+    let samplePage: ThemePreviewPage
 
     var body: some View {
         VStack(spacing: 4) {
-            ThemePreview(theme: theme)
+            ThemePreviewPageView(page: samplePage, theme: theme, compact: true)
                 .frame(height: 76)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay(
@@ -186,4 +426,41 @@ private struct ThemeCardContent: View {
                 .lineLimit(1)
         }
     }
+}
+
+#Preview("Theme Preview") {
+    ThemePreview(
+        theme: SettingsPreviewData.themes.theme(
+            named: SettingsPreviewData.profile.themeName
+        ),
+        fontSize: 12,
+        extended: true
+    )
+    .frame(width: 420, height: 180)
+}
+
+#Preview("Theme Preview Pager") {
+    @Previewable @State var selectedPage: ThemePreviewPage? = .claudeCode
+
+    ThemePreviewPager(
+        theme: SettingsPreviewData.themes.theme(
+            named: SettingsPreviewData.profile.themeName
+        ),
+        selectedPage: $selectedPage
+    )
+    .frame(width: 520, height: 260)
+    .padding()
+}
+
+#Preview("Theme Card") {
+    ThemeCard(
+        theme: SettingsPreviewData.themes.theme(
+            named: SettingsPreviewData.profile.themeName
+        ),
+        isSelected: true,
+        isFavorite: true,
+        samplePage: .midnightCommander
+    )
+    .frame(width: 180)
+    .padding()
 }

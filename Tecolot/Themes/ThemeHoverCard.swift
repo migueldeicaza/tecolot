@@ -73,3 +73,20 @@ struct ThemeHoverCard: View {
         return "\(Int((rank * 100).rounded()))%"
     }
 }
+
+
+#Preview("Theme Hover Card") {
+    let theme = SettingsPreviewData.themes.theme(
+        named: SettingsPreviewData.profile.themeName
+    )
+
+    if let metrics = SettingsPreviewData.themeIndex.metrics[theme.name] {
+        ThemeHoverCard(
+            theme: theme,
+            metrics: metrics,
+            catalog: SettingsPreviewData.themeIndex.catalog,
+            nearbyCount: 2
+        )
+        .padding()
+    }
+}

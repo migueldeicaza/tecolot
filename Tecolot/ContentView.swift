@@ -14,7 +14,9 @@ struct ContentView: View {
     /// file-backed sessions so that closing an untitled window never
     /// triggers a save prompt
     var fileURL: URL?
-    @State private var workspace = TerminalPaneWorkspace()
+    @State private var workspace = TerminalPaneWorkspace(
+        startsProcesses: ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1"
+    )
     @EnvironmentObject private var profiles: ProfileStore
     @EnvironmentObject private var themes: ThemeStore
     @EnvironmentObject private var themeIndex: ThemeCatalogIndex
@@ -79,6 +81,7 @@ struct ContentView: View {
                                 themeIndex: themeIndex,
                                 profiles: profiles
                             )
+                            //.frame(minHeight: 600)
                         }
                     }
                 }
@@ -116,12 +119,14 @@ struct ThemePickerPopover: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack {
             ThemeBrowserView(themes: themes,
                              themeIndex: themeIndex,
                              selectedThemeName: controller.effectiveTheme.name) { theme in
                 controller.applyThemeOverride(theme.name)
             }
+                             .padding(.top)
+                             .frame(minWidth: 520, minHeight: 420, maxHeight: 500)
             Divider()
             HStack {
                 Button("Reset to Profile Theme") {
@@ -143,7 +148,6 @@ struct ThemePickerPopover: View {
             }
             .padding(10)
         }
-        .frame(width: 520, height: 420)
         .alert("Could Not Change Profile Theme", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -178,6 +182,25 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
     }
 }
 
-#Preview {
-    ContentView(document: .constant(TerminalDocument(content: "")))
+#Preview("Terminal Window") {
+    ContentView(
+        document: .constant(TerminalDocument(
+            content: "miguel@mac tecolot % swift test\nAll tests passed.\n"
+        ))
+    )
+    .environmentObject(SettingsPreviewData.profiles)
+    .environmentObject(SettingsPreviewData.themes)
+    .environmentObject(SettingsPreviewData.themeIndex)
+    .frame(width: 900, height: 560)
+}
+
+#Preview("Theme Picker") {
+    @Previewable @State var controller = TerminalSessionController(startsProcess: false)
+
+    ThemePickerPopover(
+        controller: controller,
+        themes: SettingsPreviewData.themes,
+        themeIndex: SettingsPreviewData.themeIndex,
+        profiles: SettingsPreviewData.profiles
+    )
 }

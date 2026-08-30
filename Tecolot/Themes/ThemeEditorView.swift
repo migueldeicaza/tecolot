@@ -164,3 +164,15 @@ struct ThemeEditorView: View {
         }
     }
 }
+
+
+#Preview("Theme Editor") {
+    ThemeEditorView(
+        theme: SettingsPreviewData.themes.duplicate(
+            of: SettingsPreviewData.themes.theme(
+                named: SettingsPreviewData.profile.themeName
+            )
+        ),
+        themes: SettingsPreviewData.themes
+    )
+}

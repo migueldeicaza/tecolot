@@ -30,6 +30,7 @@ enum TerminalWindowTransparency {
 @Observable
 final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegate {
     let id = UUID()
+    @ObservationIgnored private let startsProcess: Bool
     @ObservationIgnored private var didStartProcess = false
     @ObservationIgnored private var pendingFocus = false
     @ObservationIgnored private var pendingStart = false
@@ -63,6 +64,11 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored private var previewBackgroundOpacity: Double?
 
     private(set) var hasActivity = false
+
+    init(startsProcess: Bool = true) {
+        self.startsProcess = startsProcess
+        super.init()
+    }
 
     deinit {
         if let windowKeyObserver {
@@ -234,6 +240,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         // Bundled Symbols Nerd Font supplies icons the profile font lacks.
         terminal.glyphFallbackProvider = NerdFontFallbackProvider.shared
         attach(to: terminal)
+        if !startsProcess {
+            restoreBufferIfNeeded(on: terminal)
+        }
         return terminal
     }
 
@@ -674,7 +683,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     private func scheduleStartIfNeeded() {
-        guard !didStartProcess, !pendingStart else { return }
+        guard startsProcess, !didStartProcess, !pendingStart else { return }
         pendingStart = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -1053,6 +1062,18 @@ struct TerminalSessionView: NSViewRepresentable {
               let window = nsView.window else { return }
         TerminalSessionRegistry.shared.unregister(controller: controller, from: window)
     }
+}
+
+#Preview("Terminal Session") {
+    @Previewable @State var controller = TerminalSessionController(startsProcess: false)
+
+    TerminalSessionView(
+        controller: controller,
+        document: TerminalDocument(
+            content: "miguel@mac tecolot % swift test\nBuild complete! (2.4s)\nAll tests passed.\n"
+        )
+    )
+    .frame(width: 720, height: 420)
 }
 
 private enum BellBadge {

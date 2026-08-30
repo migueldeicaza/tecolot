@@ -47,10 +47,12 @@ final class TerminalPaneWorkspace {
     private(set) var root: TerminalPaneNode
     private(set) var revision = 0
     private(set) var focusedControllerID: UUID
+    @ObservationIgnored private let startsProcesses: Bool
     @ObservationIgnored weak var hostView: TerminalPaneHostView?
 
-    init() {
-        let controller = TerminalSessionController()
+    init(startsProcesses: Bool = true) {
+        self.startsProcesses = startsProcesses
+        let controller = TerminalSessionController(startsProcess: startsProcesses)
         root = TerminalPaneNode(content: .terminal(controller))
         focusedControllerID = controller.id
         controller.workspace = self
@@ -78,7 +80,7 @@ final class TerminalPaneWorkspace {
     func split(_ controller: TerminalSessionController, orientation: TerminalPaneSplit) {
         guard let node = findNode(for: controller, in: root) else { return }
 
-        let newController = TerminalSessionController()
+        let newController = TerminalSessionController(startsProcess: startsProcesses)
         newController.prepareForSplit(from: controller)
         newController.workspace = self
 
@@ -217,6 +219,19 @@ struct TerminalPaneContainer: NSViewRepresentable {
     static func dismantleNSView(_ nsView: TerminalPaneHostView, coordinator: ()) {
         nsView.workspace.terminateAll()
     }
+}
+
+#Preview("Terminal Pane") {
+    @Previewable @State var workspace = TerminalPaneWorkspace(startsProcesses: false)
+
+    TerminalPaneContainer(
+        workspace: workspace,
+        document: TerminalDocument(
+            content: "miguel@mac tecolot % ls\nREADME.md  Tecolot  TecolotTests\n"
+        ),
+        revision: workspace.revision
+    )
+    .frame(width: 720, height: 420)
 }
 
 final class TerminalPaneHostView: NSView {

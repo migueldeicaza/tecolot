@@ -24,6 +24,7 @@ struct ThemeSectionView: View {
     @State private var selectionInFlight: String?
     @State private var operationError: String?
     @State private var showsChooser = false
+    @State private var selectedPreviewPage: ThemePreviewPage? = .shell
     @FocusState private var nameIsFocused: Bool
 
     init(
@@ -72,10 +73,12 @@ struct ThemeSectionView: View {
                 onChoose: showThemeChooser
             )
 
-            ThemePreview(theme: workingTheme, fontSize: 12, extended: true)
+            ThemePreviewPager(
+                theme: workingTheme,
+                selectedPage: $selectedPreviewPage
+            )
                 .frame(maxWidth: .infinity)
-                .frame(height: 150)
-                .clipShape(.rect(cornerRadius: 8))
+                .frame(height: 180)
 
             ThemeMainColors(
                 background: colorBinding(\.background),
@@ -109,6 +112,7 @@ struct ThemeSectionView: View {
                 themes: themes,
                 themeIndex: themeIndex,
                 selectedThemeName: selectedThemeName,
+                selectedPreviewPage: $selectedPreviewPage,
                 onSelectTheme: selectTheme
             )
         }
@@ -347,9 +351,26 @@ struct ThemeChooserSheet: View {
     @ObservedObject var themes: ThemeStore
     @ObservedObject var themeIndex: ThemeCatalogIndex
     let selectedThemeName: String
+    @Binding var selectedPreviewPage: ThemePreviewPage?
     let onSelectTheme: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var draftThemeName: String
+
+    init(
+        themes: ThemeStore,
+        themeIndex: ThemeCatalogIndex,
+        selectedThemeName: String,
+        selectedPreviewPage: Binding<ThemePreviewPage?>,
+        onSelectTheme: @escaping (String) -> Void
+    ) {
+        self.themes = themes
+        self.themeIndex = themeIndex
+        self.selectedThemeName = selectedThemeName
+        _selectedPreviewPage = selectedPreviewPage
+        self.onSelectTheme = onSelectTheme
+        _draftThemeName = State(initialValue: selectedThemeName)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -361,13 +382,28 @@ struct ThemeChooserSheet: View {
             ThemeBrowserView(
                 themes: themes,
                 themeIndex: themeIndex,
-                selectedThemeName: selectedThemeName,
-                onSelect: { onSelectTheme($0.name) },
+                selectedThemeName: draftThemeName,
+                onSelect: { draftThemeName = $0.name },
                 style: .all,
-                onDone: { dismiss() }
+                samplePage: selectedPreviewPage ?? .shell,
+                sampleSelection: $selectedPreviewPage
             )
+            Divider()
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                Button("Choose") {
+                    onSelectTheme(draftThemeName)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding()
         }
-        .frame(width: 640, height: 520)
+        .frame(width: 780, height: 620)
     }
 }
 
@@ -396,7 +432,7 @@ private struct ThemeHeaderRow: View {
                         onRename()
                         nameFocus.wrappedValue = false
                     }
-                    .frame(minWidth: 100, maxWidth: 180)
+                    .frame(minWidth: 100, maxWidth: 250)
             }
             Spacer(minLength: 4)
             if let baseThemeName {
@@ -499,4 +535,16 @@ private struct ThemeColorSwatch: View {
     .formStyle(.grouped)
     .environmentObject(SettingsPreviewData.themeIndex)
     .frame(width: 720, height: 520)
+}
+
+#Preview("Theme Chooser") {
+    @Previewable @State var selectedPreviewPage: ThemePreviewPage? = .shell
+
+    ThemeChooserSheet(
+        themes: SettingsPreviewData.themes,
+        themeIndex: SettingsPreviewData.themeIndex,
+        selectedThemeName: SettingsPreviewData.profile.themeName,
+        selectedPreviewPage: $selectedPreviewPage,
+        onSelectTheme: { _ in }
+    )
 }

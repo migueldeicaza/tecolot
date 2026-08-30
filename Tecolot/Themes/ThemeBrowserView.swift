@@ -88,6 +88,8 @@ struct ThemeBrowserView: View {
     var selectedThemeName: String
     var onSelect: (TerminalTheme) -> Void
     var style: ThemeBrowserStyle = .paged
+    var samplePage: ThemePreviewPage = .shell
+    var sampleSelection: Binding<ThemePreviewPage?>? = nil
     var onDone: (() -> Void)? = nil
 
     @State private var query = ""
@@ -137,8 +139,8 @@ struct ThemeBrowserView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
+        VStack {
+            HStack {
                 TextField("Search themes", text: $query)
                     .textFieldStyle(.roundedBorder)
                 Picker("Display", selection: $displayMode) {
@@ -171,6 +173,15 @@ struct ThemeBrowserView: View {
                 }
                 if displayMode == .grid {
                     sortMenu
+                    if let sampleSelection {
+                        Picker("Sample", selection: sampleSelection) {
+                            ForEach(ThemePreviewPage.allCases) { page in
+                                Text(page.title).tag(Optional(page))
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                    }
                 }
                 Spacer()
                 Link(
@@ -324,6 +335,7 @@ struct ThemeBrowserView: View {
             theme: theme,
             isSelected: theme.name == selectedThemeName,
             isFavorite: themes.isFavorite(theme.name),
+            samplePage: samplePage,
             onSelect: { onSelect(theme) },
             onToggleFavorite: { toggleFavorite(theme.name) }
         )
@@ -434,4 +446,20 @@ enum ThemeBrowserPage: CaseIterable, Identifiable {
             !Self.popularThemeNames.contains(themeName)
         }
     }
+}
+
+#Preview("Theme Browser") {
+    @Previewable @State var selectedSample: ThemePreviewPage? = .shell
+
+    ThemeBrowserView(
+        themes: SettingsPreviewData.themes,
+        themeIndex: SettingsPreviewData.themeIndex,
+        selectedThemeName: SettingsPreviewData.profile.themeName,
+        onSelect: { _ in },
+        style: .all,
+        samplePage: selectedSample ?? .shell,
+        sampleSelection: $selectedSample,
+        onDone: {}
+    )
+    .frame(width: 760, height: 560)
 }
