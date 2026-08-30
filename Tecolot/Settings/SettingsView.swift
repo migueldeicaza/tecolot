@@ -40,7 +40,7 @@ struct SettingsView: View {
             }
         }
         .frame(minWidth: 800, minHeight: 560)
-        .onKeyPress(.escape, action: closeOnEscape)
+        .background(SettingsEscapeKeyHandler())
         .onAppear(perform: repairActiveProfileSelection)
         .onChange(of: profiles.profiles.map(\.id)) {
             repairActiveProfileSelection()
@@ -170,16 +170,87 @@ struct SettingsView: View {
         }
     }
 
-    private func closeOnEscape() -> KeyPress.Result {
-        NSApp.keyWindow?.performClose(nil)
-        return .handled
-    }
-
     private var profileErrorPresentation: Binding<Bool> {
         Binding(
             get: { profileErrorMessage != nil },
             set: { if !$0 { profileErrorMessage = nil } }
         )
+    }
+}
+
+struct SettingsEscapeKeyHandler: NSViewRepresentable {
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> WindowReaderView {
+        let view = WindowReaderView(coordinator: context.coordinator)
+        context.coordinator.startMonitoring()
+        return view
+    }
+
+    func updateNSView(_ nsView: WindowReaderView, context: Context) {
+        context.coordinator.window = nsView.window
+    }
+
+    static func dismantleNSView(_ nsView: WindowReaderView, coordinator: Coordinator) {
+        coordinator.stopMonitoring()
+    }
+
+    final class WindowReaderView: NSView {
+        weak var coordinator: Coordinator?
+
+        init(coordinator: Coordinator) {
+            self.coordinator = coordinator
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) is not available")
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            coordinator?.window = window
+        }
+    }
+
+    @MainActor
+    final class Coordinator {
+        weak var window: NSWindow?
+        var closeWindow: (NSWindow) -> Void = { window in
+            window.performClose(nil)
+        }
+        private var monitor: Any?
+
+        func startMonitoring() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self,
+                      let window,
+                      event.keyCode == 53,
+                      event.window === window,
+                      window.attachedSheet == nil else {
+                    return event
+                }
+                closeWindow(window)
+                return nil
+            }
+        }
+
+        func stopMonitoring() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
+
+        deinit {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
     }
 }
 

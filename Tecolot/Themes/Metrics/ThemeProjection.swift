@@ -9,7 +9,7 @@
 import CoreGraphics
 import Foundation
 
-nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Sendable {
+nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Hashable, Sendable {
     case backgroundSpectrum
     case brightnessAndColorfulness
     case contrastAndColorfulness
@@ -18,6 +18,9 @@ nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Sendable {
     case accentSpectrum
     case similarityMap
     case interactionColors
+    case colorSpace3D
+    case paletteSpace3D
+    case similaritySpace3D
 
     var id: String { rawValue }
 
@@ -26,6 +29,51 @@ nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Sendable {
         .backgroundSpectrum, .brightnessAndColorfulness, .contrastAndColorfulness,
         .contrastAndDistinctness, .temperatureAndContrast, .similarityMap
     ]
+
+    /// Every mode that uses the established two-dimensional projection.
+    /// Keep this separate from `allCases`: 3D modes use ThemeProjection3D.
+    static let twoDimensionalModes: [ThemePlotMode] = [
+        .backgroundSpectrum, .brightnessAndColorfulness, .contrastAndColorfulness,
+        .contrastAndDistinctness, .temperatureAndContrast, .accentSpectrum,
+        .similarityMap, .interactionColors
+    ]
+
+    /// The tab that remains selected while a paired 3D space is visible.
+    var flattened2DMode: ThemePlotMode {
+        switch self {
+        case .colorSpace3D:
+            return .backgroundSpectrum
+        case .paletteSpace3D:
+            return .contrastAndDistinctness
+        case .similaritySpace3D:
+            return .similarityMap
+        default:
+            return self
+        }
+    }
+
+    /// The authored 3D space paired with this two-dimensional tab.
+    var paired3DMode: ThemePlotMode? {
+        switch flattened2DMode {
+        case .backgroundSpectrum:
+            return .colorSpace3D
+        case .contrastAndDistinctness:
+            return .paletteSpace3D
+        case .similarityMap:
+            return .similaritySpace3D
+        default:
+            return nil
+        }
+    }
+
+    var isThreeDimensional: Bool {
+        switch self {
+        case .colorSpace3D, .paletteSpace3D, .similaritySpace3D:
+            return true
+        default:
+            return false
+        }
+    }
 
     var title: String {
         switch self {
@@ -37,6 +85,9 @@ nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Sendable {
         case .accentSpectrum: return "Accents"
         case .similarityMap: return "Similarity"
         case .interactionColors: return "Interaction"
+        case .colorSpace3D: return "Color Space"
+        case .paletteSpace3D: return "Palette Space"
+        case .similaritySpace3D: return "Similarity Space"
         }
     }
 
@@ -59,6 +110,21 @@ nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Sendable {
             return (nil, "Visual Similarity · themes nearby look alike", nil, nil)
         case .interactionColors:
             return ("VISIBLE CURSOR", "SUBTLE CURSOR", "SUBTLE", "STRONG SELECTION")
+        case .colorSpace3D, .paletteSpace3D, .similaritySpace3D:
+            return (nil, nil, nil, nil)
+        }
+    }
+
+    var threeDimensionalHelp: String? {
+        switch self {
+        case .colorSpace3D:
+            return "Explore background lightness, hue, and chroma in three dimensions."
+        case .paletteSpace3D:
+            return "Explore palette distinctness, visibility, and colorfulness in three dimensions."
+        case .similaritySpace3D:
+            return "Explore visual similarity in three dimensions."
+        default:
+            return nil
         }
     }
 }
@@ -78,6 +144,15 @@ nonisolated struct ThemePlotPoint: Identifiable, Sendable {
     /// Interaction Colors plot draws these hollow
     let hasCustomSelection: Bool
 }
+
+/// The values the shared map marker needs. This type has no view dependency.
+nonisolated protocol ThemeMarkerPoint {
+    var background: ProfileColor { get }
+    var foreground: ProfileColor { get }
+    var accent: ProfileColor { get }
+}
+
+extension ThemePlotPoint: ThemeMarkerPoint {}
 
 nonisolated enum ThemeProjection {
     static func project(
@@ -160,6 +235,11 @@ nonisolated enum ThemeProjection {
                     x: catalog.normalized(themeMetrics.selectionSeparation, for: .selectionSeparation),
                     y: 1 - ThemeColorMath.contrastUtility(themeMetrics.cursorContrast)
                 )
+            case .colorSpace3D, .paletteSpace3D, .similaritySpace3D:
+                // 3D coordinates have a separate model contract. Keeping
+                // them out of this projection prevents a Canvas coordinate
+                // from becoming part of the data model.
+                return nil
             }
             return ThemePlotPoint(
                 id: theme.name,
@@ -173,7 +253,9 @@ nonisolated enum ThemeProjection {
     }
 
     /// min(text contrast, ANSI P10 contrast), as a 0…1 utility (§31)
-    private static func contrastFloor(_ metrics: ThemeMetrics) -> Double {
+    /// Minimum of the foreground and ANSI contrast utilities. This is shared
+    /// by the 2D clarity plot and the 3D palette space.
+    static func contrastFloor(_ metrics: ThemeMetrics) -> Double {
         min(
             ThemeColorMath.contrastUtility(metrics.foregroundContrast),
             ThemeColorMath.contrastUtility(metrics.ansiContrastP10)
@@ -205,7 +287,8 @@ nonisolated enum ThemeProjection {
 
     /// The marker's center-dot color: the accent slot the analyzer resolved
     /// near the dominant hue; the foreground for neutral themes
-    private static func accentColor(for theme: TerminalTheme, metrics: ThemeMetrics) -> ProfileColor {
+    /// The marker's accent color is shared by every plot renderer.
+    static func accentColor(for theme: TerminalTheme, metrics: ThemeMetrics) -> ProfileColor {
         guard let index = metrics.dominantAccentIndex, index < theme.ansi.count else {
             return theme.foreground
         }

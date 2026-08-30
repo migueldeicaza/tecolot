@@ -12,13 +12,30 @@ import SwiftTerm
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var didEnsureStartupWindow = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = true
         _ = SecureKeyboardEntry.shared
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard !didEnsureStartupWindow else { return }
+        didEnsureStartupWindow = true
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
             return
         }
-        openInitialDocumentIfNeeded()
+
+        // Wait until SwiftUI restores its document scenes. A document can
+        // exist before its terminal session registers.
+        DispatchQueue.main.async { [weak self] in
+            let hasDocument = !NSDocumentController.shared.documents.isEmpty
+            let hasTerminalWindow = NSApp.windows.contains { window in
+                !TerminalSessionRegistry.shared.controllers(for: window).isEmpty
+            }
+            guard !hasDocument, !hasTerminalWindow else { return }
+            self?.openStartupWindow()
+        }
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
@@ -54,8 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SecureKeyboardEntry.shared.disableForTermination()
     }
 
-    private func openInitialDocumentIfNeeded() {
-        guard NSDocumentController.shared.documents.isEmpty else { return }
+    private func openStartupWindow() {
         let defaults = UserDefaults.standard
         if defaults.string(forKey: "startupMode") == "windowGroup",
            let rawID = defaults.string(forKey: "startupWindowGroupID"),
@@ -495,6 +511,7 @@ struct TecolotApp: App {
                 .environmentObject(model.themes)
                 .environmentObject(model.themeIndex)
         }
+        .defaultLaunchBehavior(.suppressed)
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             AppInfoCommands()

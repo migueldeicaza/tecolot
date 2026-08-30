@@ -9,6 +9,7 @@
 //
 import Combine
 import Foundation
+import simd
 
 /// Sort orders derived from the metrics engine (spec §26)
 nonisolated enum ThemeSortMode: Hashable, Sendable {
@@ -67,12 +68,16 @@ nonisolated struct CatalogStatistics: Sendable {
     let distinctnessSorted: [Double]
     /// max(0.04, P95 of background chroma), the §29 radial scale
     let backgroundChromaP95: Double
+    /// max(0.05, P98 of background chroma), the 3D color-space scale
+    let backgroundChromaP98: Double
     /// Mean of the 60-dim feature vectors
     let pcaMean: [Double]
     /// First principal component, orientation-stabilized (warmth increases)
     let pc1: [Double]
     /// Second principal component, orientation-stabilized (lightness increases)
     let pc2: [Double]
+    /// Separate from pc1/pc2 so 3D orientation cannot move the shipped 2D map.
+    let similarity3D: Similarity3DBasis?
 
     /// Clamped robust normalization into 0…1
     func normalized(_ value: Double, for key: MetricKey) -> Double {
@@ -108,6 +113,16 @@ nonisolated struct CatalogStatistics: Sendable {
         default: return "Extreme"
         }
     }
+}
+
+/// The rotated, common-scaled PCA basis used only by Similarity Space 3D.
+/// Values remain in memory and are rebuilt with the catalog fingerprint.
+nonisolated struct Similarity3DBasis: Sendable {
+    let basisX: [Double]
+    let basisY: [Double]
+    let basisZ: [Double]
+    let scale: Double
+    let variances: SIMD3<Double>
 }
 
 @MainActor
@@ -266,17 +281,26 @@ final class ThemeCatalogIndex: ObservableObject {
             backgroundChromaP95: max(
                 0.04, ThemeColorMath.quantile(ordered.map(\.backgroundChroma), 0.95)
             ),
+            backgroundChromaP98: max(
+                0.05, ThemeColorMath.quantile(ordered.map(\.backgroundChroma), 0.98)
+            ),
             pcaMean: basis.mean,
             pc1: basis.pc1,
-            pc2: basis.pc2
+            pc2: basis.pc2,
+            similarity3D: basis.similarity3D
         )
     }
 
     // MARK: - PCA (spec §35)
 
-    nonisolated private static func pcaBasis(
-        for ordered: [ThemeMetrics]
-    ) -> (mean: [Double], pc1: [Double], pc2: [Double]) {
+    nonisolated private struct PCABasis {
+        let mean: [Double]
+        let pc1: [Double]
+        let pc2: [Double]
+        let similarity3D: Similarity3DBasis?
+    }
+
+    nonisolated private static func pcaBasis(for ordered: [ThemeMetrics]) -> PCABasis {
         let dimensions = 60
         var identity1 = [Double](repeating: 0, count: dimensions)
         identity1[0] = 1
@@ -285,8 +309,12 @@ final class ThemeCatalogIndex: ObservableObject {
 
         let vectors = ordered.map(\.featureVector).filter { $0.count == dimensions }
         guard vectors.count >= 2 else {
-            return (mean: vectors.first ?? [Double](repeating: 0, count: dimensions),
-                    pc1: identity1, pc2: identity2)
+            return PCABasis(
+                mean: vectors.first ?? [Double](repeating: 0, count: dimensions),
+                pc1: identity1,
+                pc2: identity2,
+                similarity3D: nil
+            )
         }
 
         var mean = [Double](repeating: 0, count: dimensions)
@@ -318,7 +346,7 @@ final class ThemeCatalogIndex: ObservableObject {
         }
 
         guard var pc1 = principalComponent(of: covariance, dimensions: dimensions) else {
-            return (mean: mean, pc1: identity1, pc2: identity2)
+            return PCABasis(mean: mean, pc1: identity1, pc2: identity2, similarity3D: nil)
         }
         // Deflate: remove the first component's variance, then repeat
         let lambda = rayleighQuotient(covariance, pc1, dimensions: dimensions)
@@ -328,10 +356,154 @@ final class ThemeCatalogIndex: ObservableObject {
                 deflated[row * dimensions + column] -= lambda * pc1[row] * pc1[column]
             }
         }
-        var pc2 = principalComponent(of: deflated, dimensions: dimensions) ?? identity2
+        let rawPC1 = pc1
+        let rawPC2 = principalComponent(of: deflated, dimensions: dimensions)
+        var pc2 = rawPC2 ?? identity2
 
         stabilizeOrientation(pc1: &pc1, pc2: &pc2, centered: centered, metrics: ordered)
-        return (mean: mean, pc1: pc1, pc2: pc2)
+
+        let similarity3D: Similarity3DBasis?
+        if vectors.count >= 3, let rawPC2 {
+            let lambda2 = rayleighQuotient(deflated, rawPC2, dimensions: dimensions)
+            var twiceDeflated = deflated
+            for row in 0..<dimensions {
+                for column in 0..<dimensions {
+                    twiceDeflated[row * dimensions + column] -= lambda2 * rawPC2[row] * rawPC2[column]
+                }
+            }
+            if let rawPC3 = principalComponent(of: twiceDeflated, dimensions: dimensions) {
+                let lambda1 = rayleighQuotient(covariance, rawPC1, dimensions: dimensions)
+                let lambda3 = rayleighQuotient(twiceDeflated, rawPC3, dimensions: dimensions)
+                let totalVariance = (0..<dimensions).reduce(0.0) { partial, index in
+                    partial + covariance[index * dimensions + index]
+                }
+                similarity3D = stabilizedSimilarity3DBasis(
+                    pc1: rawPC1,
+                    pc2: rawPC2,
+                    pc3: rawPC3,
+                    centered: centered,
+                    metrics: ordered,
+                    variances: SIMD3(lambda1, lambda2, lambda3),
+                    totalVariance: totalVariance
+                )
+            } else {
+                similarity3D = nil
+            }
+        } else {
+            similarity3D = nil
+        }
+
+        return PCABasis(mean: mean, pc1: pc1, pc2: pc2, similarity3D: similarity3D)
+    }
+
+    /// Creates a rigidly rotated 3D PCA basis. The existing pc1/pc2 basis
+    /// is deliberately not reused because its in-plane stabilization serves
+    /// the 2D similarity map.
+    nonisolated private static func stabilizedSimilarity3DBasis(
+        pc1: [Double],
+        pc2: [Double],
+        pc3: [Double],
+        centered: [[Double]],
+        metrics: [ThemeMetrics],
+        variances: SIMD3<Double>,
+        totalVariance: Double
+    ) -> Similarity3DBasis {
+        func dot(_ left: [Double], _ right: [Double]) -> Double {
+            zip(left, right).reduce(0) { $0 + $1.0 * $1.1 }
+        }
+        func covariance(_ values: [Double], _ property: [Double]) -> Double {
+            let meanValue = ThemeColorMath.mean(values)
+            let meanProperty = ThemeColorMath.mean(property)
+            return zip(values, property).reduce(0) {
+                $0 + ($1.0 - meanValue) * ($1.1 - meanProperty)
+            } / Double(values.count)
+        }
+        func normalized(_ vector: SIMD3<Double>) -> SIMD3<Double>? {
+            let length = simd_length(vector)
+            guard length > 1e-12 else { return nil }
+            return vector / length
+        }
+        func basisVector(_ components: SIMD3<Double>) -> [Double] {
+            (0..<pc1.count).map {
+                components.x * pc1[$0] + components.y * pc2[$0] + components.z * pc3[$0]
+            }
+        }
+
+        let x = centered.map { dot($0, pc1) }
+        let y = centered.map { dot($0, pc2) }
+        let z = centered.map { dot($0, pc3) }
+        let lightness = metrics.map(\.backgroundLightness)
+        let temperature = metrics.map(\.temperature)
+
+        let unrotated = (
+            x: SIMD3<Double>(1, 0, 0),
+            y: SIMD3<Double>(0, 1, 0),
+            z: SIMD3<Double>(0, 0, 1)
+        )
+        guard let up = normalized(SIMD3(
+            covariance(x, lightness), covariance(y, lightness), covariance(z, lightness)
+        )) else {
+            return similarity3DBasis(
+                x: unrotated.x, y: unrotated.y, z: unrotated.z,
+                basisVector: basisVector, centered: centered, variances: variances,
+                totalVariance: totalVariance
+            )
+        }
+
+        let temperatureDirection = SIMD3(
+            covariance(x, temperature), covariance(y, temperature), covariance(z, temperature)
+        )
+        let horizontal = temperatureDirection - simd_dot(temperatureDirection, up) * up
+        guard let right = normalized(horizontal) else {
+            // With no temperature signal, preserve the raw PCA horizontal plane.
+            return similarity3DBasis(
+                x: unrotated.x, y: unrotated.y, z: unrotated.z,
+                basisVector: basisVector, centered: centered, variances: variances,
+                totalVariance: totalVariance
+            )
+        }
+        let toward = simd_cross(right, up)
+        return similarity3DBasis(
+            x: right,
+            y: up,
+            z: toward,
+            basisVector: basisVector,
+            centered: centered,
+            variances: variances,
+            totalVariance: totalVariance
+        )
+    }
+
+    nonisolated private static func similarity3DBasis(
+        x: SIMD3<Double>,
+        y: SIMD3<Double>,
+        z: SIMD3<Double>,
+        basisVector: (SIMD3<Double>) -> [Double],
+        centered: [[Double]],
+        variances: SIMD3<Double>,
+        totalVariance: Double
+    ) -> Similarity3DBasis {
+        let basisX = basisVector(x)
+        let basisY = basisVector(y)
+        let basisZ = basisVector(z)
+        func dot(_ left: [Double], _ right: [Double]) -> Double {
+            zip(left, right).reduce(0) { $0 + $1.0 * $1.1 }
+        }
+        let radii = centered.map { vector in
+            let x = dot(vector, basisX)
+            let y = dot(vector, basisY)
+            let z = dot(vector, basisZ)
+            return sqrt(x * x + y * y + z * z)
+        }
+        let scale = max(1e-12, ThemeColorMath.quantile(radii, 0.98))
+        let explained = totalVariance > 0 ? variances / totalVariance : variances
+        return Similarity3DBasis(
+            basisX: basisX,
+            basisY: basisY,
+            basisZ: basisZ,
+            scale: scale,
+            variances: explained
+        )
     }
 
     /// Dominant eigenvector by deterministic power iteration; nil when the

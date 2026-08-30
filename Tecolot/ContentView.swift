@@ -185,7 +185,7 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
 #Preview("Terminal Window") {
     ContentView(
         document: .constant(TerminalDocument(
-            content: "miguel@mac tecolot % swift test\nAll tests passed.\n"
+            content: "miguel@mac tecolot % swift test\n\rAll tests passed.\r\n"
         ))
     )
     .environmentObject(SettingsPreviewData.profiles)

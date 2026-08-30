@@ -23,7 +23,22 @@ enum ThemeBrowserStyle {
 
 enum ThemeBrowserDisplayMode: String {
     case grid
-    case map
+    case twoDimensional
+    case threeDimensional
+
+    /// Preserve the old map choice when a person first opens this version.
+    static func storedValue(_ value: String?) -> ThemeBrowserDisplayMode {
+        switch value {
+        case ThemeBrowserDisplayMode.grid.rawValue:
+            .grid
+        case "map", ThemeBrowserDisplayMode.twoDimensional.rawValue:
+            .twoDimensional
+        case ThemeBrowserDisplayMode.threeDimensional.rawValue:
+            .threeDimensional
+        default:
+            .grid
+        }
+    }
 }
 
 struct ThemeBrowserSections: Equatable {
@@ -96,14 +111,16 @@ struct ThemeBrowserView: View {
     @State private var page: ThemeBrowserPage = .popular
     @State private var sortMode: ThemeSortMode = .name
     @State private var pinnedThemeName: String?
+    /// Exploratory camera positions last for this browser presentation only.
+    @State private var cameraByMode: [ThemePlotMode: ThemeCamera] = [:]
     @State private var editorPresentation: ThemeEditorPresentation?
     @State private var showImporter = false
     @State private var importError: String?
     // Per-instance display state, seeded from and persisted to UserDefaults;
     // deliberately not @AppStorage so mode changes stay local to this browser
-    @State private var displayMode: ThemeBrowserDisplayMode = ThemeBrowserDisplayMode(
-        rawValue: UserDefaults.standard.string(forKey: displayModeDefaultsKey) ?? ""
-    ) ?? .grid
+    @State private var displayMode: ThemeBrowserDisplayMode = ThemeBrowserDisplayMode.storedValue(
+        UserDefaults.standard.string(forKey: displayModeDefaultsKey)
+    )
     @State private var plotMode: ThemePlotMode = ThemePlotMode(
         rawValue: UserDefaults.standard.string(forKey: plotModeDefaultsKey) ?? ""
     ) ?? .brightnessAndColorfulness
@@ -143,15 +160,15 @@ struct ThemeBrowserView: View {
             HStack {
                 TextField("Search themes", text: $query)
                     .textFieldStyle(.roundedBorder)
-                Picker("Display", selection: $displayMode) {
-                    Image(systemName: "square.grid.2x2")
+                Picker("Display", selection: displayModeSelection) {
+                    Text("List")
                         .tag(ThemeBrowserDisplayMode.grid)
-                        .help("Show themes as a grid")
-                        .accessibilityLabel("Grid")
-                    Image(systemName: "map")
-                        .tag(ThemeBrowserDisplayMode.map)
-                        .help("Show themes as a map")
-                        .accessibilityLabel("Map")
+                    Text("2D")
+                        .tag(ThemeBrowserDisplayMode.twoDimensional)
+                        .help("Show two-dimensional theme spaces")
+                    Text("3D")
+                        .tag(ThemeBrowserDisplayMode.threeDimensional)
+                        .help("Show three-dimensional theme spaces")
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -162,7 +179,7 @@ struct ThemeBrowserView: View {
             switch displayMode {
             case .grid:
                 gridContent
-            case .map:
+            case .twoDimensional, .threeDimensional:
                 mapContent
             }
 
@@ -200,6 +217,13 @@ struct ThemeBrowserView: View {
         }
         .onChange(of: plotMode) { _, newValue in
             UserDefaults.standard.set(newValue.rawValue, forKey: plotModeDefaultsKey)
+        }
+        .onChange(of: resolvedSimilaritySpaceAvailable) { _, available in
+            guard available == false, plotMode == .similaritySpace3D else { return }
+            plotMode = .colorSpace3D
+        }
+        .onAppear {
+            normalizePlot(for: displayMode)
         }
         .sheet(item: $editorPresentation) { presentation in
             ThemeEditorView(theme: presentation.theme,
@@ -296,34 +320,105 @@ struct ThemeBrowserView: View {
 
     // MARK: - Map display
 
-    @ViewBuilder
-    private var mapContent: some View {
-        // The map always plots the full catalog; Popular/More do not apply
-        Picker("Plot", selection: $plotMode) {
-            ForEach(ThemePlotMode.v1Tabs) { mode in
-                Text(mode.title).tag(mode)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
+    /// Similarity Space needs a stable three-component basis. Keep a stored
+    /// selection while indexing is in progress so the picker does not jump.
+    private var resolvedSimilaritySpaceAvailable: Bool? {
+        guard let catalog = themeIndex.catalog else { return nil }
+        return catalog.similarity3D != nil
+    }
 
-        ThemeMapView(
-            themes: themes.themes,
-            metrics: themeIndex.metrics,
-            catalog: themeIndex.catalog,
-            mode: plotMode,
-            query: query,
-            selectedThemeName: selectedThemeName,
-            pinnedThemeName: $pinnedThemeName,
-            onSelect: onSelect,
-            onShowSimilar: { showSimilarThemes(to: $0) }
+    /// Color and palette space are always valid. Similarity Space appears
+    /// after the catalog has its third PCA component.
+    private var availableThreeDimensionalModes: [ThemePlotMode] {
+        var modes: [ThemePlotMode] = [.colorSpace3D, .paletteSpace3D]
+        if resolvedSimilaritySpaceAvailable == true
+            || (resolvedSimilaritySpaceAvailable == nil && plotMode == .similaritySpace3D) {
+            modes.append(.similaritySpace3D)
+        }
+        return modes
+    }
+
+    /// The top picker owns the display choice. Changing to a map display
+    /// keeps its natural paired plot when possible.
+    private var displayModeSelection: Binding<ThemeBrowserDisplayMode> {
+        Binding(
+            get: { displayMode },
+            set: { newMode in
+                displayMode = newMode
+                normalizePlot(for: newMode)
+            }
         )
     }
 
+    private func normalizePlot(for display: ThemeBrowserDisplayMode) {
+        switch display {
+        case .grid:
+            break
+        case .twoDimensional:
+            if plotMode.isThreeDimensional {
+                plotMode = plotMode.flattened2DMode
+            } else if !ThemePlotMode.v1Tabs.contains(plotMode) {
+                plotMode = .brightnessAndColorfulness
+            }
+        case .threeDimensional:
+            guard !plotMode.isThreeDimensional else { return }
+            let pairedMode = plotMode.paired3DMode
+            plotMode = pairedMode.flatMap { availableThreeDimensionalModes.contains($0) ? $0 : nil }
+                ?? .colorSpace3D
+        }
+    }
+
+    @ViewBuilder
+    private var mapContent: some View {
+        // The map always plots the full catalog; Popular/More do not apply
+        GeometryReader { proxy in
+            Picker("Plot", selection: $plotMode) {
+                ForEach(
+                    displayMode == .threeDimensional
+                        ? availableThreeDimensionalModes
+                        : ThemePlotMode.v1Tabs
+                ) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .labelsHidden()
+            .frame(width: max(0, proxy.size.width - 20))
+            .pickerStyle(.segmented)
+        }
+        .frame(height: 28)
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+
+        if plotMode.isThreeDimensional {
+            ThemeSpace3DView(
+                themes: themes.themes,
+                metrics: themeIndex.metrics,
+                catalog: themeIndex.catalog,
+                mode: plotMode,
+                query: query,
+                selectedThemeName: selectedThemeName,
+                pinnedThemeName: $pinnedThemeName,
+                cameraByMode: $cameraByMode,
+                onSelect: onSelect,
+                onShowSimilar: { showSimilarThemes(to: $0) }
+            )
+        } else {
+            ThemeMapView(
+                themes: themes.themes,
+                metrics: themeIndex.metrics,
+                catalog: themeIndex.catalog,
+                mode: plotMode,
+                query: query,
+                selectedThemeName: selectedThemeName,
+                pinnedThemeName: $pinnedThemeName,
+                onSelect: onSelect,
+                onShowSimilar: { showSimilarThemes(to: $0) }
+            )
+        }
+    }
+
     private func showSimilarThemes(to name: String) {
-        displayMode = .map
+        displayMode = .twoDimensional
         plotMode = .similarityMap
         pinnedThemeName = name
     }

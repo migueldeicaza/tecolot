@@ -14,6 +14,8 @@ struct ThemeHoverCard: View {
     let catalog: CatalogStatistics?
     /// Count of other themes essentially co-located with this one
     var nearbyCount: Int = 0
+    /// Rank relative to the pinned theme in Similarity Space 3D.
+    var similarityRank: (rank: Int, total: Int)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -42,6 +44,11 @@ struct ThemeHoverCard: View {
             .font(.caption)
             if nearbyCount > 0 {
                 Text("+\(nearbyCount) nearby theme\(nearbyCount == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let similarityRank {
+                Text("#\(similarityRank.rank) closest of \(similarityRank.total)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

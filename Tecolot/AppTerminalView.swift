@@ -68,4 +68,11 @@ final class AppTerminalView: LocalProcessTerminalView {
         super.bell(source: source)
         eventDelivery.sendBell()
     }
+
+    /// Uses the current terminal-driver control bytes when SwiftTerm filters
+    /// text before it sends a paste to the PTY.
+    nonisolated override func terminalControlBytesForPaste(source: Terminal) -> Set<UInt8> {
+        process?.terminalControlBytesForPaste()
+            ?? TerminalPasteControls.approximateTerminalControlBytes
+    }
 }

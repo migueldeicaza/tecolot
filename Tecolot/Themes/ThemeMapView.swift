@@ -12,7 +12,7 @@ import SwiftUI
 
 /// Geometry shared by interaction (hit testing, hover card, keyboard) and
 /// drawing (PlotCanvas); a single definition keeps them aligned.
-private enum PlotGeometry {
+enum PlotGeometry {
     static let markerRadius: CGFloat = 5
     static let hoveredMarkerRadius: CGFloat = 7
     static let hitRadius: CGFloat = 12
@@ -27,6 +27,48 @@ private enum PlotGeometry {
             x: rect.minX + position.x * rect.width,
             y: rect.minY + position.y * rect.height
         )
+    }
+}
+
+/// The common map marker. Both Canvas renderers use this glyph so marker
+/// color and selection meaning stay identical in 2D and 3D.
+enum PlotMarkerRenderer {
+    static func draw(
+        _ point: some ThemeMarkerPoint,
+        at center: CGPoint,
+        in context: GraphicsContext,
+        isHovered: Bool,
+        isSelected: Bool,
+        isPinned: Bool,
+        opacity: Double,
+        hollow: Bool = false
+    ) {
+        let radius = isHovered ? PlotGeometry.hoveredMarkerRadius : PlotGeometry.markerRadius
+        var layer = context
+        layer.opacity = opacity
+
+        if isSelected || isPinned {
+            let halo = Path(ellipseIn: CGRect(
+                x: center.x - radius - 3.5, y: center.y - radius - 3.5,
+                width: (radius + 3.5) * 2, height: (radius + 3.5) * 2
+            ))
+            layer.stroke(halo, with: .color(.accentColor), lineWidth: isSelected ? 2.5 : 1.5)
+        }
+
+        let body = Path(ellipseIn: CGRect(
+            x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2
+        ))
+        if !hollow {
+            layer.fill(body, with: .color(point.background.swiftUIColor))
+        }
+        layer.stroke(body, with: .color(point.foreground.swiftUIColor), lineWidth: 1.5)
+
+        let dotRadius: CGFloat = 1.5
+        let dot = Path(ellipseIn: CGRect(
+            x: center.x - dotRadius, y: center.y - dotRadius,
+            width: dotRadius * 2, height: dotRadius * 2
+        ))
+        layer.fill(dot, with: .color(point.accent.swiftUIColor))
     }
 }
 
@@ -383,37 +425,20 @@ private struct PlotCanvas: View, Animatable {
     private func draw(_ point: ThemePlotPoint, in context: GraphicsContext, rect: CGRect) {
         let center = position(of: point, in: rect)
         let isHovered = point.id == hoveredID
-        let radius = isHovered ? PlotGeometry.hoveredMarkerRadius : PlotGeometry.markerRadius
         let dimmed = !matching.contains(point.id)
         // The Interaction Colors plot shows themes on the system selection
         // color as hollow markers: the synthetic position is not real data
         let hollow = mode == .interactionColors && !point.hasCustomSelection
-
-        var layer = context
-        layer.opacity = dimmed ? 0.25 : 1
-
-        if point.id == selectedID || point.id == pinnedID {
-            let halo = Path(ellipseIn: CGRect(
-                x: center.x - radius - 3.5, y: center.y - radius - 3.5,
-                width: (radius + 3.5) * 2, height: (radius + 3.5) * 2
-            ))
-            layer.stroke(halo, with: .color(.accentColor), lineWidth: point.id == selectedID ? 2.5 : 1.5)
-        }
-
-        let body = Path(ellipseIn: CGRect(
-            x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2
-        ))
-        if !hollow {
-            layer.fill(body, with: .color(point.background.swiftUIColor))
-        }
-        layer.stroke(body, with: .color(point.foreground.swiftUIColor), lineWidth: 1.5)
-
-        let dotRadius: CGFloat = 1.5
-        let dot = Path(ellipseIn: CGRect(
-            x: center.x - dotRadius, y: center.y - dotRadius,
-            width: dotRadius * 2, height: dotRadius * 2
-        ))
-        layer.fill(dot, with: .color(point.accent.swiftUIColor))
+        PlotMarkerRenderer.draw(
+            point,
+            at: center,
+            in: context,
+            isHovered: isHovered,
+            isSelected: point.id == selectedID,
+            isPinned: point.id == pinnedID,
+            opacity: dimmed ? 0.25 : 1,
+            hollow: hollow
+        )
     }
 
     private func drawAxisLabels(in context: GraphicsContext, size: CGSize) {

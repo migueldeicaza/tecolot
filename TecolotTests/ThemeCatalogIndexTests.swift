@@ -71,6 +71,51 @@ final class ThemeCatalogIndexTests {
         #expect(project("Warm Extreme").x > project("Cool Extreme").x)
     }
 
+    @Test func threeDimensionalSimilarityBasisIsOrthogonalAndIndependent() throws {
+        let themes = Self.syntheticCatalog(count: 24)
+        let index = ThemeCatalogIndex()
+        index.update(themes: themes)
+        let catalog = try #require(index.catalog)
+        let basis = try #require(catalog.similarity3D)
+
+        func dot(_ left: [Double], _ right: [Double]) -> Double {
+            zip(left, right).reduce(0) { $0 + $1.0 * $1.1 }
+        }
+        func length(_ vector: [Double]) -> Double {
+            sqrt(dot(vector, vector))
+        }
+
+        #expect(abs(length(basis.basisX) - 1) < 1e-8)
+        #expect(abs(length(basis.basisY) - 1) < 1e-8)
+        #expect(abs(length(basis.basisZ) - 1) < 1e-8)
+        #expect(abs(dot(basis.basisX, basis.basisY)) < 1e-7)
+        #expect(abs(dot(basis.basisX, basis.basisZ)) < 1e-7)
+        #expect(abs(dot(basis.basisY, basis.basisZ)) < 1e-7)
+        #expect(basis.variances.x >= basis.variances.y)
+        #expect(basis.variances.y >= basis.variances.z)
+    }
+
+    @Test func oneThemeCatalogHasNoThreeDimensionalSimilarityBasis() throws {
+        let index = ThemeCatalogIndex()
+        index.update(themes: [TerminalTheme.fallback])
+        let catalog = try #require(index.catalog)
+        #expect(catalog.similarity3D == nil)
+    }
+
+    @Test func threeDimensionalChromaScaleDoesNotChangeTheTwoDimensionalScale() throws {
+        let themes = Self.syntheticCatalog(count: 24)
+        let index = ThemeCatalogIndex()
+        index.update(themes: themes)
+        let catalog = try #require(index.catalog)
+        let expectedP95 = max(
+            0.04,
+            ThemeColorMath.quantile(themes.compactMap { index.metrics[$0.name]?.backgroundChroma }, 0.95)
+        )
+
+        #expect(catalog.backgroundChromaP98 >= catalog.backgroundChromaP95)
+        #expect(catalog.backgroundChromaP95 == expectedP95)
+    }
+
     @Test func robustBoundsIgnoreAPathologicalOutlier() throws {
         // Colorfulness must vary smoothly so the P98 bound does not sit on a
         // distribution cliff: blend the palette from gray toward saturation.

@@ -20,7 +20,7 @@ final class ThemeProjectionTests {
         index.update(themes: themes)
         let catalog = try #require(index.catalog)
 
-        for mode in ThemePlotMode.allCases {
+        for mode in ThemePlotMode.twoDimensionalModes {
             let points = ThemeProjection.project(
                 themes: themes, metrics: index.metrics, catalog: catalog, mode: mode
             )
