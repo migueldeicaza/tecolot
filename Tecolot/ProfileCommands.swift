@@ -55,6 +55,7 @@ enum WindowOpener {
         }
 
         let initialDescription: String
+        let movesToActiveSpace: Bool
         switch initialFrame {
         case .profile:
             let profile = AppModel.shared.resolveProfile(for: spec)
@@ -62,6 +63,7 @@ enum WindowOpener {
             TerminalWindowSizeStore.shared.setProfileContentSize(contentSize, on: window)
             TerminalWindowSizeStore.shared.configure(window, restoresFrame: false)
             initialDescription = "profile \(profile.name) \(profile.columns)x\(profile.rows)"
+            movesToActiveSpace = false
         case .saved:
             windowController.shouldCascadeWindows = false
             let didRestoreFrame = TerminalWindowSizeStore.shared.configure(
@@ -76,20 +78,34 @@ enum WindowOpener {
                 TerminalWindowSizeStore.shared.setProfileContentSize(contentSize, on: window)
                 initialDescription = "profile \(profile.name) \(profile.columns)x\(profile.rows); no saved frame"
             }
+            movesToActiveSpace = true
         case .windowGroup(let frame):
             windowController.shouldCascadeWindows = false
             TerminalWindowSizeStore.shared.restoreWindowGroupFrame(frame, to: window)
             initialDescription = "saved window-group frame"
+            movesToActiveSpace = true
         }
 
         // Do not let AppKit merge an explicit new window during first display.
         // WindowTabbingConfigurator enables later manual tab operations.
         window.tabbingMode = .disallowed
         window.tabbingIdentifier = "TerminalDocument"
+        let removesMoveToActiveSpace = movesToActiveSpace
+            && !window.collectionBehavior.contains(.moveToActiveSpace)
+        if movesToActiveSpace {
+            // A Space does not have a separate screen-coordinate origin.
+            // Move the restored window instead of switching to its old Space.
+            window.collectionBehavior.insert(.moveToActiveSpace)
+        }
         logFrame(window, stage: "before show", policy: initialDescription)
         document.showWindows()
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        if removesMoveToActiveSpace {
+            DispatchQueue.main.async { [weak window] in
+                window?.collectionBehavior.remove(.moveToActiveSpace)
+            }
+        }
         logFrameAfterDisplay(window, policy: initialDescription)
         return window
     }
