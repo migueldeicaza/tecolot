@@ -51,7 +51,6 @@
   @media (max-width: 600px) {
     .tec-header-inner, .tec-section-pad, .tec-page-pad, .tec-footer-inner { padding-left:20px !important; padding-right:20px !important; }
     .tec-header-nav { gap:20px !important; }
-    .tec-version { display:none; }
     .tec-hero-grid { padding-top:68px !important; padding-bottom:64px !important; gap:48px !important; }
     .tec-hero-title { font-size:50px !important; }
     .tec-page-title { font-size:42px !important; }
@@ -96,7 +95,12 @@
       </nav>
       <div style="flex:1"></div>
       <div style="display:flex;align-items:center;gap:14px">
-        <span class="tec-version" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6E7A75">{{ versionLabel }}</span>
+        <a href="https://github.com/migueldeicaza/tecolot" aria-label="GitHub" style="display:flex;color:#6E7A75">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .7a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.3c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2A11.5 11.5 0 0 1 12 6.1c1 0 2 .1 2.9.4 2.3-1.5 3.3-1.2 3.3-1.2.7 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .7Z" /></svg>
+        </a>
+        <a href="https://discord.com/invite/rgN3yzHg8G" aria-label="Discord" style="display:flex;color:#6E7A75">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A16.6 16.6 0 0 0 16.2 3l-.5 1.1a15.3 15.3 0 0 0-7.4 0L7.8 3a16.8 16.8 0 0 0-4.1 1.4C1.1 8.3.4 12.1.8 15.8a16.7 16.7 0 0 0 5.1 2.6l1.2-1.7-1.9-.9.5-.4a11.9 11.9 0 0 0 12.6 0l.6.4-2 .9 1.2 1.7a16.6 16.6 0 0 0 5.1-2.6c.5-4.3-.8-8-2.9-11.4ZM8.4 14.2c-1.2 0-2.2-1.1-2.2-2.5s1-2.5 2.2-2.5c1.3 0 2.3 1.2 2.2 2.5 0 1.4-1 2.5-2.2 2.5Zm7.2 0c-1.2 0-2.2-1.1-2.2-2.5s1-2.5 2.2-2.5c1.3 0 2.3 1.2 2.2 2.5 0 1.4-1 2.5-2.2 2.5Z" /></svg>
+        </a>
         <a href="#download" onClick="{{ goDownload }}" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:500;letter-spacing:0.04em;color:#0A0F0D;background:#F1CC7C;padding:9px 18px" style-hover="background:#FBE3AE">Install</a>
       </div>
     </div>

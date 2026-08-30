@@ -302,10 +302,12 @@ struct GeneralSettingsView: View {
             Section("Rendering") {
                 Toggle("Use Metal", isOn: metalRendererBinding)
             }
-            Section("Updates") {
-                Toggle("Check for updates automatically", isOn: automaticUpdateChecksBinding)
-                Toggle("Download updates automatically", isOn: automaticUpdateDownloadsBinding)
-                    .disabled(!updater.automaticallyChecksForUpdates)
+            if UpdaterModel.shared.updatesEnabled {
+                Section("Updates") {
+                    Toggle("Check for updates automatically", isOn: automaticUpdateChecksBinding)
+                    Toggle("Download updates automatically", isOn: automaticUpdateDownloadsBinding)
+                        .disabled(!updater.automaticallyChecksForUpdates)
+                }
             }
             Section("Resume") {
                 Stepper(
