@@ -361,6 +361,16 @@ struct ProfileSettingsPage: View {
             } header: {
                 Text("Theme")
             }
+            Section {
+                Toggle(
+                    "Match window chrome to theme",
+                    isOn: binding(\.useThemeColorsForWindowChrome)
+                )
+            } header: {
+                Text("Window chrome")
+            } footer: {
+                Text("Applies the theme to the title bar, tabs, and toolbar controls. Turn this off to follow the system appearance.")
+            }
         }
     }
 

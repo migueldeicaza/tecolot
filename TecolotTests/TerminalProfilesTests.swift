@@ -349,6 +349,7 @@ final class ProfileStoreTests {
         var extra = TerminalProfile (name: "Servers")
         extra.themeName = "Nord"
         extra.fontSize = 14
+        extra.useThemeColorsForWindowChrome = false
         try store.add (extra)
         #expect (store.profiles.count == 1)
         #expect (store.defaultProfileID == extra.id)
@@ -368,6 +369,7 @@ final class ProfileStoreTests {
         #expect (reloaded.defaultProfile.name == "Servers")
         #expect (reloaded.profile (named: "Workers") != nil)
         #expect (reloaded.profile (named: "Servers")?.themeName == "Nord")
+        #expect(reloaded.profile(named: "Servers")?.useThemeColorsForWindowChrome == false)
 
         try store.delete (copy.id)
         #expect (store.profiles.count == 1)
@@ -487,6 +489,7 @@ final class ProfileStoreTests {
         #expect(profile.titleComponents == [.activeTitle, .workingDirectory])
         #expect(profile.termProgram == "ghostty")
         #expect(profile.termVersion == "1.3.1")
+        #expect(profile.useThemeColorsForWindowChrome)
     }
 
     @Test func futureProfileRemainsUntouchedAndIsReported() throws {

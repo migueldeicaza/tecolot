@@ -25,14 +25,37 @@ struct ContentView: View {
         workspace.controllers.first
     }
 
+    private var windowTheme: TerminalTheme {
+        workspace.focusedController?.effectiveTheme ?? .fallback
+    }
+
+    private var usesThemeWindowChrome: Bool {
+        workspace.focusedController?.profile.useThemeColorsForWindowChrome ?? true
+    }
+
+    private var windowChromeBackground: AnyShapeStyle {
+        usesThemeWindowChrome
+            ? AnyShapeStyle(windowTheme.background.swiftUIColor)
+            : AnyShapeStyle(.bar)
+    }
+
     var body: some View {
         TerminalPaneContainer(
             workspace: workspace,
             document: document,
             revision: workspace.revision
         )
-            .background(WindowTabbingConfigurator())
-            .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
+            .background(WindowTabbingConfigurator(
+                theme: usesThemeWindowChrome ? windowTheme : nil
+            ))
+            .toolbarBackground(windowChromeBackground, for: .windowToolbar)
+            .toolbarBackgroundVisibility(
+                usesThemeWindowChrome ? .visible : .automatic,
+                for: .windowToolbar
+            )
+            .preferredColorScheme(
+                usesThemeWindowChrome ? (windowTheme.isDark ? .dark : .light) : nil
+            )
             .onAppear(perform: configureBufferPersistence)
             .onChange(of: fileURL) {
                 configureBufferPersistence()
@@ -70,6 +93,11 @@ struct ContentView: View {
                         workspace.focusedController?.showThemePicker.toggle()
                     } label: {
                         Label("Theme", systemImage: "paintbrush")
+                            .foregroundStyle(
+                                usesThemeWindowChrome
+                                    ? windowTheme.foreground.swiftUIColor
+                                    : Color.primary
+                            )
                     }
                     .help("Change the theme of this terminal")
                     .disabled(workspace.focusedController == nil)
@@ -162,6 +190,8 @@ struct ThemePickerPopover: View {
 }
 
 struct WindowTabbingConfigurator: NSViewRepresentable {
+    let theme: TerminalTheme?
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         configureWindow(for: view)
@@ -178,6 +208,7 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
             window.tabbingIdentifier = "TerminalDocument"
             window.tabbingMode = .preferred
             TerminalWindowSizeStore.shared.configure(window)
+            TerminalWindowAppearance.apply(theme: theme, to: window)
         }
     }
 }
