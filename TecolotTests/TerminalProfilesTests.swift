@@ -329,17 +329,30 @@ final class ProfileStoreTests {
         return (try ProfileStore (directory: dir), dir)
     }
 
-    @Test func startsWithoutCreatingProfile () throws {
+    @Test func startsWithPersistedDefaultProfile () throws {
         let (store, dir) = try makeStore ()
         defer { try? FileManager.default.removeItem (at: dir) }
-        #expect (store.profiles.isEmpty)
+        let profile = try #require(store.profiles.first)
+        #expect (store.profiles.count == 1)
+        #expect (store.defaultProfileID == profile.id)
         #expect (store.defaultProfile.name == "Default")
         #expect (store.defaultProfile.themeName == "SwiftTerm")
-        #expect (!FileManager.default.fileExists(atPath: dir.appendingPathComponent("store.json").path))
-        #expect ((try FileManager.default.contentsOfDirectory(
+        let stateURL = dir.appendingPathComponent("store.json")
+        #expect (FileManager.default.fileExists(atPath: stateURL.path))
+        let state = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: stateURL)
+        ) as? [String: Any])
+        #expect ((state["version"] as? NSNumber)?.intValue == 1)
+        #expect (state["defaultProfileID"] as? String == profile.id.uuidString)
+        let profileFiles = try FileManager.default.contentsOfDirectory(
             at: dir.appendingPathComponent("Profiles"),
             includingPropertiesForKeys: nil
-        )).isEmpty)
+        )
+        #expect (profileFiles.map(\.lastPathComponent) == ["\(profile.id.uuidString).json"])
+
+        let reloaded = try ProfileStore(directory: dir)
+        #expect (reloaded.profiles.count == 1)
+        #expect (reloaded.defaultProfileID == profile.id)
     }
 
     @Test func crudAndPersistence () throws {
@@ -350,8 +363,8 @@ final class ProfileStoreTests {
         extra.themeName = "Nord"
         extra.fontSize = 14
         try store.add (extra)
-        #expect (store.profiles.count == 1)
-        #expect (store.defaultProfileID == extra.id)
+        #expect (store.profiles.count == 2)
+        #expect (store.defaultProfile.name == "Default")
 
         #expect (throws: ProfilesError.duplicateName) {
             try store.add (TerminalProfile (name: "Servers"))
@@ -364,20 +377,19 @@ final class ProfileStoreTests {
 
         // A fresh store sees everything
         let reloaded = try ProfileStore (directory: dir)
-        #expect (reloaded.profiles.count == 2)
+        #expect (reloaded.profiles.count == 3)
         #expect (reloaded.defaultProfile.name == "Servers")
         #expect (reloaded.profile (named: "Workers") != nil)
         #expect (reloaded.profile (named: "Servers")?.themeName == "Nord")
 
         try store.delete (copy.id)
-        #expect (store.profiles.count == 1)
+        #expect (store.profiles.count == 2)
     }
 
     @Test func cannotDeleteLastProfile () throws {
         let (store, dir) = try makeStore ()
         defer { try? FileManager.default.removeItem (at: dir) }
-        let profile = TerminalProfile(name: "Default")
-        try store.add(profile)
+        let profile = store.defaultProfile
         #expect (throws: ProfilesError.cannotDeleteLastProfile) {
             try store.delete (profile.id)
         }
@@ -386,7 +398,6 @@ final class ProfileStoreTests {
     @Test func importExportRoundTrip () throws {
         let (store, dir) = try makeStore ()
         defer { try? FileManager.default.removeItem (at: dir) }
-        try store.add(TerminalProfile(name: "Default"))
         let file = dir.appendingPathComponent ("export.json")
         try store.exportProfile (store.defaultProfileID, to: file)
         let imported = try store.importProfile (from: file)
@@ -398,9 +409,9 @@ final class ProfileStoreTests {
     @Test func unlimitedScrollbackSurvivesRoundTrip () throws {
         let (store, dir) = try makeStore ()
         defer { try? FileManager.default.removeItem (at: dir) }
-        var profile = TerminalProfile(name: "Default")
+        var profile = store.defaultProfile
         profile.scrollbackLines = nil
-        try store.add(profile)
+        try store.update(profile)
         let reloaded = try ProfileStore (directory: dir)
         #expect (reloaded.defaultProfile.scrollbackLines == nil)
     }
@@ -408,7 +419,7 @@ final class ProfileStoreTests {
     @Test func keyBindingsSurviveRoundTrip () throws {
         let (store, dir) = try makeStore ()
         defer { try? FileManager.default.removeItem (at: dir) }
-        var profile = TerminalProfile(name: "Default")
+        var profile = store.defaultProfile
         profile.keyBindings = [
             TerminalKeyBinding(
                 key: "k",
@@ -422,7 +433,7 @@ final class ProfileStoreTests {
                 action: .scrollPageUp
             )
         ]
-        try store.add(profile)
+        try store.update(profile)
 
         let reloaded = try ProfileStore(directory: dir)
         #expect(reloaded.defaultProfile.keyBindings == profile.keyBindings)
@@ -506,6 +517,34 @@ final class ProfileStoreTests {
         #expect(issues.issues.first?.kind == .unsupportedVersion)
         #expect(issues.issues.first?.foundVersion == 99)
         #expect(try Data(contentsOf: sourceURL) == original)
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("store.json").path))
+    }
+
+    @Test func futureStoreStateDoesNotCreateDefaultProfile() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("profile-state-future-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let profilesDirectory = dir.appendingPathComponent("Profiles")
+        try FileManager.default.createDirectory(
+            at: profilesDirectory,
+            withIntermediateDirectories: true
+        )
+        let stateURL = dir.appendingPathComponent("store.json")
+        let original = Data("{\"version\":99,\"defaultProfileID\":\"\(UUID().uuidString)\"}".utf8)
+        try original.write(to: stateURL)
+        let issues = PersistenceIssueCenter()
+
+        let store = try ProfileStore(directory: dir, issueCenter: issues)
+
+        #expect(store.profiles.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(
+            at: profilesDirectory,
+            includingPropertiesForKeys: nil
+        ).isEmpty)
+        #expect(try Data(contentsOf: stateURL) == original)
+        #expect(issues.issues.contains {
+            $0.domain == .profileStore && $0.kind == .unsupportedVersion
+        })
     }
 
     @Test func failedStoreStateCannotBeReplacedBySelectingADefault() throws {
@@ -571,7 +610,7 @@ final class ProfileStoreTests {
         )
 
         let store = try ProfileStore(directory: temporaryDirectory)
-        #expect(store.profiles.isEmpty)
+        #expect(store.profiles.map(\.name) == ["Default"])
         try store.useStorage(directory: persistentDirectory)
 
         #expect(store.profiles.map(\.name) == ["Historical Profile"])

@@ -88,7 +88,7 @@ public final class ProfileStore: ObservableObject {
         defaultProfileID = ProfileStore.builtInDefaultProfile.id
 
         try FileManager.default.createDirectory(at: profilesDirectory, withIntermediateDirectories: true)
-        reload()
+        try loadAndCreateDefaultProfileIfNeeded()
     }
 
     /// Reconnects this store to its persistent location after the app used
@@ -99,7 +99,7 @@ public final class ProfileStore: ObservableObject {
         self.profilesDirectory = profilesDirectory
         stateFile = directory.appendingPathComponent("store.json")
         self.backupDirectory = backupDirectory ?? directory.appendingPathComponent("Backups")
-        reload()
+        try loadAndCreateDefaultProfileIfNeeded()
     }
 
     nonisolated static func defaultDirectory() -> URL {
@@ -121,6 +121,10 @@ public final class ProfileStore: ObservableObject {
     }
 
     public func reload() {
+        try? loadAndCreateDefaultProfileIfNeeded()
+    }
+
+    private func loadAndCreateDefaultProfileIfNeeded() throws {
         let stateResult = VersionedFileLoader.load(
             from: stateFile,
             domain: .profileStore,
@@ -146,6 +150,13 @@ public final class ProfileStore: ObservableObject {
             defaultProfileID = storedID
         } else {
             defaultProfileID = profiles.first?.id ?? ProfileStore.builtInDefaultProfile.id
+        }
+
+        let loadedWithoutIssues = stateResult.issue == nil
+            && loaded.issues.isEmpty
+            && repaired.issues.isEmpty
+        if profiles.isEmpty && loadedWithoutIssues {
+            try add(ProfileStore.builtInDefaultProfile)
         }
     }
 

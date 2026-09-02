@@ -21,8 +21,7 @@ enum SettingsPreviewData {
             issueCenter: issueCenter,
             backupDirectory: backupDirectory
         )
-        if store.profiles.isEmpty {
-            try! store.add(TerminalProfile(name: "Default"))
+        if store.profile(named: "Servers") == nil {
             var servers = TerminalProfile(name: "Servers")
             servers.fontSize = 13
             servers.optionAsMetaKey = false
