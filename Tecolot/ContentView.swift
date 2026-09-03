@@ -25,12 +25,24 @@ struct ContentView: View {
         workspace.controllers.first
     }
 
+    /// The controller the window chrome follows. Focus is briefly nil while a
+    /// pane is torn down or before the first pane is built; falling back to the
+    /// root pane keeps the titlebar on the profile theme instead of flashing
+    /// the built-in dark fallback.
+    private var chromeController: TerminalSessionController? {
+        workspace.focusedController ?? rootController
+    }
+
     private var windowTheme: TerminalTheme {
-        workspace.focusedController?.effectiveTheme ?? .fallback
+        chromeController?.effectiveTheme ?? .fallback
     }
 
     private var usesThemeWindowChrome: Bool {
-        workspace.focusedController?.profile.useThemeColorsForWindowChrome ?? true
+        chromeController?.profile.useThemeColorsForWindowChrome ?? true
+    }
+
+    private var chromeBackgroundOpacity: Double {
+        chromeController?.effectiveBackgroundOpacity ?? 1
     }
 
     var body: some View {
@@ -40,7 +52,8 @@ struct ContentView: View {
             revision: workspace.revision
         )
             .background(WindowTabbingConfigurator(
-                theme: usesThemeWindowChrome ? windowTheme : nil
+                theme: usesThemeWindowChrome ? windowTheme : nil,
+                backgroundOpacity: chromeBackgroundOpacity
             ))
             .preferredColorScheme(
                 usesThemeWindowChrome ? (windowTheme.isDark ? .dark : .light) : nil
@@ -81,12 +94,14 @@ struct ContentView: View {
                     Button {
                         workspace.focusedController?.showThemePicker.toggle()
                     } label: {
-                        Label("Theme", systemImage: "paintbrush")
-                            .foregroundStyle(
-                                usesThemeWindowChrome
-                                    ? windowTheme.foreground.swiftUIColor
-                                    : Color.primary
-                            )
+                        // Tinting a disabled button would paint it at full
+                        // strength and hide that it is disabled.
+                        if workspace.focusedController != nil, usesThemeWindowChrome {
+                            Label("Theme", systemImage: "paintbrush")
+                                .foregroundStyle(windowTheme.foreground.swiftUIColor)
+                        } else {
+                            Label("Theme", systemImage: "paintbrush")
+                        }
                     }
                     .help("Change the theme of this terminal")
                     .disabled(workspace.focusedController == nil)
@@ -180,6 +195,7 @@ struct ThemePickerPopover: View {
 
 struct WindowTabbingConfigurator: NSViewRepresentable {
     let theme: TerminalTheme?
+    var backgroundOpacity: Double = 1
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -197,7 +213,11 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
             window.tabbingIdentifier = "TerminalDocument"
             window.tabbingMode = .preferred
             TerminalWindowSizeStore.shared.configure(window)
-            TerminalWindowAppearance.apply(theme: theme, to: window)
+            TerminalWindowAppearance.apply(
+                theme: theme,
+                backgroundOpacity: backgroundOpacity,
+                to: window
+            )
         }
     }
 }

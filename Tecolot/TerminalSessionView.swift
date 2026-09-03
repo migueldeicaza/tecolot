@@ -673,7 +673,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             object: window,
             queue: .main
         ) { [weak self, weak window] _ in
-            Task { @MainActor [weak self, weak window] in
+            // didUpdate posts on nearly every pass of the event loop, once per
+            // pane. Test the responder before spending a task on it.
+            MainActor.assumeIsolated {
                 guard let self, let window, window.firstResponder === self.terminal else { return }
                 self.didBecomeFocused()
             }

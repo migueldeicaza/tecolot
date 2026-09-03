@@ -361,6 +361,12 @@ struct ProfileSettingsPage: View {
             } header: {
                 Text("Theme")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var windowSettings: some View {
+        Form {
             Section {
                 Toggle(
                     "Match window chrome to theme",
@@ -371,12 +377,6 @@ struct ProfileSettingsPage: View {
             } footer: {
                 Text("Applies the theme to the title bar, tabs, and toolbar controls. Turn this off to follow the system appearance.")
             }
-        }
-    }
-
-    @ViewBuilder
-    private var windowSettings: some View {
-        Form {
             Section {
                 TextField("Columns:", value: binding(\.columns), format: .number)
                 TextField("Rows:", value: binding(\.rows), format: .number)
