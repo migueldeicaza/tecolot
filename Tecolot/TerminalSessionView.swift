@@ -660,16 +660,25 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
             queue: .main
-        ) { [weak self] _ in
-            self?.setHasActivity(false)
+        ) { [weak self, weak window] _ in
+            Task { @MainActor [weak self, weak window] in
+                self?.setHasActivity(false)
+                if let window {
+                    TerminalWindowAppearance.scheduleChromeRefresh(for: window)
+                }
+            }
         }
         windowUpdateObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didUpdateNotification,
             object: window,
             queue: .main
         ) { [weak self, weak window] _ in
-            guard let self, let window, window.firstResponder === self.terminal else { return }
-            self.didBecomeFocused()
+            // didUpdate posts on nearly every pass of the event loop, once per
+            // pane. Test the responder before spending a task on it.
+            MainActor.assumeIsolated {
+                guard let self, let window, window.firstResponder === self.terminal else { return }
+                self.didBecomeFocused()
+            }
         }
         if window.isKeyWindow {
             setHasActivity(false)

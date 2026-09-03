@@ -368,6 +368,16 @@ struct ProfileSettingsPage: View {
     private var windowSettings: some View {
         Form {
             Section {
+                Toggle(
+                    "Match window chrome to theme",
+                    isOn: binding(\.useThemeColorsForWindowChrome)
+                )
+            } header: {
+                Text("Window chrome")
+            } footer: {
+                Text("Applies the theme to the title bar, tabs, and toolbar controls. Turn this off to follow the system appearance.")
+            }
+            Section {
                 TextField("Columns:", value: binding(\.columns), format: .number)
                 TextField("Rows:", value: binding(\.rows), format: .number)
                 Toggle("Limit scrollback", isOn: Binding(

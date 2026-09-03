@@ -143,6 +143,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     /// Opacity of the default background, 0...1; values below 1 need a
     /// non-opaque host window
     public var backgroundOpacity: Double
+    /// Use the terminal theme for the macOS title bar, tabs, and toolbar controls
+    public var useThemeColorsForWindowChrome: Bool
 
     // MARK: Window
     /// Initial window width in character columns
@@ -189,6 +191,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.useBrightColorsForBold = defaults.useBrightColorsForBold
         self.cursorStyle = defaults.cursorStyle
         self.backgroundOpacity = defaults.backgroundOpacity
+        self.useThemeColorsForWindowChrome = defaults.useThemeColorsForWindowChrome
         self.columns = defaults.columns
         self.rows = defaults.rows
         self.scrollbackLines = defaults.scrollbackLines
@@ -212,6 +215,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     static var standardValues: (themeName: String, fontFamily: String?, fontSize: Double,
                                 fontSmoothing: Bool, useBrightColorsForBold: Bool,
                                 cursorStyle: CursorStyle, backgroundOpacity: Double,
+                                useThemeColorsForWindowChrome: Bool,
                                 columns: Int, rows: Int, scrollbackLines: Int?,
                                 titleOverride: String?, titleComponents: Set<TerminalTitleComponent>, shell: ShellCommand,
                                 whenShellExits: ShellExitBehavior, askBeforeClosing: AskBeforeClosing,
@@ -222,6 +226,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         (themeName: TerminalTheme.fallback.name, fontFamily: nil, fontSize: 12,
          fontSmoothing: true, useBrightColorsForBold: true,
          cursorStyle: .blinkBlock, backgroundOpacity: 1.0,
+         useThemeColorsForWindowChrome: true,
          columns: 80, rows: 25, scrollbackLines: 10_000,
          titleOverride: nil, titleComponents: [.activeTitle, .workingDirectory], shell: .loginShell,
          whenShellExits: .closeIfExitedCleanly, askBeforeClosing: .onlyIfProcessesRunning,
@@ -233,6 +238,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, name, themeName, fontFamily, fontSize, fontSmoothing
         case useBrightColorsForBold, cursorStyle, backgroundOpacity
+        case useThemeColorsForWindowChrome
         case columns, rows, scrollbackLines, titleOverride, titleComponents
         case shell, whenShellExits, askBeforeClosing
         case optionAsMetaKey, backspaceSendsControlH, keyBindings, termName, termProgram, termVersion
@@ -259,6 +265,10 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
             self.cursorStyle = defaults.cursorStyle
         }
         self.backgroundOpacity = try c.decodeIfPresent (Double.self, forKey: .backgroundOpacity) ?? defaults.backgroundOpacity
+        self.useThemeColorsForWindowChrome = try c.decodeIfPresent(
+            Bool.self,
+            forKey: .useThemeColorsForWindowChrome
+        ) ?? defaults.useThemeColorsForWindowChrome
         self.columns = try c.decodeIfPresent (Int.self, forKey: .columns) ?? defaults.columns
         self.rows = try c.decodeIfPresent (Int.self, forKey: .rows) ?? defaults.rows
         // An explicit null means "unlimited"; only a missing key falls back to the default
@@ -299,6 +309,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode (useBrightColorsForBold, forKey: .useBrightColorsForBold)
         try c.encode (cursorStyle.tagName, forKey: .cursorStyle)
         try c.encode (backgroundOpacity, forKey: .backgroundOpacity)
+        try c.encode(useThemeColorsForWindowChrome, forKey: .useThemeColorsForWindowChrome)
         try c.encode (columns, forKey: .columns)
         try c.encode (rows, forKey: .rows)
         // Encoded unconditionally: an explicit null means "unlimited scrollback"
