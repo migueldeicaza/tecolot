@@ -33,12 +33,6 @@ struct ContentView: View {
         workspace.focusedController?.profile.useThemeColorsForWindowChrome ?? true
     }
 
-    private var windowChromeBackground: AnyShapeStyle {
-        usesThemeWindowChrome
-            ? AnyShapeStyle(windowTheme.background.swiftUIColor)
-            : AnyShapeStyle(.bar)
-    }
-
     var body: some View {
         TerminalPaneContainer(
             workspace: workspace,
@@ -48,11 +42,6 @@ struct ContentView: View {
             .background(WindowTabbingConfigurator(
                 theme: usesThemeWindowChrome ? windowTheme : nil
             ))
-            .toolbarBackground(windowChromeBackground, for: .windowToolbar)
-            .toolbarBackgroundVisibility(
-                usesThemeWindowChrome ? .visible : .automatic,
-                for: .windowToolbar
-            )
             .preferredColorScheme(
                 usesThemeWindowChrome ? (windowTheme.isDark ? .dark : .light) : nil
             )
