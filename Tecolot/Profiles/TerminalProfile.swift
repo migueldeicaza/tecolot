@@ -166,6 +166,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     // MARK: Keyboard
     public var optionAsMetaKey: Bool
     public var backspaceSendsControlH: Bool
+    public var hidePointerWhileTyping: Bool
     public var keyBindings: [TerminalKeyBinding]
 
     // MARK: Advanced
@@ -202,6 +203,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.askBeforeClosing = defaults.askBeforeClosing
         self.optionAsMetaKey = defaults.optionAsMetaKey
         self.backspaceSendsControlH = defaults.backspaceSendsControlH
+        self.hidePointerWhileTyping = defaults.hidePointerWhileTyping
         self.keyBindings = defaults.keyBindings
         self.termName = defaults.termName
         self.termProgram = defaults.termProgram
@@ -219,7 +221,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
                                 columns: Int, rows: Int, scrollbackLines: Int?,
                                 titleOverride: String?, titleComponents: Set<TerminalTitleComponent>, shell: ShellCommand,
                                 whenShellExits: ShellExitBehavior, askBeforeClosing: AskBeforeClosing,
-                                optionAsMetaKey: Bool, backspaceSendsControlH: Bool, termName: String,
+                                optionAsMetaKey: Bool, backspaceSendsControlH: Bool,
+                                hidePointerWhileTyping: Bool, termName: String,
                                 termProgram: String, termVersion: String,
                                 environmentVariables: [TerminalEnvironmentVariable], bellStyle: BellStyle,
                                 keyBindings: [TerminalKeyBinding]) {
@@ -230,7 +233,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
          columns: 80, rows: 25, scrollbackLines: 10_000,
          titleOverride: nil, titleComponents: [.activeTitle, .workingDirectory], shell: .loginShell,
          whenShellExits: .closeIfExitedCleanly, askBeforeClosing: .onlyIfProcessesRunning,
-         optionAsMetaKey: true, backspaceSendsControlH: false, termName: "xterm-256color",
+         optionAsMetaKey: true, backspaceSendsControlH: false, hidePointerWhileTyping: true,
+         termName: "xterm-256color",
          termProgram: "ghostty", termVersion: "1.3.1",
          environmentVariables: [], bellStyle: .sound, keyBindings: [])
     }
@@ -241,7 +245,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         case useThemeColorsForWindowChrome
         case columns, rows, scrollbackLines, titleOverride, titleComponents
         case shell, whenShellExits, askBeforeClosing
-        case optionAsMetaKey, backspaceSendsControlH, keyBindings, termName, termProgram, termVersion
+        case optionAsMetaKey, backspaceSendsControlH, hidePointerWhileTyping, keyBindings
+        case termName, termProgram, termVersion
         case environmentVariables, bellStyle
     }
 
@@ -284,6 +289,10 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.askBeforeClosing = try c.decodeIfPresent (AskBeforeClosing.self, forKey: .askBeforeClosing) ?? defaults.askBeforeClosing
         self.optionAsMetaKey = try c.decodeIfPresent (Bool.self, forKey: .optionAsMetaKey) ?? defaults.optionAsMetaKey
         self.backspaceSendsControlH = try c.decodeIfPresent (Bool.self, forKey: .backspaceSendsControlH) ?? defaults.backspaceSendsControlH
+        self.hidePointerWhileTyping = try c.decodeIfPresent(
+            Bool.self,
+            forKey: .hidePointerWhileTyping
+        ) ?? defaults.hidePointerWhileTyping
         self.keyBindings = try c.decodeIfPresent ([TerminalKeyBinding].self, forKey: .keyBindings) ?? defaults.keyBindings
         self.termName = try c.decodeIfPresent (String.self, forKey: .termName) ?? defaults.termName
         self.termProgram = try c.decodeIfPresent(String.self, forKey: .termProgram) ?? defaults.termProgram
@@ -321,6 +330,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode (askBeforeClosing, forKey: .askBeforeClosing)
         try c.encode (optionAsMetaKey, forKey: .optionAsMetaKey)
         try c.encode (backspaceSendsControlH, forKey: .backspaceSendsControlH)
+        try c.encode(hidePointerWhileTyping, forKey: .hidePointerWhileTyping)
         try c.encode (keyBindings, forKey: .keyBindings)
         try c.encode (termName, forKey: .termName)
         try c.encode(termProgram, forKey: .termProgram)

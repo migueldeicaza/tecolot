@@ -452,6 +452,7 @@ struct ProfileSettingsPage: View {
             Section {
                 Toggle("Use Option as Meta key", isOn: binding(\.optionAsMetaKey))
                 Toggle("Delete sends Control-H", isOn: binding(\.backspaceSendsControlH))
+                Toggle("Hide pointer while typing", isOn: binding(\.hidePointerWhileTyping))
             }
             Section("Key Mappings"){
                 TerminalKeyBindingsEditor(profile: profile, update: updateIgnoringResult)

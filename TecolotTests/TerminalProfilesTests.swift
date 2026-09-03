@@ -441,6 +441,17 @@ final class ProfileStoreTests {
         #expect(reloaded.defaultProfile.keyBindings == profile.keyBindings)
     }
 
+    @Test func hidePointerWhileTypingSurvivesRoundTrip() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var profile = store.defaultProfile
+        profile.hidePointerWhileTyping = false
+        try store.update(profile)
+
+        let reloaded = try ProfileStore(directory: dir)
+        #expect(!reloaded.defaultProfile.hidePointerWhileTyping)
+    }
+
     @Test func repairsDuplicateNamesWithoutDeletingProfiles () throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("profile-store-duplicate-tests-\(UUID().uuidString)")
@@ -501,6 +512,7 @@ final class ProfileStoreTests {
         #expect(profile.termProgram == "ghostty")
         #expect(profile.termVersion == "1.3.1")
         #expect(profile.useThemeColorsForWindowChrome)
+        #expect(profile.hidePointerWhileTyping)
     }
 
     @Test func futureProfileRemainsUntouchedAndIsReported() throws {
