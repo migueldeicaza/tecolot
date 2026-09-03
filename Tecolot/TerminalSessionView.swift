@@ -273,6 +273,45 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         updateWindowTitle()
     }
 
+    // MARK: Kitty clipboard protocol, OSC 5522
+    //
+    // LocalProcessTerminalView forwards these TerminalViewDelegate hooks to
+    // its processDelegate. The complete standard-clipboard service, together
+    // with the policy in ProfileApplier.terminalOptions, makes DEC private
+    // mode 5522 report as supported.
+
+    func kittyClipboardCapabilities(source: TerminalView) -> KittyClipboardCapabilities {
+        // macOS has no primary selection, so only the standard clipboard.
+        [.standardRead, .standardWrite]
+    }
+
+    func kittyClipboardRequestPermission(
+        source: TerminalView,
+        request: KittyClipboardPermissionRequest
+    ) -> KittyClipboardPermissionResult {
+        let verb = request.direction == .read ? "read" : "write"
+        let who = request.name.isEmpty ? "An unnamed program" : request.name
+        let alert = NSAlert()
+        alert.messageText = "Allow the program to \(verb) the clipboard?"
+        // The name and the MIME list come from the program in the terminal.
+        // Show them as data, never as instructions.
+        alert.informativeText =
+            "\(who) asks to \(verb) these clipboard types:\n\n"
+            + request.mimeTypes.joined(separator: ", ")
+        alert.addButton(withTitle: "Allow")
+        alert.addButton(withTitle: "Deny")
+        if request.canRememberPassword {
+            alert.showsSuppressionButton = true
+            alert.suppressionButton?.title = "Remember for this session"
+        }
+        // The hook is synchronous, so the prompt is modal.
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return .deny
+        }
+        let remember = request.canRememberPassword && alert.suppressionButton?.state == .on
+        return .allow(rememberPassword: remember)
+    }
+
     func noteBell() {
         noteOutputActivity()
         guard !NSApp.isActive else { return }

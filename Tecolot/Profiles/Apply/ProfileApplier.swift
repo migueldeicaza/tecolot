@@ -39,6 +39,10 @@ public enum ProfileApplier {
         options.cursorStyle = profile.cursorStyle
         options.termName = profile.termName
         options.featureReport = TerminalFeatureReporting.featureString
+        // Kitty clipboard protocol, OSC 5522. The library default denies
+        // both directions. The session controller serves the standard
+        // clipboard and asks the user before each read or write.
+        options.kittyClipboardPolicy = .all
         options.kittyGraphics = KittyGraphicsConfiguration(
             storageLimitBytesPerScreen: 320_000_000,
             localMediaPolicy: [.regularFiles]
