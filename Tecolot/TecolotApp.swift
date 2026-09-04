@@ -306,7 +306,7 @@ struct TerminalCommands: Commands {
                     controller.workspace?.split(controller, orientation: .horizontal)
                 }
             }
-            .keyboardShortcut("d", modifiers: [.command, .option])
+            .keyboardShortcut("d", modifiers: [.command, .shift])
             .disabled(!isEnabled)
 
             Button("Close Pane") {
