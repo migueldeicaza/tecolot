@@ -39,4 +39,17 @@ struct WindowSizingTests {
         #expect(abs(window.contentLayoutRect.width - requestedSize.width) < 0.5)
         #expect(abs(window.contentLayoutRect.height - requestedSize.height) < 0.5)
     }
+
+    @Test func terminalContentSizeIncludesEachPaddingEdge() {
+        let terminalSize = NSSize(width: 640, height: 400)
+        let padding = TerminalViewPadding(top: 3, left: 5, bottom: 7, right: 11)
+
+        let contentSize = TerminalSessionContainerView.contentSize(
+            forTerminalSize: terminalSize,
+            padding: padding
+        )
+
+        #expect(contentSize.width == 656)
+        #expect(contentSize.height == 410)
+    }
 }
