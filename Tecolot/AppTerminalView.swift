@@ -3,6 +3,7 @@
 //  Tecolot
 //
 
+import AppKit
 import Foundation
 import os
 import SwiftTerm
@@ -67,6 +68,14 @@ final class AppTerminalView: LocalProcessTerminalView {
     nonisolated override func bell(source: Terminal) {
         super.bell(source: source)
         eventDelivery.sendBell()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if window?.firstResponder !== self,
+           window?.makeFirstResponder(self) == true {
+            sessionController?.didBecomeFocused()
+        }
+        super.mouseDown(with: event)
     }
 
     /// Uses the current terminal-driver control bytes when SwiftTerm filters
