@@ -513,6 +513,22 @@ final class ProfileStoreTests {
         #expect(profile.termVersion == "1.3.1")
         #expect(profile.useThemeColorsForWindowChrome)
         #expect(profile.hidePointerWhileTyping)
+        #expect(profile.terminalPadding == .standard)
+    }
+
+    @Test func profileRoundTripPreservesPerEdgeTerminalPadding() throws {
+        var profile = TerminalProfile(name: "Padded")
+        profile.terminalPadding = TerminalViewPadding(
+            top: 3,
+            left: 5,
+            bottom: 7,
+            right: 11
+        )
+
+        let data = try ProfileStore.encodedProfile(profile)
+        let decoded = try JSONDecoder().decode(ProfileDocument.self, from: data).profile
+
+        #expect(decoded.terminalPadding == profile.terminalPadding)
     }
 
     @Test func futureProfileRemainsUntouchedAndIsReported() throws {

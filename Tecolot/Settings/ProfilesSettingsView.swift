@@ -391,6 +391,32 @@ struct ProfileSettingsPage: View {
                     ), format: .number)
                 }
             }
+            Section {
+                TextField(
+                    "Top:",
+                    value: nonnegativeBinding(\.terminalPadding.top),
+                    format: .number
+                )
+                TextField(
+                    "Left:",
+                    value: nonnegativeBinding(\.terminalPadding.left),
+                    format: .number
+                )
+                TextField(
+                    "Bottom:",
+                    value: nonnegativeBinding(\.terminalPadding.bottom),
+                    format: .number
+                )
+                TextField(
+                    "Right:",
+                    value: nonnegativeBinding(\.terminalPadding.right),
+                    format: .number
+                )
+            } header: {
+                Text("Terminal padding")
+            } footer: {
+                Text("Padding is measured in points and applies to each terminal pane.")
+            }
             Section("Title") {
                 TextField("Custom title:", text: Binding(
                     get: { profile.titleOverride ?? "" },
@@ -412,6 +438,17 @@ struct ProfileSettingsPage: View {
                 }
             }
         }
+    }
+
+    private func nonnegativeBinding(
+        _ keyPath: WritableKeyPath<TerminalProfile, Double>
+    ) -> Binding<Double> {
+        Binding(
+            get: { profile[keyPath: keyPath] },
+            set: { newValue in
+                update { $0[keyPath: keyPath] = max(0, newValue) }
+            }
+        )
     }
 
     @ViewBuilder
