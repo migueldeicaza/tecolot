@@ -18,11 +18,14 @@ struct SettingsView: View {
     @State private var destination: SettingsDestination? = .general
     @State private var activeProfileID: TerminalProfile.ID?
     @State private var profileErrorMessage: String?
+    @State private var isOptionHeld = false
 
     var body: some View {
         NavigationSplitView {
             List(selection: $destination) {
-                ForEach(SettingsDestination.allCases) { destination in
+                ForEach(SettingsDestination.allCases.filter { dest in
+                    dest != .nitpicking || isOptionHeld || currentDestination == dest
+                }) { destination in
                     Label(sidebarTitle(for: destination), systemImage: destination.systemImage)
                         .tag(destination)
                 }
@@ -47,6 +50,9 @@ struct SettingsView: View {
         }
         .onChange(of: activeProfileID) {
             repairActiveProfileSelection()
+        }
+        .onReceive(Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()) { _ in
+            isOptionHeld = NSEvent.modifierFlags.contains(.option)
         }
         .alert("Could Not Change Profile", isPresented: profileErrorPresentation) {
             Button("OK") {
@@ -80,7 +86,7 @@ struct SettingsView: View {
             GeneralSettingsView()
         case .profiles:
             ProfilesSettingsView(activeProfileID: $activeProfileID)
-        case .text, .window, .shell, .keyboard, .advanced:
+        case .text, .window, .shell, .keyboard, .advanced, .nitpicking:
             profileSettingsDetail(for: currentDestination)
         case .data:
             DataRecoveryView(issueCenter: issueCenter, recovery: recovery)
@@ -261,6 +267,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
     case shell
     case keyboard
     case advanced
+    case nitpicking
 
     case profiles
     case data
@@ -276,6 +283,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
         case .shell: return "Shell"
         case .keyboard: return "Keyboard"
         case .advanced: return "Advanced"
+        case .nitpicking: return "Nitpicking"
         case .data: return "Data"
         }
     }
@@ -289,13 +297,14 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
         case .shell: return "terminal"
         case .keyboard: return "keyboard"
         case .advanced: return "slider.horizontal.3"
+        case .nitpicking: return "wrench.and.screwdriver"
         case .data: return "externaldrive.badge.checkmark"
         }
     }
 
     var isProfileDriven: Bool {
         switch self {
-        case .text, .window, .shell, .keyboard, .advanced:
+        case .text, .window, .shell, .keyboard, .advanced, .nitpicking:
             return true
         case .general, .profiles, .data:
             return false
