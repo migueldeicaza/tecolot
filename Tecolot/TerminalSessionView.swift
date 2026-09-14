@@ -154,7 +154,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
                              themeStore: AppModel.shared.themes,
                              sessionThemeOverride: themeOverride,
                              to: terminal)
-        (terminal.superview as? TerminalSessionContainerView)?.updatePaddingColor()
+        if let container = terminal.superview as? TerminalSessionContainerView {
+            container.updatePadding(profile.terminalPadding)
+            container.updatePaddingColor()
+        }
         terminal.requestRedraw()
         if effectiveBackgroundOpacity >= 1.0 {
             updateWindowTransparency()
@@ -900,14 +903,13 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 }
 
 final class TerminalSessionContainerView: NSView {
-    // Ghostty uses two points of window padding by default, on all four sides.
-    // The top strip also keeps the OSC 9;4 progress bar off the tab bar.
-    private static let padding: CGFloat = 2
-
-    static func contentSize(forTerminalSize terminalSize: NSSize) -> NSSize {
+    static func contentSize(
+        forTerminalSize terminalSize: NSSize,
+        padding: TerminalViewPadding
+    ) -> NSSize {
         NSSize(
-            width: terminalSize.width + padding * 2,
-            height: terminalSize.height + padding
+            width: terminalSize.width + CGFloat(padding.left + padding.right),
+            height: terminalSize.height + CGFloat(padding.top + padding.bottom)
         )
     }
 
@@ -917,11 +919,17 @@ final class TerminalSessionContainerView: NSView {
     private let rightPaddingView = NSView()
     private let bottomPaddingView = NSView()
     private let resizeFeedbackView = TerminalResizeFeedbackView()
+    private var topPaddingConstraint: NSLayoutConstraint!
+    private var leadingPaddingConstraint: NSLayoutConstraint!
+    private var bottomPaddingConstraint: NSLayoutConstraint!
+    private var trailingPaddingConstraint: NSLayoutConstraint!
     private var resizeObservers = [NSObjectProtocol]()
     private var isShowingResizeFeedback = false
+    private(set) var terminalPadding: TerminalViewPadding
 
-    init(terminal: LocalProcessTerminalView) {
+    init(terminal: LocalProcessTerminalView, padding: TerminalViewPadding) {
         self.terminal = terminal
+        self.terminalPadding = padding
         super.init(frame: .zero)
 
         terminal.translatesAutoresizingMaskIntoConstraints = false
@@ -935,6 +943,18 @@ final class TerminalSessionContainerView: NSView {
         addSubview(terminal)
         resizeFeedbackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(resizeFeedbackView)
+        topPaddingConstraint = topPaddingView.heightAnchor.constraint(
+            equalToConstant: CGFloat(padding.top)
+        )
+        leadingPaddingConstraint = leftPaddingView.widthAnchor.constraint(
+            equalToConstant: CGFloat(padding.left)
+        )
+        bottomPaddingConstraint = bottomPaddingView.heightAnchor.constraint(
+            equalToConstant: CGFloat(padding.bottom)
+        )
+        trailingPaddingConstraint = rightPaddingView.widthAnchor.constraint(
+            equalToConstant: CGFloat(padding.right)
+        )
         NSLayoutConstraint.activate([
             terminal.topAnchor.constraint(equalTo: topPaddingView.bottomAnchor),
             terminal.leadingAnchor.constraint(equalTo: leftPaddingView.trailingAnchor),
@@ -944,22 +964,22 @@ final class TerminalSessionContainerView: NSView {
             topPaddingView.topAnchor.constraint(equalTo: topAnchor),
             topPaddingView.leadingAnchor.constraint(equalTo: leadingAnchor),
             topPaddingView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            topPaddingView.heightAnchor.constraint(equalToConstant: Self.padding),
+            topPaddingConstraint,
 
             leftPaddingView.topAnchor.constraint(equalTo: topPaddingView.bottomAnchor),
             leftPaddingView.leadingAnchor.constraint(equalTo: leadingAnchor),
             leftPaddingView.bottomAnchor.constraint(equalTo: bottomPaddingView.topAnchor),
-            leftPaddingView.widthAnchor.constraint(equalToConstant: Self.padding),
+            leadingPaddingConstraint,
 
             rightPaddingView.topAnchor.constraint(equalTo: topPaddingView.bottomAnchor),
             rightPaddingView.trailingAnchor.constraint(equalTo: trailingAnchor),
             rightPaddingView.bottomAnchor.constraint(equalTo: bottomPaddingView.topAnchor),
-            rightPaddingView.widthAnchor.constraint(equalToConstant: Self.padding),
+            trailingPaddingConstraint,
 
             bottomPaddingView.leadingAnchor.constraint(equalTo: leadingAnchor),
             bottomPaddingView.trailingAnchor.constraint(equalTo: trailingAnchor),
             bottomPaddingView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            bottomPaddingView.heightAnchor.constraint(equalToConstant: Self.padding),
+            bottomPaddingConstraint,
 
             resizeFeedbackView.centerXAnchor.constraint(equalTo: centerXAnchor),
             resizeFeedbackView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -979,10 +999,10 @@ final class TerminalSessionContainerView: NSView {
     override var intrinsicContentSize: NSSize {
         var size = terminal.intrinsicContentSize
         if size.width >= 0 {
-            size.width += Self.padding * 2
+            size.width += CGFloat(terminalPadding.left + terminalPadding.right)
         }
         if size.height >= 0 {
-            size.height += Self.padding * 2
+            size.height += CGFloat(terminalPadding.top + terminalPadding.bottom)
         }
         return size
     }
@@ -1008,6 +1028,17 @@ final class TerminalSessionContainerView: NSView {
         leftPaddingView.layer?.backgroundColor = color
         rightPaddingView.layer?.backgroundColor = color
         bottomPaddingView.layer?.backgroundColor = color
+    }
+
+    func updatePadding(_ padding: TerminalViewPadding) {
+        guard terminalPadding != padding else { return }
+        terminalPadding = padding
+        topPaddingConstraint.constant = CGFloat(padding.top)
+        leadingPaddingConstraint.constant = CGFloat(padding.left)
+        bottomPaddingConstraint.constant = CGFloat(padding.bottom)
+        trailingPaddingConstraint.constant = CGFloat(padding.right)
+        invalidateIntrinsicContentSize()
+        needsLayout = true
     }
 
     private func observeLiveResize(of window: NSWindow) {
@@ -1100,12 +1131,14 @@ struct TerminalSessionView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> TerminalSessionContainerView {
         TerminalSessionContainerView(
-            terminal: controller.makeTerminalView(document: document)
+            terminal: controller.makeTerminalView(document: document),
+            padding: controller.profile.terminalPadding
         )
     }
 
     func updateNSView(_ nsView: TerminalSessionContainerView, context: Context) {
         controller.attach(to: nsView.terminal)
+        nsView.updatePadding(controller.profile.terminalPadding)
         nsView.updatePaddingColor()
     }
 
