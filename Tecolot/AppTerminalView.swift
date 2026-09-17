@@ -8,6 +8,15 @@ import Foundation
 import os
 import SwiftTerm
 
+enum TerminalClearAction {
+    /// Clears the active screen and normal-buffer history without sending data
+    /// to the process. The escape sequence also moves the terminal cursor home.
+    static func perform(on terminal: LocalProcessTerminalView) {
+        terminal.feed(text: "\u{1b}[H\u{1b}[2J")
+        terminal.clearScrollback()
+    }
+}
+
 /// Stores a main-actor callback behind a stable object reference.
 ///
 /// Do not store the function directly in the generic lock. A generic `inout`

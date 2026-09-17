@@ -328,9 +328,7 @@ struct TerminalCommands: Commands {
 
             Divider()
 
-            Button("Clear Scrollback") {
-                controller?.terminal?.clearScrollback()
-            }
+            Button("Clear to Start", action: clearScrollback)
             .keyboardShortcut("k", modifiers: [.command])
             .disabled(!isEnabled)
 
@@ -429,6 +427,11 @@ struct TerminalCommands: Commands {
                 controller?[keyPath: keyPath] = newValue
             }
         )
+    }
+
+    private func clearScrollback() {
+        guard let terminal = controller?.terminal else { return }
+        TerminalClearAction.perform(on: terminal)
     }
 
     private func performFindAction(_ action: NSTextFinder.Action) {
