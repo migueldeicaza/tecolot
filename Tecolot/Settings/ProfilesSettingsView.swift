@@ -352,6 +352,7 @@ enum ProfileSettingsSection {
     case shell
     case keyboard
     case advanced
+    case nitpicking
 
     init?(destination: SettingsDestination) {
         switch destination {
@@ -360,6 +361,7 @@ enum ProfileSettingsSection {
         case .shell: self = .shell
         case .keyboard: self = .keyboard
         case .advanced: self = .advanced
+        case .nitpicking: self = .nitpicking
         case .general, .profiles, .data: return nil
         }
     }
@@ -371,6 +373,7 @@ enum ProfileSettingsSection {
         case .shell: return "Shell"
         case .keyboard: return "Keyboard"
         case .advanced: return "Advanced"
+        case .nitpicking: return "Nitpicking"
         }
     }
 }
@@ -403,6 +406,8 @@ struct ProfileSettingsPage: View {
                 keyboardSettings
             case .advanced:
                 advancedSettings
+            case .nitpicking:
+                nitpickingSettings
             }
         }
         .formStyle(.grouped)
@@ -476,6 +481,49 @@ struct ProfileSettingsPage: View {
                         }
                     ))
                 }
+            }
+        }
+    }
+
+    private func nonnegativeBinding(
+        _ keyPath: WritableKeyPath<TerminalProfile, Double>
+    ) -> Binding<Double> {
+        Binding(
+            get: { profile[keyPath: keyPath] },
+            set: { newValue in
+                update { $0[keyPath: keyPath] = max(0, newValue) }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var nitpickingSettings: some View {
+        Form {
+            Section {
+                TextField(
+                    "Top:",
+                    value: nonnegativeBinding(\.terminalPadding.top),
+                    format: .number
+                )
+                TextField(
+                    "Left:",
+                    value: nonnegativeBinding(\.terminalPadding.left),
+                    format: .number
+                )
+                TextField(
+                    "Bottom:",
+                    value: nonnegativeBinding(\.terminalPadding.bottom),
+                    format: .number
+                )
+                TextField(
+                    "Right:",
+                    value: nonnegativeBinding(\.terminalPadding.right),
+                    format: .number
+                )
+            } header: {
+                Text("Terminal padding")
+            } footer: {
+                Text("Padding is measured in points and applies to each terminal pane.")
             }
         }
     }

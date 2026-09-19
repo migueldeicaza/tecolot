@@ -26,6 +26,14 @@ private struct ProfileDocumentMigrator: VersionedDocumentMigrator {
               profile.fontSize > 0,
               profile.backgroundOpacity.isFinite,
               (0...1).contains(profile.backgroundOpacity),
+              profile.terminalPadding.top.isFinite,
+              profile.terminalPadding.top >= 0,
+              profile.terminalPadding.left.isFinite,
+              profile.terminalPadding.left >= 0,
+              profile.terminalPadding.bottom.isFinite,
+              profile.terminalPadding.bottom >= 0,
+              profile.terminalPadding.right.isFinite,
+              profile.terminalPadding.right >= 0,
               profile.columns > 0,
               profile.rows > 0 else {
             throw VersionedPersistenceError.invalidDocument("The profile contains invalid values.")

@@ -31,7 +31,8 @@ enum TerminalProfileWindowSizer {
             assert(didClose, "The terminal sizing view did not release its UI resources")
         }
         return TerminalSessionContainerView.contentSize(
-            forTerminalSize: terminal.getOptimalFrameSize().size
+            forTerminalSize: terminal.getOptimalFrameSize().size,
+            padding: profile.terminalPadding
         )
     }
 }
