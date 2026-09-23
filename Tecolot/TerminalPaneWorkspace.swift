@@ -351,7 +351,8 @@ final class TerminalPaneHostView: NSView {
             // The container supplies the terminal's Auto Layout constraints.
             // NSSplitView must size the container, not the terminal itself.
             let view = TerminalSessionContainerView(
-                terminal: controller.makeTerminalView(document: document)
+                terminal: controller.makeTerminalView(document: document),
+                padding: controller.profile.terminalPadding
             )
             paneViews[controller.id] = view
             return view

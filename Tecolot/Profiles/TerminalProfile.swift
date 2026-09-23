@@ -122,6 +122,28 @@ public struct TerminalKeyBinding: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+/// Space, in points, between the terminal grid and each edge of its pane.
+public struct TerminalViewPadding: Codable, Equatable, Sendable {
+    public var top: Double
+    public var left: Double
+    public var bottom: Double
+    public var right: Double
+
+    public init(top: Double, left: Double, bottom: Double, right: Double) {
+        self.top = top
+        self.left = left
+        self.bottom = bottom
+        self.right = right
+    }
+
+    public static let standard = TerminalViewPadding(
+        top: 2,
+        left: 2,
+        bottom: 2,
+        right: 2
+    )
+}
+
 public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     /// Display name, unique within a store
@@ -145,6 +167,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var backgroundOpacity: Double
     /// Use the terminal theme for the macOS title bar, tabs, and toolbar controls
     public var useThemeColorsForWindowChrome: Bool
+    /// Space between the terminal grid and each edge of its pane
+    public var terminalPadding: TerminalViewPadding
 
     // MARK: Window
     /// Initial window width in character columns
@@ -193,6 +217,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.cursorStyle = defaults.cursorStyle
         self.backgroundOpacity = defaults.backgroundOpacity
         self.useThemeColorsForWindowChrome = defaults.useThemeColorsForWindowChrome
+        self.terminalPadding = defaults.terminalPadding
         self.columns = defaults.columns
         self.rows = defaults.rows
         self.scrollbackLines = defaults.scrollbackLines
@@ -218,6 +243,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
                                 fontSmoothing: Bool, useBrightColorsForBold: Bool,
                                 cursorStyle: CursorStyle, backgroundOpacity: Double,
                                 useThemeColorsForWindowChrome: Bool,
+                                terminalPadding: TerminalViewPadding,
                                 columns: Int, rows: Int, scrollbackLines: Int?,
                                 titleOverride: String?, titleComponents: Set<TerminalTitleComponent>, shell: ShellCommand,
                                 whenShellExits: ShellExitBehavior, askBeforeClosing: AskBeforeClosing,
@@ -230,6 +256,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
          fontSmoothing: true, useBrightColorsForBold: true,
          cursorStyle: .blinkBlock, backgroundOpacity: 1.0,
          useThemeColorsForWindowChrome: true,
+         terminalPadding: .standard,
          columns: 80, rows: 25, scrollbackLines: 10_000,
          titleOverride: nil, titleComponents: [.activeTitle, .workingDirectory], shell: .loginShell,
          whenShellExits: .closeIfExitedCleanly, askBeforeClosing: .onlyIfProcessesRunning,
@@ -242,7 +269,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, name, themeName, fontFamily, fontSize, fontSmoothing
         case useBrightColorsForBold, cursorStyle, backgroundOpacity
-        case useThemeColorsForWindowChrome
+        case useThemeColorsForWindowChrome, terminalPadding
         case columns, rows, scrollbackLines, titleOverride, titleComponents
         case shell, whenShellExits, askBeforeClosing
         case optionAsMetaKey, backspaceSendsControlH, hidePointerWhileTyping, keyBindings
@@ -274,6 +301,10 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
             Bool.self,
             forKey: .useThemeColorsForWindowChrome
         ) ?? defaults.useThemeColorsForWindowChrome
+        self.terminalPadding = try c.decodeIfPresent(
+            TerminalViewPadding.self,
+            forKey: .terminalPadding
+        ) ?? defaults.terminalPadding
         self.columns = try c.decodeIfPresent (Int.self, forKey: .columns) ?? defaults.columns
         self.rows = try c.decodeIfPresent (Int.self, forKey: .rows) ?? defaults.rows
         // An explicit null means "unlimited"; only a missing key falls back to the default
@@ -319,6 +350,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode (cursorStyle.tagName, forKey: .cursorStyle)
         try c.encode (backgroundOpacity, forKey: .backgroundOpacity)
         try c.encode(useThemeColorsForWindowChrome, forKey: .useThemeColorsForWindowChrome)
+        try c.encode(terminalPadding, forKey: .terminalPadding)
         try c.encode (columns, forKey: .columns)
         try c.encode (rows, forKey: .rows)
         // Encoded unconditionally: an explicit null means "unlimited scrollback"
