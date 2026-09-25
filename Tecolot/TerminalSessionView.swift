@@ -866,6 +866,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if !newTitle.isEmpty {
             document?.displayName = newTitle
         }
+
+        window.representedURL = currentWorkingDirectory.map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
     private func updateLogging() {
