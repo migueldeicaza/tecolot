@@ -37,7 +37,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored private var postedTitle: String = ""
     @ObservationIgnored private var displayedTerminalTitle: String = ""
     @ObservationIgnored private var titleUpdateTask: Task<Void, Never>?
-    @ObservationIgnored private var postedDirectory: String?
+    private var postedDirectory: String?
     @ObservationIgnored private var zoomGesture: NSMagnificationGestureRecognizer?
     @ObservationIgnored private var keyEventMonitor: Any?
     @ObservationIgnored private var snapshotWorkItem: DispatchWorkItem?
@@ -54,6 +54,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     var themeOverride: String?
     /// Drives the per-window theme picker popover
     var showThemePicker = false
+    private(set) var displayedWindowTitle = "Tecolot"
     @ObservationIgnored private var launchDirectory: String?
     @ObservationIgnored private var didResolveLaunch = false
     @ObservationIgnored private var restoredContent: String?
@@ -117,6 +118,11 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return nil
         }
         return url.path
+    }
+
+    /// A local OSC 7 directory that the titlebar can open in Finder.
+    var titlebarWorkingDirectory: String? {
+        TerminalWorkingDirectory.path(from: postedDirectory)
     }
 
     /// The theme currently in effect for this session
@@ -526,6 +532,17 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         setUseMetalRenderer(UserDefaults.standard.object(forKey: "useMetalRenderer") as? Bool ?? true)
         applyAppearance()
         terminal.processDelegate = self
+        // Tecolot uses Command keys for its menus and profile bindings.
+        // Let menu Copy run when text is selected. Otherwise, send Command-C
+        // to programs that use the enhanced keyboard protocol.
+        terminal.shouldSendCommandKeyToTerminal = { [weak terminal] event in
+            let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            guard modifiers == [.command],
+                  event.charactersIgnoringModifiers?.lowercased() == "c" else {
+                return false
+            }
+            return terminal?.selectionActive == false
+        }
 
         if zoomGesture == nil {
             let gesture = NSMagnificationGestureRecognizer(target: self, action: #selector(handleMagnify(_:)))
@@ -862,6 +879,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             ?? hasActivity
         let effectiveTitle = hasPaneActivity ? "● \(title)" : title
         window.title = effectiveTitle
+        if displayedWindowTitle != effectiveTitle {
+            displayedWindowTitle = effectiveTitle
+        }
 
         if !newTitle.isEmpty {
             document?.displayName = newTitle

@@ -20,6 +20,8 @@ struct ContentView: View {
     @EnvironmentObject private var profiles: ProfileStore
     @EnvironmentObject private var themes: ThemeStore
     @EnvironmentObject private var themeIndex: ThemeCatalogIndex
+    // Keep the saved value from the earlier folder icon setting.
+    @AppStorage("showWorkingDirectoryIconInTitlebar") private var enableProxyIcon = true
 
     private var rootController: TerminalSessionController? {
         workspace.controllers.first
@@ -53,7 +55,16 @@ struct ContentView: View {
         )
             .background(WindowTabbingConfigurator(
                 theme: usesThemeWindowChrome ? windowTheme : nil,
-                backgroundOpacity: chromeBackgroundOpacity
+                backgroundOpacity: chromeBackgroundOpacity,
+                workingDirectory: chromeController?.titlebarWorkingDirectory,
+                title: chromeController?.displayedWindowTitle ?? "Tecolot",
+                hasActivity: workspace.controllers.contains(where: \.hasActivity),
+                enableProxyIcon: enableProxyIcon,
+                themeController: workspace.focusedController,
+                showsThemePicker: workspace.focusedController?.showThemePicker ?? false,
+                profiles: profiles,
+                themes: themes,
+                themeIndex: themeIndex
             ))
             .preferredColorScheme(
                 usesThemeWindowChrome ? (windowTheme.isDark ? .dark : .light) : nil
@@ -89,42 +100,6 @@ struct ContentView: View {
                     controller.applyAppearance()
                 }
             }
-            .toolbar {
-                ToolbarItem {
-                    Button {
-                        workspace.focusedController?.showThemePicker.toggle()
-                    } label: {
-                        // Tinting a disabled button would paint it at full
-                        // strength and hide that it is disabled.
-                        if workspace.focusedController != nil, usesThemeWindowChrome {
-                            Label("Theme", systemImage: "paintbrush")
-                                .foregroundStyle(windowTheme.foreground.swiftUIColor)
-                        } else {
-                            Label("Theme", systemImage: "paintbrush")
-                        }
-                    }
-                    .help("Change the theme of this terminal")
-                    .disabled(workspace.focusedController == nil)
-                    .popover(isPresented: themePickerBinding, arrowEdge: .bottom) {
-                        if let controller = workspace.focusedController {
-                            ThemePickerPopover(
-                                controller: controller,
-                                themes: themes,
-                                themeIndex: themeIndex,
-                                profiles: profiles
-                            )
-                            //.frame(minHeight: 600)
-                        }
-                    }
-                }
-            }
-    }
-
-    private var themePickerBinding: Binding<Bool> {
-        Binding(
-            get: { workspace.focusedController?.showThemePicker ?? false },
-            set: { workspace.focusedController?.showThemePicker = $0 }
-        )
     }
 
     private func configureBufferPersistence() {
@@ -196,6 +171,17 @@ struct ThemePickerPopover: View {
 struct WindowTabbingConfigurator: NSViewRepresentable {
     let theme: TerminalTheme?
     var backgroundOpacity: Double = 1
+    var workingDirectory: String?
+    var title: String = "Tecolot"
+    var hasActivity = false
+    var enableProxyIcon = true
+    var themeController: TerminalSessionController?
+    // Not read by the update. It makes SwiftUI update this view when the
+    // flag changes; the titlebar control reads the live value.
+    var showsThemePicker = false
+    var profiles: ProfileStore
+    var themes: ThemeStore
+    var themeIndex: ThemeCatalogIndex
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -212,6 +198,20 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
             guard let window = view.window else { return }
             window.tabbingIdentifier = "TerminalDocument"
             window.tabbingMode = .preferred
+            TerminalWorkingDirectoryTitlebar.configure(
+                window,
+                path: workingDirectory,
+                title: title,
+                hasActivity: hasActivity,
+                enableProxyIcon: enableProxyIcon
+            )
+            TerminalThemeTitlebar.configure(
+                window,
+                controller: themeController,
+                profiles: profiles,
+                themes: themes,
+                themeIndex: themeIndex
+            )
             TerminalWindowSizeStore.shared.configure(window)
             TerminalWindowAppearance.apply(
                 theme: theme,

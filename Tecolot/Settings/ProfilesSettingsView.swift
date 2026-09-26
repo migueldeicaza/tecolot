@@ -384,6 +384,7 @@ struct ProfileSettingsPage: View {
     let update: ((inout TerminalProfile) -> Void) -> Bool
 
     @EnvironmentObject private var themes: ThemeStore
+    @AppStorage("showWorkingDirectoryIconInTitlebar") private var enableProxyIcon = true
 
     /// Adapter for child views that have no rollback path of their own.
     private var updateIgnoringResult: ((inout TerminalProfile) -> Void) -> Void {
@@ -411,6 +412,14 @@ struct ProfileSettingsPage: View {
 
     private var textSettings: some View {
         Form {
+            Section {
+                Toggle("Enable Proxy Icon", isOn: $enableProxyIcon)
+                    .help("Drag the reported directory or use its menu to open a folder.")
+            } header: {
+                Text("Titlebar")
+            } footer: {
+                Text("Applies to all windows. The shell must report a working directory before the folder appears.")
+            }
             Section {
                 ProfileTextSettings(profile: profile, update: updateIgnoringResult)
                     .padding(.horizontal)
