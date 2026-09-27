@@ -62,6 +62,8 @@ struct ContentView: View {
                 enableProxyIcon: enableProxyIcon,
                 themeController: workspace.focusedController,
                 showsThemePicker: workspace.focusedController?.showThemePicker ?? false,
+                zoomedControllerID: workspace.zoomedControllerID,
+                workspace: workspace,
                 profiles: profiles,
                 themes: themes,
                 themeIndex: themeIndex
@@ -179,6 +181,9 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
     // Not read by the update. It makes SwiftUI update this view when the
     // flag changes; the titlebar control reads the live value.
     var showsThemePicker = false
+    // The titlebar button also reads the live workspace in the queued update.
+    var zoomedControllerID: UUID?
+    var workspace: TerminalPaneWorkspace
     var profiles: ProfileStore
     var themes: ThemeStore
     var themeIndex: ThemeCatalogIndex
@@ -212,6 +217,7 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
                 themes: themes,
                 themeIndex: themeIndex
             )
+            TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
             TerminalWindowSizeStore.shared.configure(window)
             TerminalWindowAppearance.apply(
                 theme: theme,

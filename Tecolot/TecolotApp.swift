@@ -278,6 +278,12 @@ struct SplitCommands: Commands {
                 .keyboardShortcut(.rightArrow, modifiers: [.command, .control])
                 .disabled(!hasMultipleSplits)
             }
+
+            Button(workspace?.zoomedControllerID == nil ? "Zoom Split" : "Reset Split Zoom") {
+                workspace?.toggleSplitZoom()
+            }
+            .keyboardShortcut(.return, modifiers: [.command, .shift])
+            .disabled(!hasMultipleSplits)
         }
     }
 }

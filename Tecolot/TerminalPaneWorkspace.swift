@@ -47,6 +47,7 @@ final class TerminalPaneWorkspace {
     private(set) var root: TerminalPaneNode
     private(set) var revision = 0
     private(set) var focusedControllerID: UUID
+    private(set) var zoomedControllerID: UUID?
     @ObservationIgnored private let startsProcesses: Bool
     @ObservationIgnored weak var hostView: TerminalPaneHostView?
 
@@ -88,6 +89,28 @@ final class TerminalPaneWorkspace {
         let newNode = TerminalPaneNode(content: .terminal(newController))
         node.content = .split(orientation, existingNode, newNode)
         focusedControllerID = newController.id
+        if zoomedControllerID != nil {
+            zoomedControllerID = newController.id
+        }
+        revision += 1
+    }
+
+    func toggleSplitZoom() {
+        guard paneCount > 1, let focused = focusedController else { return }
+        zoomedControllerID = zoomedControllerID == focused.id ? nil : focused.id
+        revision += 1
+    }
+
+    func clearSplitZoom() {
+        guard zoomedControllerID != nil else { return }
+        zoomedControllerID = nil
+        revision += 1
+    }
+
+    func zoomSelectedSplit(_ controller: TerminalSessionController) {
+        guard zoomedControllerID != nil, contains(controller),
+              zoomedControllerID != controller.id else { return }
+        zoomedControllerID = controller.id
         revision += 1
     }
 
@@ -104,10 +127,12 @@ final class TerminalPaneWorkspace {
     }
 
     func equalizeSplits() {
+        guard zoomedControllerID == nil else { return }
         hostView?.equalizeSplits()
     }
 
     func moveDivider(in direction: TerminalPaneDirection) {
+        guard zoomedControllerID == nil else { return }
         hostView?.moveDivider(in: direction)
     }
 
@@ -116,6 +141,9 @@ final class TerminalPaneWorkspace {
     func close(_ controller: TerminalSessionController) -> Bool {
         guard paneCount > 1, remove(controller, from: root) else { return false }
         controller.terminate()
+        if zoomedControllerID == controller.id || paneCount == 1 {
+            zoomedControllerID = nil
+        }
         if focusedControllerID == controller.id, let fallback = controllers.first {
             focusedControllerID = fallback.id
             fallback.requestFocus()
@@ -151,6 +179,10 @@ final class TerminalPaneWorkspace {
         let nextIndex = (currentIndex + offset + controllers.count) % controllers.count
         let next = controllers[nextIndex]
         focusedControllerID = next.id
+        if zoomedControllerID != nil {
+            zoomedControllerID = next.id
+            revision += 1
+        }
         next.requestFocus()
     }
 
@@ -182,14 +214,21 @@ final class TerminalPaneWorkspace {
         guard case .split(_, let first, let second) = node.content else { return false }
 
         if isTerminal(controller, in: first) {
-            node.content = second.content
+            promote(second, into: node)
             return true
         }
         if isTerminal(controller, in: second) {
-            node.content = first.content
+            promote(first, into: node)
             return true
         }
         return remove(controller, from: first) || remove(controller, from: second)
+    }
+
+    private func promote(_ survivor: TerminalPaneNode, into node: TerminalPaneNode) {
+        if case .split = survivor.content {
+            hostView?.transferDividerPosition(from: survivor.id, to: node.id)
+        }
+        node.content = survivor.content
     }
 
     private func isTerminal(
@@ -239,6 +278,11 @@ final class TerminalPaneHostView: NSView {
     private var document: TerminalDocument
     private var displayedRevision = -1
     private var paneViews: [UUID: NSView] = [:]
+    private var splitViews: [UUID: NSSplitView] = [:]
+    private var dividerFractions: [UUID: CGFloat] = [:]
+    private var pendingDividerTransfers: [(from: UUID, to: UUID)] = []
+    private var unzoomedPaneFrames: [UUID: CGRect] = [:]
+    private var needsDividerRestore = false
 
     init(workspace: TerminalPaneWorkspace, document: TerminalDocument) {
         self.workspace = workspace
@@ -262,9 +306,23 @@ final class TerminalPaneHostView: NSView {
     override func layout() {
         super.layout()
         subviews.first?.frame = bounds
+        if needsDividerRestore, !bounds.isEmpty {
+            needsDividerRestore = false
+            restoreDividerPositions(in: workspace.root)
+        }
     }
 
     private func rebuild() {
+        saveDividerPositions()
+        for transfer in pendingDividerTransfers {
+            dividerFractions[transfer.to] = dividerFractions.removeValue(forKey: transfer.from)
+        }
+        pendingDividerTransfers.removeAll()
+        let activeSplitIDs = splitNodeIDs(in: workspace.root)
+        dividerFractions = dividerFractions.filter { activeSplitIDs.contains($0.key) }
+        if workspace.zoomedControllerID != nil, !paneViews.isEmpty, !splitViews.isEmpty {
+            unzoomedPaneFrames = paneViews.mapValues { $0.convert($0.bounds, to: self) }
+        }
         // Removing a focused terminal does not always make AppKit resign it.
         // Clear the first responder first so the old pane sends focus-out.
         if let terminal = window?.firstResponder as? AppTerminalView,
@@ -273,10 +331,24 @@ final class TerminalPaneHostView: NSView {
         }
         subviews.forEach { $0.removeFromSuperview() }
         paneViews.removeAll()
-        let rootView = makeView(for: workspace.root)
+        splitViews.removeAll()
+        let rootView: NSView
+        if let zoomedID = workspace.zoomedControllerID,
+           let controller = workspace.controllers.first(where: { $0.id == zoomedID }) {
+            rootView = makeTerminalView(for: controller)
+        } else {
+            rootView = makeView(for: workspace.root)
+            needsDividerRestore = !dividerFractions.isEmpty
+            unzoomedPaneFrames.removeAll()
+        }
         rootView.frame = bounds
         rootView.autoresizingMask = [.width, .height]
         addSubview(rootView)
+        if needsDividerRestore, !bounds.isEmpty {
+            rootView.layoutSubtreeIfNeeded()
+            restoreDividerPositions(in: workspace.root)
+            needsDividerRestore = false
+        }
 
         // Reattaching a terminal view clears AppKit's first responder. Ask
         // for focus after the new split hierarchy is in the window.
@@ -287,18 +359,30 @@ final class TerminalPaneHostView: NSView {
         guard let focused = workspace.focusedController,
               let source = paneViews[focused.id] else { return }
 
-        let sourceFrame = source.convert(source.bounds, to: self)
+        let sourceFrame = unzoomedPaneFrames[focused.id] ?? source.convert(source.bounds, to: self)
         let candidates = workspace.controllers.compactMap { controller -> (TerminalSessionController, CGRect)? in
-            guard controller !== focused, let pane = paneViews[controller.id] else { return nil }
+            guard controller !== focused else { return nil }
+            if let frame = unzoomedPaneFrames[controller.id] {
+                return (controller, frame)
+            }
+            guard let pane = paneViews[controller.id] else { return nil }
             return (controller, pane.convert(pane.bounds, to: self))
         }
         guard let target = candidates
             .filter({ isInDirection($0.1, from: sourceFrame, direction: direction) })
             .min(by: { directionScore($0.1, from: sourceFrame, direction: direction)
                 < directionScore($1.1, from: sourceFrame, direction: direction) })?.0 else {
+            if workspace.zoomedControllerID != nil, splitViews.isEmpty,
+               unzoomedPaneFrames.count < workspace.paneCount {
+                switch direction {
+                case .up, .left: workspace.selectPreviousSplit()
+                case .down, .right: workspace.selectNextSplit()
+                }
+            }
             return
         }
         workspace.markFocused(target)
+        workspace.zoomSelectedSplit(target)
         target.requestFocus()
     }
 
@@ -348,21 +432,61 @@ final class TerminalPaneHostView: NSView {
     private func makeView(for node: TerminalPaneNode) -> NSView {
         switch node.content {
         case .terminal(let controller):
-            // The container supplies the terminal's Auto Layout constraints.
-            // NSSplitView must size the container, not the terminal itself.
-            let view = TerminalSessionContainerView(
-                terminal: controller.makeTerminalView(document: document)
-            )
-            paneViews[controller.id] = view
-            return view
+            return makeTerminalView(for: controller)
         case .split(let orientation, let first, let second):
             let splitView = NSSplitView(frame: .zero)
             splitView.isVertical = orientation == .vertical
             splitView.dividerStyle = .thin
             splitView.addArrangedSubview(makeView(for: first))
             splitView.addArrangedSubview(makeView(for: second))
+            splitViews[node.id] = splitView
             return splitView
         }
+    }
+
+    private func makeTerminalView(for controller: TerminalSessionController) -> NSView {
+        // The container supplies the terminal's Auto Layout constraints.
+        // NSSplitView must size the container, not the terminal itself.
+        let view = TerminalSessionContainerView(
+            terminal: controller.makeTerminalView(document: document)
+        )
+        paneViews[controller.id] = view
+        return view
+    }
+
+    private func saveDividerPositions() {
+        for (id, splitView) in splitViews where splitView.arrangedSubviews.count == 2 {
+            let length = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
+            let available = length - splitView.dividerThickness
+            guard available > 0 else { continue }
+            let first = splitView.arrangedSubviews[0]
+            let firstLength = splitView.isVertical ? first.frame.width : first.frame.height
+            dividerFractions[id] = firstLength / available
+        }
+    }
+
+    func transferDividerPosition(from oldID: UUID, to newID: UUID) {
+        pendingDividerTransfers.append((from: oldID, to: newID))
+    }
+
+    private func splitNodeIDs(in node: TerminalPaneNode) -> Set<UUID> {
+        guard case .split(_, let first, let second) = node.content else { return [] }
+        return Set([node.id]).union(splitNodeIDs(in: first)).union(splitNodeIDs(in: second))
+    }
+
+    private func restoreDividerPositions(in node: TerminalPaneNode) {
+        guard case .split(_, let first, let second) = node.content,
+              let splitView = splitViews[node.id] else { return }
+        splitView.layoutSubtreeIfNeeded()
+        if let fraction = dividerFractions[node.id] {
+            let length = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
+            let available = length - splitView.dividerThickness
+            if available > 0 {
+                splitView.setPosition(available * fraction, ofDividerAt: 0)
+            }
+        }
+        restoreDividerPositions(in: first)
+        restoreDividerPositions(in: second)
     }
 
     private func isInDirection(
