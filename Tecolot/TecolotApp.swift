@@ -364,6 +364,7 @@ struct TerminalCommands: Commands {
             Divider()
 
             Toggle("Allow Mouse Reporting", isOn: binding(\.allowMouseReporting))
+                .keyboardShortcut("r", modifiers: [.command])
                 .disabled(!isEnabled)
             Toggle("Use Option as Meta Key", isOn: binding(\.optionAsMetaKey))
                 .disabled(!isEnabled)
