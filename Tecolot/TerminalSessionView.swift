@@ -148,6 +148,18 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         applyAppearance()
     }
 
+    /// Saves this session's theme as the profile default.
+    @MainActor
+    func useThemeForAllWindows(in profiles: ProfileStore) throws {
+        var updatedProfile = profile
+        updatedProfile.themeName = effectiveTheme.name
+        try profiles.update(updatedProfile)
+        // Clear the local theme only after the profile save succeeds.
+        // Apply the new profile here, before SwiftUI processes the store change.
+        themeOverride = nil
+        applyProfile(updatedProfile)
+    }
+
     @MainActor
     func applyAppearance() {
         guard let terminal else { return }

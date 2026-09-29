@@ -144,11 +144,8 @@ struct ThemePickerPopover: View {
                 .disabled(controller.themeOverride == nil)
                 Spacer()
                 Button("Use for All Windows") {
-                    var profile = controller.profile
-                    profile.themeName = controller.effectiveTheme.name
                     do {
-                        try profiles.update(profile)
-                        controller.applyThemeOverride(nil)
+                        try controller.useThemeForAllWindows(in: profiles)
                     } catch {
                         errorMessage = error.localizedDescription
                     }
