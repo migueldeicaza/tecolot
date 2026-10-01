@@ -142,11 +142,98 @@ final class AppTerminalView: LocalProcessTerminalView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        focusTerminal()
+        super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        focusTerminal()
+        super.rightMouseDown(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard event.type == .rightMouseDown
+                || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
+              !isReportingMouseEvents else { return nil }
+        // Auto Fill uses the active text input client.
+        focusTerminal()
+        return makeContextMenu()
+    }
+
+    func makeContextMenu(pasteboard: NSPasteboard = .general) -> NSMenu {
+        let menu = NSMenu()
+        // AppKit adds system menu items, including Auto Fill.
+        menu.allowsContextMenuPlugIns = true
+        if let selection = getSelection(), !selection.isEmpty {
+            menu.addItem(contextMenuItem("Copy", action: #selector(copy(_:))))
+        }
+        if let text = pasteboard.string(forType: .string), !text.isEmpty {
+            menu.addItem(contextMenuItem("Paste", action: #selector(paste(_:))))
+        }
+        if !menu.items.isEmpty {
+            menu.addItem(.separator())
+        }
+        menu.addItem(contextMenuItem("Split Right", action: #selector(splitRight(_:))))
+        menu.addItem(contextMenuItem("Split Left", action: #selector(splitLeft(_:))))
+        menu.addItem(contextMenuItem("Split Down", action: #selector(splitDown(_:))))
+        menu.addItem(contextMenuItem("Split Up", action: #selector(splitUp(_:))))
+        menu.addItem(.separator())
+        menu.addItem(contextMenuItem("Reset Terminal", action: #selector(resetTerminal(_:))))
+        return menu
+    }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(splitRight(_:)), #selector(splitLeft(_:)),
+             #selector(splitDown(_:)), #selector(splitUp(_:)):
+            return sessionController?.workspace != nil
+        case #selector(resetTerminal(_:)):
+            return true
+        default:
+            return super.validateUserInterfaceItem(item)
+        }
+    }
+
+    private var isReportingMouseEvents: Bool {
+        allowMouseReporting && currentMouseMode != .off
+    }
+
+    private func contextMenuItem(_ title: String, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        return item
+    }
+
+    @objc private func splitRight(_ sender: Any?) {
+        split(in: .right)
+    }
+
+    @objc private func splitLeft(_ sender: Any?) {
+        split(in: .left)
+    }
+
+    @objc private func splitDown(_ sender: Any?) {
+        split(in: .down)
+    }
+
+    @objc private func splitUp(_ sender: Any?) {
+        split(in: .up)
+    }
+
+    private func split(in direction: TerminalPaneDirection) {
+        guard let controller = sessionController else { return }
+        controller.workspace?.split(controller, direction: direction)
+    }
+
+    @objc private func resetTerminal(_ sender: Any?) {
+        resetToInitialState()
+    }
+
+    private func focusTerminal() {
         if window?.firstResponder !== self,
            window?.makeFirstResponder(self) == true {
             sessionController?.didBecomeFocused()
         }
-        super.mouseDown(with: event)
     }
 
     /// Uses the current terminal-driver control bytes when SwiftTerm filters

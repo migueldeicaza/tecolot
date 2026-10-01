@@ -548,8 +548,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
 			requirement = {
-				branch = main;
-				kind = branch;
+				kind = revision;
+				revision = 126e28c3576becf5372a5e0f496ad99f1e26951c;
 			};
 		};
 		5A81CE0000000001AAAA0003 /* XCRemoteSwiftPackageReference "Sparkle" */ = {

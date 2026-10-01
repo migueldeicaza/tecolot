@@ -79,6 +79,10 @@ final class TerminalPaneWorkspace {
     }
 
     func split(_ controller: TerminalSessionController, orientation: TerminalPaneSplit) {
+        split(controller, direction: orientation == .vertical ? .right : .down)
+    }
+
+    func split(_ controller: TerminalSessionController, direction: TerminalPaneDirection) {
         guard let node = findNode(for: controller, in: root) else { return }
 
         let newController = TerminalSessionController(startsProcess: startsProcesses)
@@ -87,7 +91,16 @@ final class TerminalPaneWorkspace {
 
         let existingNode = TerminalPaneNode(content: .terminal(controller))
         let newNode = TerminalPaneNode(content: .terminal(newController))
-        node.content = .split(orientation, existingNode, newNode)
+        switch direction {
+        case .right:
+            node.content = .split(.vertical, existingNode, newNode)
+        case .left:
+            node.content = .split(.vertical, newNode, existingNode)
+        case .down:
+            node.content = .split(.horizontal, existingNode, newNode)
+        case .up:
+            node.content = .split(.horizontal, newNode, existingNode)
+        }
         focusedControllerID = newController.id
         if zoomedControllerID != nil {
             zoomedControllerID = newController.id
