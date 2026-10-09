@@ -30,6 +30,7 @@ enum TerminalProfileWindowSizer {
             let didClose = terminal.updateUiClosed()
             assert(didClose, "The terminal sizing view did not release its UI resources")
         }
+        // New windows start with one pane and use the compact layout.
         return TerminalSessionContainerView.contentSize(
             forTerminalSize: terminal.getOptimalFrameSize().size
         )

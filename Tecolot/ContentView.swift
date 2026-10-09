@@ -9,6 +9,10 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
+    @AppStorage(GlobalAppearanceSettings.paneCardsEnabledKey)
+    private var paneCardsEnabled = GlobalAppearanceSettings().paneCardsEnabled
+    @AppStorage(GlobalAppearanceSettings.paneCardsBackdropKey)
+    private var paneCardsBackdrop = GlobalAppearanceSettings().paneCardsBackdrop
     @Binding var document: TerminalDocument
     /// nil for untitled windows; document metadata is only persisted for
     /// file-backed sessions so that closing an untitled window never
@@ -51,11 +55,16 @@ struct ContentView: View {
         TerminalPaneContainer(
             workspace: workspace,
             document: document,
-            revision: workspace.revision
+            revision: workspace.revision,
+            appearanceSettings: GlobalAppearanceSettings(
+                paneCardsEnabled: paneCardsEnabled,
+                paneCardsBackdrop: paneCardsBackdrop
+            )
         )
             .background(WindowTabbingConfigurator(
                 theme: usesThemeWindowChrome ? windowTheme : nil,
                 backgroundOpacity: chromeBackgroundOpacity,
+                showsPaneCards: paneCardsEnabled,
                 workingDirectory: chromeController?.titlebarWorkingDirectory,
                 title: chromeController?.displayedWindowTitle ?? "Tecolot",
                 hasActivity: workspace.controllers.contains(where: \.hasActivity),
@@ -170,6 +179,9 @@ struct ThemePickerPopover: View {
 struct WindowTabbingConfigurator: NSViewRepresentable {
     let theme: TerminalTheme?
     var backgroundOpacity: Double = 1
+    // Include this setting in the representable input so native tab
+    // accessories update even when the terminal title does not change.
+    var showsPaneCards = true
     var workingDirectory: String?
     var title: String = "Tecolot"
     var hasActivity = false
