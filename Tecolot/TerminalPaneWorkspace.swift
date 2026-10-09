@@ -53,6 +53,7 @@ final class TerminalPaneWorkspace {
     /// The host sets this value from SwiftUI. The title bar also reads it.
     @ObservationIgnored var appearanceSettings = GlobalAppearanceSettings()
     @ObservationIgnored private var processTask: Task<Void, Never>?
+    @ObservationIgnored private var jobIconResolvers: [UUID: TerminalForegroundJobIconResolver] = [:]
 
     init(startsProcesses: Bool = true) {
         self.startsProcesses = startsProcesses
@@ -193,6 +194,7 @@ final class TerminalPaneWorkspace {
         guard appearanceSettings.paneCardsEnabled, hostView?.window != nil else {
             processTask?.cancel()
             processTask = nil
+            jobIconResolvers.removeAll()
             return
         }
         guard processTask == nil else { return }
@@ -219,18 +221,28 @@ final class TerminalPaneWorkspace {
             guard let process = controller.terminal?.process, process.running else { return nil }
             return process.childfd
         }
-        let paths = await Task.detached(priority: .utility) {
+        let snapshots = await Task.detached(priority: .utility) {
             let inspector = SystemTerminalProcessInspector()
-            return descriptors.map { descriptor -> String? in
+            return descriptors.map { descriptor -> TerminalForegroundJobSnapshot? in
                 guard let descriptor,
                       let group = inspector.foregroundProcessGroup(for: descriptor) else { return nil }
-                return inspector.executablePath(for: group)
+                let processes = inspector.foregroundProcesses(in: group)
+                guard inspector.foregroundProcessGroup(for: descriptor) == group else { return nil }
+                return .init(processGroup: group, processes: processes)
             }
         }.value
         guard !Task.isCancelled, appearanceSettings.paneCardsEnabled else { return }
-        for (controller, (descriptor, path)) in zip(panes, zip(descriptors, paths)) {
+        let liveIDs = Set(controllers.map(\.id))
+        jobIconResolvers = jobIconResolvers.filter { liveIDs.contains($0.key) }
+        for (controller, (descriptor, snapshot)) in zip(panes, zip(descriptors, snapshots)) {
             // A pane can start a new process while the check runs.
-            if let descriptor, controller.terminal?.process?.childfd != descriptor { continue }
+            guard liveIDs.contains(controller.id) else { continue }
+            let currentProcess = controller.terminal?.process
+            let currentDescriptor = currentProcess?.running == true ? currentProcess?.childfd : nil
+            guard descriptor == currentDescriptor else { continue }
+            var resolver = jobIconResolvers[controller.id] ?? TerminalForegroundJobIconResolver()
+            let path = resolver.executablePath(for: snapshot, descriptor: descriptor)
+            jobIconResolvers[controller.id] = resolver
             controller.updatePaneExecutablePath(path)
         }
     }
