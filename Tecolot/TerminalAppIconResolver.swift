@@ -7,9 +7,24 @@ final class TerminalAppIconResolver {
     static let shared = TerminalAppIconResolver()
     private var cache: [String: NSImage] = [:]
 
-    static func identity(forExecutablePath path: String?) -> String? {
+    nonisolated static func identity(forExecutablePath path: String?) -> String? {
         guard let path, !path.isEmpty else { return nil }
-        return URL(fileURLWithPath: path).lastPathComponent.lowercased()
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        let name = url.lastPathComponent.lowercased()
+        if name.range(of: #"^python3(?:\.[0-9]+)+$"#, options: .regularExpression) != nil {
+            return "python3"
+        }
+        let claudeVersions = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/share/claude/versions").standardizedFileURL
+        if url.deletingLastPathComponent() == claudeVersions,
+           name.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil {
+            return "claude"
+        }
+        return name
+    }
+
+    nonisolated static func isRecognizedCommand(_ identity: String) -> Bool {
+        ["ssh", "mosh", "git", "lazygit", "node", "bun", "python", "python3", "codex", "claude"].contains(identity)
     }
 
     func icon(forExecutablePath path: String?) -> NSImage {
@@ -89,6 +104,7 @@ final class TerminalAppIconResolver {
         case "git", "lazygit": return "arrow.triangle.branch"
         case "node", "bun", "python", "python3": return "chevron.left.forwardslash.chevron.right"
         case "codex", "claude": return "sparkles"
+        case "less", "more": return "doc.text"
         default: return "terminal"
         }
     }

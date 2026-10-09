@@ -4,6 +4,18 @@ import Testing
 
 @MainActor
 struct TerminalAppIconResolverTests {
+    @Test func versionedExecutablesUseKnownIdentities() {
+        let versions = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/share/claude/versions")
+        #expect(TerminalAppIconResolver.identity(forExecutablePath: versions.appendingPathComponent("2.1.294").path) == "claude")
+        #expect(TerminalAppIconResolver.identity(forExecutablePath: "/opt/bin/python3.13") == "python3")
+        #expect(TerminalAppIconResolver.identity(forExecutablePath: "/opt/bin/python3.13.1") == "python3")
+        #expect(TerminalAppIconResolver.identity(forExecutablePath: "/tmp/2.1.294") == "2.1.294")
+        #expect(TerminalAppIconResolver.identity(forExecutablePath: "/tmp/claude/versions/2.1.294") == "2.1.294")
+        #expect(TerminalAppIconResolver.identity(forExecutablePath: "/opt/bin/python3.13-helper") == "python3.13-helper")
+        #expect(TerminalAppIconResolver.identity(forExecutablePath: versions.appendingPathComponent("unrelated").path) == "unrelated")
+    }
+
     @Test func identityUsesExecutableBasename() {
         #expect(TerminalAppIconResolver.identity(forExecutablePath: nil) == nil)
         #expect(TerminalAppIconResolver.identity(forExecutablePath: "") == nil)
