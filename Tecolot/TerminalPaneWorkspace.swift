@@ -50,6 +50,9 @@ final class TerminalPaneWorkspace {
     private(set) var zoomedControllerID: UUID?
     @ObservationIgnored private let startsProcesses: Bool
     @ObservationIgnored weak var hostView: TerminalPaneHostView?
+    /// The host sets this value from SwiftUI. The title bar also reads it.
+    @ObservationIgnored var appearanceSettings = GlobalAppearanceSettings()
+    @ObservationIgnored private var processTask: Task<Void, Never>?
 
     init(startsProcesses: Bool = true) {
         self.startsProcesses = startsProcesses
@@ -166,6 +169,8 @@ final class TerminalPaneWorkspace {
     }
 
     func terminateAll() {
+        processTask?.cancel()
+        processTask = nil
         for controller in controllers {
             controller.terminate()
         }
@@ -176,7 +181,58 @@ final class TerminalPaneWorkspace {
         TerminalWindowTransparency.apply(
             to: window,
             isEnabled: controllers.contains { $0.effectiveBackgroundOpacity < 1.0 }
+                || hostView?.showsDesktopBlur == true
         )
+    }
+
+    /// Starts or stops the foreground process check. The tab bar shows the
+    /// icons of all panes, also panes that a zoom hides and panes in tabs
+    /// that are not selected. Thus the workspace examines all panes, not
+    /// only the panes that have a card on screen.
+    func updateProcessInspection() {
+        guard appearanceSettings.paneCardsEnabled, hostView?.window != nil else {
+            processTask?.cancel()
+            processTask = nil
+            return
+        }
+        guard processTask == nil else { return }
+        processTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    guard let self else { return }
+                    await self.inspectForegroundProcesses()
+                }
+                do { try await Task.sleep(for: .seconds(1)) }
+                catch { return }
+            }
+        }
+    }
+
+    private func inspectForegroundProcesses() async {
+        guard appearanceSettings.paneCardsEnabled, let window = hostView?.window else { return }
+        // A tab that is not selected has a window that is not visible, but
+        // the tab bar shows its icons. Use the window of the selected tab.
+        let shownWindow = window.tabGroup?.selectedWindow ?? window
+        guard shownWindow.isVisible, shownWindow.occlusionState.contains(.visible) else { return }
+        let panes = controllers
+        let descriptors = panes.map { controller -> Int32? in
+            guard let process = controller.terminal?.process, process.running else { return nil }
+            return process.childfd
+        }
+        let paths = await Task.detached(priority: .utility) {
+            let inspector = SystemTerminalProcessInspector()
+            return descriptors.map { descriptor -> String? in
+                guard let descriptor,
+                      let group = inspector.foregroundProcessGroup(for: descriptor) else { return nil }
+                return inspector.executablePath(for: group)
+            }
+        }.value
+        guard !Task.isCancelled, appearanceSettings.paneCardsEnabled else { return }
+        for (controller, (descriptor, path)) in zip(panes, zip(descriptors, paths)) {
+            // A pane can start a new process while the check runs.
+            if let descriptor, controller.terminal?.process?.childfd != descriptor { continue }
+            controller.updatePaneExecutablePath(path)
+        }
     }
 
     private func contains(_ controller: TerminalSessionController) -> Bool {
@@ -257,15 +313,16 @@ struct TerminalPaneContainer: NSViewRepresentable {
     let workspace: TerminalPaneWorkspace
     let document: TerminalDocument
     let revision: Int
+    var appearanceSettings = GlobalAppearanceSettings()
 
     func makeNSView(context: Context) -> TerminalPaneHostView {
         let view = TerminalPaneHostView(workspace: workspace, document: document)
-        view.synchronize(revision: revision, document: document)
+        view.synchronize(revision: revision, document: document, settings: appearanceSettings)
         return view
     }
 
     func updateNSView(_ nsView: TerminalPaneHostView, context: Context) {
-        nsView.synchronize(revision: revision, document: document)
+        nsView.synchronize(revision: revision, document: document, settings: appearanceSettings)
     }
 
     static func dismantleNSView(_ nsView: TerminalPaneHostView, coordinator: ()) {
@@ -286,12 +343,18 @@ struct TerminalPaneContainer: NSViewRepresentable {
     .frame(width: 720, height: 420)
 }
 
-final class TerminalPaneHostView: NSView {
+final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
     let workspace: TerminalPaneWorkspace
     private var document: TerminalDocument
+    private let backdropView = TerminalWorkspaceBackdropView(frame: .zero)
+    /// False when the settings turn off the cards, when the window has one
+    /// pane, or when the window is too small for the card decorations.
+    private(set) var cardsEnabled = false
+    private var appearanceObserver: NSObjectProtocol?
     private var displayedRevision = -1
-    private var paneViews: [UUID: NSView] = [:]
-    private var splitViews: [UUID: NSSplitView] = [:]
+    private var isRebuilding = false
+    private var paneViews: [UUID: TerminalPaneCardView] = [:]
+    private var splitViews: [UUID: TerminalWorkspaceSplitView] = [:]
     private var dividerFractions: [UUID: CGFloat] = [:]
     private var pendingDividerTransfers: [(from: UUID, to: UUID)] = []
     private var unzoomedPaneFrames: [UUID: CGRect] = [:]
@@ -302,6 +365,14 @@ final class TerminalPaneHostView: NSView {
         self.document = document
         super.init(frame: .zero)
         workspace.hostView = self
+        addSubview(backdropView)
+        appearanceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshAppearance() }
+        }
+        observeFocus()
     }
 
     @available(*, unavailable)
@@ -309,23 +380,125 @@ final class TerminalPaneHostView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    func synchronize(revision: Int, document: TerminalDocument) {
+    deinit {
+        if let appearanceObserver { NSWorkspace.shared.notificationCenter.removeObserver(appearanceObserver) }
+    }
+
+    var showsDesktopBlur: Bool { backdropView.showsDesktopBlur }
+
+    func synchronize(revision: Int, document: TerminalDocument,
+                     settings: GlobalAppearanceSettings = GlobalAppearanceSettings()) {
         self.document = document
-        guard displayedRevision != revision else { return }
-        displayedRevision = revision
-        rebuild()
+        let settingsChanged = workspace.appearanceSettings != settings
+        workspace.appearanceSettings = settings
+        if displayedRevision != revision {
+            displayedRevision = revision
+            // Rebuild first. The new card metrics then apply only to the new
+            // tree, and each terminal gets one resize.
+            rebuild()
+        } else if settingsChanged {
+            refreshAppearance()
+        }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        // A smaller window can have no space for the card decorations.
+        updateCardMetrics()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        workspace.updateProcessInspection()
     }
 
     override func layout() {
         super.layout()
-        subviews.first?.frame = bounds
+        backdropView.frame = bounds
+        rootView?.frame = contentFrame
         if needsDividerRestore, !bounds.isEmpty {
             needsDividerRestore = false
             restoreDividerPositions(in: workspace.root)
         }
     }
 
+    private var rootView: NSView? {
+        subviews.first { $0 !== backdropView }
+    }
+
+    private var contentFrame: NSRect {
+        guard cardsEnabled else { return bounds }
+        let spacing = GlobalAppearanceSettings.cardSpacing
+        return bounds.insetBy(dx: min(spacing, bounds.width / 2), dy: min(spacing, bounds.height / 2))
+    }
+
+    /// Applies the settings, the theme colors and the accessibility options
+    /// to the backdrop and to all cards. Each card compares its state and
+    /// does no work when nothing changed.
+    func refreshAppearance() {
+        // A new terminal applies its profile while rebuild() makes it. The
+        // tree is not complete at that time, so rebuild() calls this method
+        // when it is done.
+        guard !isRebuilding else { return }
+        updateCardMetrics()
+        refreshBackdrop()
+        for card in paneViews.values { card.refreshAppearance() }
+        workspace.updateWindowTransparency()
+        workspace.updateProcessInspection()
+    }
+
+    private func refreshBackdrop() {
+        let theme = workspace.focusedController?.effectiveTheme ?? .fallback
+        backdropView.update(
+            visible: cardsEnabled,
+            backdrop: workspace.appearanceSettings.paneCardsBackdrop,
+            appearance: ResolvedWorkspaceAppearance(theme: theme),
+            opacity: workspace.controllers.map(\.effectiveBackgroundOpacity).min() ?? 1
+        )
+    }
+
+    /// The backdrop uses the theme of the focused pane. The cards observe
+    /// the focus themselves.
+    private func observeFocus() {
+        withObservationTracking {
+            _ = workspace.focusedControllerID
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.refreshBackdrop()
+                self.observeFocus()
+            }
+        }
+    }
+
+    /// Shows the cards only when the settings enable them, the window has
+    /// more than one pane, and each visible pane has space for its title bar
+    /// and one terminal cell.
+    private func wantsCards() -> Bool {
+        guard workspace.appearanceSettings.paneCardsEnabled, workspace.paneCount > 1 else { return false }
+        // The host has no size before its first layout. Use the settings
+        // until then, so that a new tree does not change its metrics twice.
+        guard !bounds.isEmpty else { return true }
+        let spacing = GlobalAppearanceSettings.cardSpacing * 2
+        let minimum = minimumContentSize(cards: true)
+        return minimum.width + spacing <= bounds.width && minimum.height + spacing <= bounds.height
+    }
+
+    private func updateCardMetrics() {
+        let wanted = wantsCards()
+        guard wanted != cardsEnabled else { return }
+        saveDividerPositions()
+        cardsEnabled = wanted
+        for split in splitViews.values { split.cardsEnabled = wanted }
+        for card in paneViews.values { card.cardsEnabled = wanted }
+        refreshBackdrop()
+        workspace.updateWindowTransparency()
+        needsDividerRestore = true
+        needsLayout = true
+    }
+
     private func rebuild() {
+        isRebuilding = true
         saveDividerPositions()
         for transfer in pendingDividerTransfers {
             dividerFractions[transfer.to] = dividerFractions.removeValue(forKey: transfer.from)
@@ -342,9 +515,12 @@ final class TerminalPaneHostView: NSView {
            terminal.isDescendant(of: self) {
             window?.makeFirstResponder(nil)
         }
-        subviews.forEach { $0.removeFromSuperview() }
+        rootView?.removeFromSuperview()
         paneViews.removeAll()
         splitViews.removeAll()
+        // Set the metrics before the new views exist. The old tree then keeps
+        // its metrics, and the new tree gets its final layout at once.
+        cardsEnabled = wantsCards()
         let rootView: NSView
         if let zoomedID = workspace.zoomedControllerID,
            let controller = workspace.controllers.first(where: { $0.id == zoomedID }) {
@@ -354,9 +530,11 @@ final class TerminalPaneHostView: NSView {
             needsDividerRestore = !dividerFractions.isEmpty
             unzoomedPaneFrames.removeAll()
         }
-        rootView.frame = bounds
+        rootView.frame = contentFrame
         rootView.autoresizingMask = [.width, .height]
-        addSubview(rootView)
+        addSubview(rootView, positioned: .above, relativeTo: backdropView)
+        isRebuilding = false
+        refreshAppearance()
         if needsDividerRestore, !bounds.isEmpty {
             rootView.layoutSubtreeIfNeeded()
             restoreDividerPositions(in: workspace.root)
@@ -400,7 +578,7 @@ final class TerminalPaneHostView: NSView {
     }
 
     func equalizeSplits() {
-        equalizeSplits(in: subviews.first)
+        equalizeSplits(in: rootView)
     }
 
     func moveDivider(in direction: TerminalPaneDirection) {
@@ -423,22 +601,12 @@ final class TerminalPaneHostView: NSView {
         case .right:
             delta = cellSize
         }
-        let divider = splitView.dividerThickness
-        let availableLength = movesAlongHorizontalAxis ? splitView.bounds.width : splitView.bounds.height
-        let minimumLength = minimumPaneLength(in: splitView, horizontal: movesAlongHorizontalAxis)
-        let minimumPosition = max(
-            minimumLength,
-            splitView.minPossiblePositionOfDivider(at: 0)
-        )
-        let maximumPosition = min(
-            availableLength - divider - minimumLength,
-            splitView.maxPossiblePositionOfDivider(at: 0)
-        )
-        guard maximumPosition >= minimumPosition else { return }
+        // Do not move the divider when the two panes do not fit.
+        guard let limits = dividerLimits(in: splitView) else { return }
 
         let firstPane = splitView.arrangedSubviews[0]
         let position = movesAlongHorizontalAxis ? firstPane.frame.width : firstPane.frame.height
-        splitView.setPosition(min(max(position + delta, minimumPosition), maximumPosition), ofDividerAt: 0)
+        splitView.setPosition(min(max(position + delta, limits.lowerBound), limits.upperBound), ofDividerAt: 0)
         splitView.adjustSubviews()
     }
 
@@ -447,9 +615,12 @@ final class TerminalPaneHostView: NSView {
         case .terminal(let controller):
             return makeTerminalView(for: controller)
         case .split(let orientation, let first, let second):
-            let splitView = NSSplitView(frame: .zero)
+            let splitView = TerminalWorkspaceSplitView(frame: .zero)
+            splitView.paneNode = node
+            splitView.cardsEnabled = cardsEnabled
             splitView.isVertical = orientation == .vertical
             splitView.dividerStyle = .thin
+            splitView.delegate = self
             splitView.addArrangedSubview(makeView(for: first))
             splitView.addArrangedSubview(makeView(for: second))
             splitViews[node.id] = splitView
@@ -463,8 +634,9 @@ final class TerminalPaneHostView: NSView {
         let view = TerminalSessionContainerView(
             terminal: controller.makeTerminalView(document: document)
         )
-        paneViews[controller.id] = view
-        return view
+        let card = TerminalPaneCardView(controller: controller, content: view, cardsEnabled: cardsEnabled)
+        paneViews[controller.id] = card
+        return card
     }
 
     private func saveDividerPositions() {
@@ -474,6 +646,8 @@ final class TerminalPaneHostView: NSView {
             guard available > 0 else { continue }
             let first = splitView.arrangedSubviews[0]
             let firstLength = splitView.isVertical ? first.frame.width : first.frame.height
+            // A split view that has no layout yet keeps its earlier fraction.
+            guard firstLength > 0 else { continue }
             dividerFractions[id] = firstLength / available
         }
     }
@@ -569,12 +743,64 @@ final class TerminalPaneHostView: NSView {
         return length / CGFloat(units)
     }
 
-    private func minimumPaneLength(in splitView: NSSplitView, horizontal: Bool) -> CGFloat {
-        workspace.controllers
-            .compactMap { controller -> CGFloat? in
-                guard let pane = paneViews[controller.id], pane.isDescendant(of: splitView) else { return nil }
-                return terminalCellSize(for: controller, horizontal: horizontal)
+    /// The smallest size that keeps one cell of each visible terminal.
+    private func minimumContentSize(cards: Bool) -> NSSize {
+        if let zoomedID = workspace.zoomedControllerID,
+           let controller = workspace.controllers.first(where: { $0.id == zoomedID }) {
+            return minimumPaneSize(for: controller, cards: cards)
+        }
+        return minimumSize(of: workspace.root, cards: cards)
+    }
+
+    private func minimumSize(of node: TerminalPaneNode, cards: Bool) -> NSSize {
+        switch node.content {
+        case .terminal(let controller):
+            return minimumPaneSize(for: controller, cards: cards)
+        case .split(let orientation, let first, let second):
+            let firstSize = minimumSize(of: first, cards: cards)
+            let secondSize = minimumSize(of: second, cards: cards)
+            let divider = TerminalWorkspaceSplitView.dividerThickness(cardsEnabled: cards)
+            if orientation == .vertical {
+                return NSSize(width: firstSize.width + divider + secondSize.width,
+                              height: max(firstSize.height, secondSize.height))
             }
-            .max() ?? 1
+            return NSSize(width: max(firstSize.width, secondSize.width),
+                          height: firstSize.height + divider + secondSize.height)
+        }
+    }
+
+    private func minimumPaneSize(for controller: TerminalSessionController, cards: Bool) -> NSSize {
+        let width = terminalCellSize(for: controller, horizontal: true) + 4
+        let height = terminalCellSize(for: controller, horizontal: false) + 4
+        guard cards else { return NSSize(width: width, height: height) }
+        // The title bar needs space for the icon and some of the title.
+        return NSSize(width: max(width, 72), height: height + GlobalAppearanceSettings.cardTitlebarHeight)
+    }
+
+    /// The divider positions that keep the minimum size of the two sides.
+    /// The value is nil when the split view is smaller than the two minimum
+    /// sizes. Then the divider does not snap to a calculated position.
+    private func dividerLimits(in splitView: NSSplitView) -> ClosedRange<CGFloat>? {
+        guard let node = (splitView as? TerminalWorkspaceSplitView)?.paneNode,
+              case .split(_, let first, let second) = node.content else { return nil }
+        let horizontal = splitView.isVertical
+        let length = horizontal ? splitView.bounds.width : splitView.bounds.height
+        let firstSize = minimumSize(of: first, cards: cardsEnabled)
+        let secondSize = minimumSize(of: second, cards: cardsEnabled)
+        let lowerBound = horizontal ? firstSize.width : firstSize.height
+        let upperBound = length - splitView.dividerThickness - (horizontal ? secondSize.width : secondSize.height)
+        return lowerBound <= upperBound ? lowerBound...upperBound : nil
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat,
+                   ofSubviewAt dividerIndex: Int) -> CGFloat {
+        guard let limits = dividerLimits(in: splitView) else { return proposedMinimumPosition }
+        return min(max(proposedMinimumPosition, limits.lowerBound), limits.upperBound)
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat,
+                   ofSubviewAt dividerIndex: Int) -> CGFloat {
+        guard let limits = dividerLimits(in: splitView) else { return proposedMaximumPosition }
+        return max(min(proposedMaximumPosition, limits.upperBound), limits.lowerBound)
     }
 }

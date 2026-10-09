@@ -13,13 +13,15 @@ protocol TerminalProcessInspecting {
 }
 
 struct SystemTerminalProcessInspector: TerminalProcessInspecting {
-    func foregroundProcessGroup(for fileDescriptor: Int32) -> pid_t? {
+    nonisolated init() {}
+
+    nonisolated func foregroundProcessGroup(for fileDescriptor: Int32) -> pid_t? {
         guard fileDescriptor >= 0 else { return nil }
         let processGroup = tcgetpgrp(fileDescriptor)
         return processGroup > 0 ? processGroup : nil
     }
 
-    func executablePath(for processID: pid_t) -> String? {
+    nonisolated func executablePath(for processID: pid_t) -> String? {
         guard processID > 0 else { return nil }
         // PROC_PIDPATHINFO_MAXSIZE is defined as 4 * MAXPATHLEN in proc_info.h;
         // Swift's C importer does not expose that macro.

@@ -27,6 +27,13 @@ enum TerminalWindowTransparency {
     }
 }
 
+struct PanePresentation: Equatable {
+    var title = "Terminal"
+    var directory: String?
+    var executablePath: String?
+    var hasActivity = false
+}
+
 @Observable
 final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegate {
     let id = UUID()
@@ -55,6 +62,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// Drives the per-window theme picker popover
     var showThemePicker = false
     private(set) var displayedWindowTitle = "Tecolot"
+    private(set) var panePresentation = PanePresentation()
     @ObservationIgnored private var launchDirectory: String?
     @ObservationIgnored private var didResolveLaunch = false
     @ObservationIgnored private var restoredContent: String?
@@ -177,6 +185,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if effectiveBackgroundOpacity >= 1.0 {
             updateWindowTransparency()
         }
+        workspace?.hostView?.refreshAppearance()
     }
 
     /// Applies an unsaved opacity value while the Settings slider is active.
@@ -203,6 +212,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if newOpacity >= 1.0 {
             updateWindowTransparency()
         }
+        workspace?.hostView?.refreshAppearance()
     }
 
     var effectiveBackgroundOpacity: Double {
@@ -279,6 +289,11 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     func sizeChanged(source _: LocalProcessTerminalView, newCols _: Int, newRows _: Int) {
         // LocalProcessTerminalView updates the PTY. Do not resize the window here.
+        // A live resize sends many grid changes. Update the title only when
+        // it shows the grid size.
+        if profile.titleComponents.contains(.dimensions) {
+            updateWindowTitle()
+        }
     }
 
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
@@ -851,10 +866,6 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     private func updateWindowTitle() {
-        if let focused = workspace?.focusedController, focused !== self {
-            focused.updateWindowTitle()
-            return
-        }
         guard let terminal else { return }
         let dimensions = terminal.terminalDimensions
         var components: [String] = []
@@ -883,6 +894,17 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
 
         let newTitle = components.joined (separator: " — ")
+        var presentation = panePresentation
+        presentation.title = newTitle.isEmpty ? "Terminal" : newTitle
+        presentation.directory = currentWorkingDirectory ?? launchDirectory
+        presentation.hasActivity = hasActivity
+        if presentation != panePresentation {
+            panePresentation = presentation
+        }
+        if let focused = workspace?.focusedController, focused !== self {
+            focused.updateWindowTitle()
+            return
+        }
         guard let window = terminal.window else { return }
         let document = window.windowController?.document as? NSDocument
         let documentName = document?.displayName ?? ""
@@ -897,6 +919,17 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
         if !newTitle.isEmpty {
             document?.displayName = newTitle
+        }
+        if let workspace {
+            TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
+        }
+    }
+
+    func updatePaneExecutablePath(_ path: String?) {
+        guard panePresentation.executablePath != path else { return }
+        panePresentation.executablePath = path
+        if let workspace, let window = terminal?.window ?? workspace.focusedController?.terminal?.window {
+            TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
         }
     }
 
@@ -939,7 +972,7 @@ final class TerminalSessionContainerView: NSView {
     static func contentSize(forTerminalSize terminalSize: NSSize) -> NSSize {
         NSSize(
             width: terminalSize.width + padding * 2,
-            height: terminalSize.height + padding
+            height: terminalSize.height + padding * 2
         )
     }
 
@@ -951,10 +984,12 @@ final class TerminalSessionContainerView: NSView {
     private let resizeFeedbackView = TerminalResizeFeedbackView()
     private var resizeObservers = [NSObjectProtocol]()
     private var isShowingResizeFeedback = false
+    private var paddingConstraints: [NSLayoutConstraint] = []
+    private var currentPadding = TerminalSessionContainerView.padding
 
     init(terminal: LocalProcessTerminalView) {
         self.terminal = terminal
-        super.init(frame: .zero)
+        super.init(frame: NSRect(x: 0, y: 0, width: Self.padding * 2, height: Self.padding * 2))
 
         terminal.translatesAutoresizingMaskIntoConstraints = false
         let paddingViews = [topPaddingView, leftPaddingView, rightPaddingView, bottomPaddingView]
@@ -967,6 +1002,12 @@ final class TerminalSessionContainerView: NSView {
         addSubview(terminal)
         resizeFeedbackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(resizeFeedbackView)
+        paddingConstraints = [
+            topPaddingView.heightAnchor.constraint(equalToConstant: Self.padding),
+            leftPaddingView.widthAnchor.constraint(equalToConstant: Self.padding),
+            rightPaddingView.widthAnchor.constraint(equalToConstant: Self.padding),
+            bottomPaddingView.heightAnchor.constraint(equalToConstant: Self.padding)
+        ]
         NSLayoutConstraint.activate([
             terminal.topAnchor.constraint(equalTo: topPaddingView.bottomAnchor),
             terminal.leadingAnchor.constraint(equalTo: leftPaddingView.trailingAnchor),
@@ -976,26 +1017,23 @@ final class TerminalSessionContainerView: NSView {
             topPaddingView.topAnchor.constraint(equalTo: topAnchor),
             topPaddingView.leadingAnchor.constraint(equalTo: leadingAnchor),
             topPaddingView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            topPaddingView.heightAnchor.constraint(equalToConstant: Self.padding),
 
             leftPaddingView.topAnchor.constraint(equalTo: topPaddingView.bottomAnchor),
             leftPaddingView.leadingAnchor.constraint(equalTo: leadingAnchor),
             leftPaddingView.bottomAnchor.constraint(equalTo: bottomPaddingView.topAnchor),
-            leftPaddingView.widthAnchor.constraint(equalToConstant: Self.padding),
 
             rightPaddingView.topAnchor.constraint(equalTo: topPaddingView.bottomAnchor),
             rightPaddingView.trailingAnchor.constraint(equalTo: trailingAnchor),
             rightPaddingView.bottomAnchor.constraint(equalTo: bottomPaddingView.topAnchor),
-            rightPaddingView.widthAnchor.constraint(equalToConstant: Self.padding),
 
             bottomPaddingView.leadingAnchor.constraint(equalTo: leadingAnchor),
             bottomPaddingView.trailingAnchor.constraint(equalTo: trailingAnchor),
             bottomPaddingView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            bottomPaddingView.heightAnchor.constraint(equalToConstant: Self.padding),
 
             resizeFeedbackView.centerXAnchor.constraint(equalTo: centerXAnchor),
             resizeFeedbackView.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+        NSLayoutConstraint.activate(paddingConstraints)
         updatePaddingColor()
     }
 
@@ -1011,10 +1049,10 @@ final class TerminalSessionContainerView: NSView {
     override var intrinsicContentSize: NSSize {
         var size = terminal.intrinsicContentSize
         if size.width >= 0 {
-            size.width += Self.padding * 2
+            size.width += currentPadding * 2
         }
         if size.height >= 0 {
-            size.height += Self.padding * 2
+            size.height += currentPadding * 2
         }
         return size
     }
@@ -1040,6 +1078,15 @@ final class TerminalSessionContainerView: NSView {
         leftPaddingView.layer?.backgroundColor = color
         rightPaddingView.layer?.backgroundColor = color
         bottomPaddingView.layer?.backgroundColor = color
+    }
+
+    func setPaneCardsEnabled(_ enabled: Bool) {
+        let padding: CGFloat = enabled ? 0 : Self.padding
+        guard currentPadding != padding else { return }
+        currentPadding = padding
+        paddingConstraints.forEach { $0.constant = padding }
+        invalidateIntrinsicContentSize()
+        needsLayout = true
     }
 
     private func observeLiveResize(of window: NSWindow) {

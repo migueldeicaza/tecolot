@@ -48,6 +48,14 @@ Mac application.
 - **Restorable workspaces.** Save terminal sessions as documents. Save named
   window groups with their positions, tabs, profiles, working directories, and
   theme overrides.
+- **Pane cards.** Tabs with multiple panes have title bars with app icons and split, zoom,
+  and close controls. Rounded panes sit above a theme gradient or a desktop
+  blur. In Settings → General, turn off **Show terminal cards** to use the
+  compact layout. This setting applies to all windows. When a window is too
+  small for the title bars, its panes also use the compact layout.
+- **Tab icons.** App icons appear before the native tab title in tilted rectangular
+  cards. Tabs with multiple panes show up to three overlapping cards, with the
+  focused pane in front.
 
 ## Performance
 

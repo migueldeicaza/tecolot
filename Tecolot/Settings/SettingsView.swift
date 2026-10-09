@@ -312,6 +312,10 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
 
 /// App-level (non-profile) settings, persisted via AppStorage
 struct GeneralSettingsView: View {
+    @AppStorage(GlobalAppearanceSettings.paneCardsEnabledKey)
+    private var paneCardsEnabled = GlobalAppearanceSettings().paneCardsEnabled
+    @AppStorage(GlobalAppearanceSettings.paneCardsBackdropKey)
+    private var paneCardsBackdrop = GlobalAppearanceSettings().paneCardsBackdrop
     @EnvironmentObject private var profiles: ProfileStore
     @ObservedObject private var windowGroups: WindowGroupStore
     @AppStorage("newTabsUseCurrentDirectory") private var newTabsUseCurrentDirectory = true
@@ -376,6 +380,15 @@ struct GeneralSettingsView: View {
             }
             Section("Tabs") {
                 Toggle("Use Command-1 through Command-9 to select tabs", isOn: $useCommandDigitsForTabs)
+            }
+            Section("Appearance") {
+                Toggle("Show terminal cards", isOn: $paneCardsEnabled)
+                Picker("Background:", selection: $paneCardsBackdrop) {
+                    ForEach(GlobalAppearanceSettings.Backdrop.allCases, id: \.self) { backdrop in
+                        Text(backdrop.title).tag(backdrop)
+                    }
+                }
+                .disabled(!paneCardsEnabled)
             }
             Section("Rendering") {
                 Toggle("Use Metal", isOn: metalRendererBinding)

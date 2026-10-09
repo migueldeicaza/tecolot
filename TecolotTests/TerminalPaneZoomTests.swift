@@ -23,7 +23,7 @@ struct TerminalPaneZoomTests {
 
         let firstTerminal = try #require(first.terminal)
         let secondTerminal = try #require(second.terminal)
-        let splitView = try #require(host.subviews.first as? NSSplitView)
+        let splitView = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
         splitView.setPosition(180, ofDividerAt: 0)
         splitView.adjustSubviews()
         let firstWidth = splitView.arrangedSubviews[0].frame.width
@@ -32,14 +32,14 @@ struct TerminalPaneZoomTests {
         host.synchronize(revision: workspace.revision, document: document)
         #expect(workspace.zoomedControllerID == second.id)
         #expect(workspace.paneCount == 2)
-        #expect(host.subviews.first is TerminalSessionContainerView)
+        #expect(host.subviews.contains { $0 is TerminalPaneCardView })
         #expect(first.terminal === firstTerminal)
         #expect(second.terminal === secondTerminal)
 
         workspace.toggleSplitZoom()
         host.synchronize(revision: workspace.revision, document: document)
         host.layoutSubtreeIfNeeded()
-        let restoredSplit = try #require(host.subviews.first as? NSSplitView)
+        let restoredSplit = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
         #expect(workspace.zoomedControllerID == nil)
         #expect(abs(restoredSplit.arrangedSubviews[0].frame.width - firstWidth) < 2)
         #expect(first.terminal === firstTerminal)
@@ -81,7 +81,8 @@ struct TerminalPaneZoomTests {
         )
 
         TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
-        let button = try #require(window.tab.accessoryView as? NSButton)
+        let accessory = try #require(window.tab.accessoryView)
+        let button = try #require(accessory.subviews.compactMap { $0 as? NSButton }.first)
         #expect(!button.isHidden)
         button.performClick(nil)
         #expect(workspace.zoomedControllerID == nil)
@@ -108,7 +109,7 @@ struct TerminalPaneZoomTests {
         host.synchronize(revision: workspace.revision, document: document)
         host.layoutSubtreeIfNeeded()
 
-        let outer = try #require(host.subviews.first as? NSSplitView)
+        let outer = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
         let inner = try #require(outer.arrangedSubviews[1] as? NSSplitView)
         outer.setPosition(120, ofDividerAt: 0)
         inner.setPosition(320, ofDividerAt: 0)
@@ -120,7 +121,7 @@ struct TerminalPaneZoomTests {
         workspace.close(first)
         host.synchronize(revision: workspace.revision, document: document)
         host.layoutSubtreeIfNeeded()
-        let surviving = try #require(host.subviews.first as? NSSplitView)
+        let surviving = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
         let restoredFraction = surviving.arrangedSubviews[0].frame.height
             / (surviving.bounds.height - surviving.dividerThickness)
         #expect(abs(restoredFraction - originalFraction) < 0.02)
