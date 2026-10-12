@@ -131,8 +131,14 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         themeOverride = spec?.themeOverride ?? document.themeOverride
         launchDirectory = spec?.workingDirectory
         restoredContent = document.content
-        wantsPersistentSession = spec?.persistent == true || spec?.attachSessionID != nil
+        wantsPersistentSession = Self.startsPersistentSession(spec: spec, profile: profile)
         attachSessionID = spec?.attachSessionID
+    }
+
+    /// New Persistent Tab and Attach to Session always use the helper; other
+    /// new panes follow the profile.
+    static func startsPersistentSession(spec: LaunchSpec?, profile: TerminalProfile) -> Bool {
+        spec?.persistent == true || spec?.attachSessionID != nil || profile.sessionPersistence == .persistent
     }
 
     /// Sets up a pane of a restored layout.

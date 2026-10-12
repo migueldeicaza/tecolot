@@ -1,4 +1,6 @@
 import Foundation
+import Synchronization
+import SwiftTerm
 import Testing
 import TecolotWire
 @testable import TecolotSessionHost
@@ -176,6 +178,63 @@ struct SessionImageTests {
         host.inject("\u{1b}[?1243h")
         _ = try await client.wait("mode") { client in
             client.state.withLock { ($0.frames.compactMap(\.modes).last?.input ?? 0) & (1 << 16) != 0 }
+        }
+        client.channel.close()
+    }
+}
+
+/// The helper encodes keys with SwiftTerm's host input API. The app's key
+/// parity test applies the client's messages with the same calls; this pins
+/// the helper to them.
+struct SessionKeyEncodingTests {
+    final class Capture: TerminalDelegate, @unchecked Sendable {
+        let bytes = Mutex<[UInt8]>([])
+        func send(source: Terminal, data: ArraySlice<UInt8>) { bytes.withLock { $0 += data } }
+    }
+
+    @Test func helperEncodesKeysLikeSwiftTerm() async throws {
+        let host = makeHost()
+        let written = Capture()
+        host.trace = { event in
+            if case .childInput(let data) = event { written.bytes.withLock { $0 += data } }
+        }
+        let client = try TestClient(host: host, size: SessionImageTests.size)
+        _ = try await client.wait("screen") { $0.lastFrame != nil }
+
+        let reference = Capture()
+        let terminal = Terminal(delegate: reference, options: TerminalOptions(cols: 40, rows: 10))
+        let modes = ["", "\u{1b}[?1h\u{1b}=", "\u{1b}[>1u", "\u{1b}[>31u"]
+        let keys: [KeyMessage] = [
+            KeyMessage(key: "ArrowLeft", code: "ArrowLeft", modifiers: 2),
+            KeyMessage(key: "F5", code: "F5", modifiers: 1),
+            KeyMessage(key: "1", code: "Numpad1", text: "1"),
+            KeyMessage(key: "a", code: "KeyA", modifiers: 1, text: "A", shiftedKey: 65),
+            KeyMessage(key: "a", code: "KeyA", modifiers: 4, baseLayoutKey: 0),
+            KeyMessage(key: "f", code: "KeyF", modifiers: 2),
+            KeyMessage(key: "Enter", code: "NumpadEnter"),
+            KeyMessage(key: "Tab", code: "Tab", modifiers: 1),
+        ]
+        for mode in modes {
+            host.inject(mode)
+            terminal.feed(text: mode)
+            for key in keys {
+                written.bytes.withLock { $0 = [] }
+                reference.bytes.withLock { $0 = [] }
+                client.channel.send(key)
+                client.channel.send(TextMessage(text: "é"))
+                client.channel.send(InputMessage(bytes: [0xff]))
+                let result = terminal.sendHostKey(key: key.key, code: key.code, modifiers: key.modifiers,
+                                                  eventType: key.eventType, text: key.text,
+                                                  shiftedKey: key.shiftedKey, baseLayoutKey: key.baseLayoutKey)
+                if result == 0, let text = key.text, !text.isEmpty { _ = terminal.sendHostText(text) }
+                _ = terminal.sendHostText("é")
+                terminal.sendUserInput([0xff][...])
+                let expected = reference.bytes.withLock { $0 }
+                _ = try await client.wait("\(key.key) after \(mode.debugDescription)") { _ in
+                    written.bytes.withLock { $0.last == 0xff }
+                }
+                #expect(written.bytes.withLock { $0 } == expected, "\(key.key) \(key.code) in \(mode.debugDescription)")
+            }
         }
         client.channel.close()
     }

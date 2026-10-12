@@ -433,6 +433,8 @@ final class Tracer: @unchecked Sendable {
                 if state.armed, state.round.parsed != nil, state.round.frame == nil {
                     state.round.slotWaitsAfterMarker += 1
                 }
+            case .childInput:
+                break
             case .frameSent(_, let feed):
                 guard state.armed, state.round.input != nil else { return }
                 state.round.framesAfterInput += 1

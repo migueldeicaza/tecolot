@@ -452,6 +452,43 @@ final class ProfileStoreTests {
         #expect(!reloaded.defaultProfile.hidePointerWhileTyping)
     }
 
+    @Test func sessionPersistenceSurvivesRoundTrip() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var profile = store.defaultProfile
+        #expect(profile.sessionPersistence == .standard)
+        profile.sessionPersistence = .persistent
+        try store.update(profile)
+
+        let reloaded = try ProfileStore(directory: dir)
+        #expect(reloaded.defaultProfile.sessionPersistence == .persistent)
+    }
+
+    @Test func unknownSessionPersistenceFallsBackToStandard() throws {
+        let json = #"{"name": "Newer", "sessionPersistence": "remoteHost"}"#
+        let profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(json.utf8))
+        #expect(profile.sessionPersistence == .standard)
+    }
+
+    @MainActor
+    @Test func persistentProfilesStartPersistentSessions() {
+        var standard = TerminalProfile(name: "Standard")
+        standard.sessionPersistence = .standard
+        var persistent = TerminalProfile(name: "Persistent")
+        persistent.sessionPersistence = .persistent
+        var forced = LaunchSpec()
+        forced.persistent = true
+        var attach = LaunchSpec()
+        attach.attachSessionID = "abc"
+
+        #expect(!TerminalSessionController.startsPersistentSession(spec: nil, profile: standard))
+        #expect(!TerminalSessionController.startsPersistentSession(spec: LaunchSpec(), profile: standard))
+        #expect(TerminalSessionController.startsPersistentSession(spec: forced, profile: standard))
+        #expect(TerminalSessionController.startsPersistentSession(spec: attach, profile: standard))
+        #expect(TerminalSessionController.startsPersistentSession(spec: nil, profile: persistent))
+        #expect(TerminalSessionController.startsPersistentSession(spec: LaunchSpec(), profile: persistent))
+    }
+
     @Test func repairsDuplicateNamesWithoutDeletingProfiles () throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("profile-store-duplicate-tests-\(UUID().uuidString)")
@@ -513,6 +550,7 @@ final class ProfileStoreTests {
         #expect(profile.termVersion == "1.3.1")
         #expect(profile.useThemeColorsForWindowChrome)
         #expect(profile.hidePointerWhileTyping)
+        #expect(profile.sessionPersistence == .standard)
     }
 
     @Test func futureProfileRemainsUntouchedAndIsReported() throws {

@@ -436,13 +436,14 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         80: SpecialKey(key: "F19", code: "F19"), 90: SpecialKey(key: "F20", code: "F20"),
     ]
 
-    /// Kitty modifier bits: shift 1, alt 2, control 4, super 8.
+    /// Kitty modifier bits: shift 1, alt 2, control 4, super 8, caps lock 64.
     private func modifierBits(_ flags: NSEvent.ModifierFlags, includeOption: Bool = true) -> UInt32 {
         var bits: UInt32 = 0
         if flags.contains(.shift) { bits |= 1 }
         if includeOption && flags.contains(.option) { bits |= 2 }
         if flags.contains(.control) { bits |= 4 }
         if flags.contains(.command) { bits |= 8 }
+        if flags.contains(.capsLock) { bits |= 64 }
         return bits
     }
 
@@ -455,6 +456,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         return true
     }
 
+    // The decisions below follow SwiftTerm's TerminalView.keyDown, so that a
+    // key reaches the program as the same bytes in a persistent pane as in a
+    // local one (KeyParityTests). The helper encodes the keys.
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.command) {
@@ -467,48 +471,124 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
             return
         }
         let state = session.state
-        if let special = Self.specialKeys[event.keyCode] {
-            let unmodified = flags.subtracting([.function, .numericPad]).isEmpty
-            if (special.key == "PageUp" || special.key == "PageDown") &&
-                (flags.contains(.shift) || (unmodified && state.buffer == .normal)) {
+        let kitty = state.kittyKeyboardFlags != 0
+        // Function, navigation and keypad keys. Option counts as Alt only when
+        // it is the Meta key; without the kitty protocol, a non-Meta Option
+        // leaves these keys to the input system.
+        if let special = Self.functionalKey(for: event), kitty || !flags.contains(.option) || optionAsMetaKey {
+            let modifiers = modifierBits(flags, includeOption: optionAsMetaKey)
+            if !kitty, special.key == "PageUp" || special.key == "PageDown",
+               modifiers & 0x7 == 0, !state.applicationCursor {
                 session.scroll(by: (special.key == "PageUp" ? -1 : 1) * max(1, state.rows - 1))
+                flashScroller()
                 return
             }
-            if special.key == "Backspace" && backspaceSendsControlH && flags.subtracting(.function).isEmpty {
+            if special.key == "Backspace" && backspaceSendsControlH && modifiers == 0 {
                 sendBytes([0x08])
                 return
             }
-            if optionAsMetaKey && flags.contains(.option) && !flags.contains(.control) &&
-                (special.key == "ArrowLeft" || special.key == "ArrowRight") {
-                // Emacs-style word motion, like SwiftTerm's local view.
-                sendBytes(Array((special.key == "ArrowLeft" ? "\u{1b}b" : "\u{1b}f").utf8))
-                return
-            }
-            if (special.key == "ArrowLeft" || special.key == "ArrowRight") && swapsArrowKeys(state) {
+            var key = special.key
+            if (key == "ArrowLeft" || key == "ArrowRight") && swapsArrowKeys(state) {
                 // DECSET 1243: in a right-to-left paragraph the arrows follow the text.
-                let swapped = special.key == "ArrowLeft" ? "ArrowRight" : "ArrowLeft"
-                sendKey(for: event, key: swapped, code: swapped)
+                key = key == "ArrowLeft" ? "ArrowRight" : "ArrowLeft"
+            }
+            sendKey(KeyMessage(key: key, code: key == special.key ? special.code : key, modifiers: modifiers,
+                               eventType: event.isARepeat ? 2 : 1, text: special.text))
+            return
+        }
+        if kitty {
+            if flags.contains(.control) || (optionAsMetaKey && flags.contains(.option)) {
+                sendTextKey(event, text: nil)
+            } else if let characters = event.characters, !characters.isEmpty {
+                sendTextKey(event, text: characters)
+            } else {
+                interpretKeyEvents([event])
+            }
+            return
+        }
+        if optionAsMetaKey && flags.contains(.option) {
+            if let characters = event.charactersIgnoringModifiers, !characters.isEmpty {
+                sendBytes([0x1b] + Array(characters.utf8))
+            }
+            return
+        }
+        if flags.contains(.control) {
+            if event.keyCode == 49 {
+                // Control-Space is NUL, whatever AppKit reports for it.
+                sendBytes([0])
                 return
             }
-            sendKey(for: event, key: special.key, code: special.code)
-            return
-        }
-        if flags.contains(.control), let characters = event.charactersIgnoringModifiers, !characters.isEmpty {
-            sendKey(for: event, key: characters.lowercased(), code: Self.code(for: event))
-            return
-        }
-        if flags.contains(.option) && optionAsMetaKey,
-           let characters = event.charactersIgnoringModifiers, !characters.isEmpty {
-            sendBytes([0x1b] + Array(characters.utf8))
-            return
-        }
-        if state.kittyKeyboardFlags != 0, let characters = event.characters, !characters.isEmpty,
-           let base = event.charactersIgnoringModifiers {
-            sendKey(for: event, key: base, code: Self.code(for: event), text: characters)
+            if let characters = event.charactersIgnoringModifiers, !characters.isEmpty {
+                sendKey(KeyMessage(key: characters.lowercased(), code: Self.code(for: event),
+                                   modifiers: modifierBits(flags, includeOption: optionAsMetaKey),
+                                   eventType: event.isARepeat ? 2 : 1,
+                                   baseLayoutKey: Self.baseLayoutKeys[event.keyCode]?.value ?? 0))
+            }
             return
         }
         interpretKeyEvents([event])
     }
+
+    /// A text key as TerminalView's kitty text event describes it: the
+    /// unshifted key, the shifted key, and the key at that position on a US
+    /// layout.
+    private func sendTextKey(_ event: NSEvent, text: String?) {
+        let flags = event.modifierFlags
+        let hasControl = flags.contains(.control)
+        let isControlSpace = hasControl && event.keyCode == 49
+        // With Control, charactersIgnoringModifiers keeps Control's translation.
+        let reported = hasControl
+            ? (event.characters(byApplyingModifiers: [])?.unicodeScalars.first
+                ?? event.charactersIgnoringModifiers?.unicodeScalars.first)
+            : event.charactersIgnoringModifiers?.unicodeScalars.first
+        guard let scalar = isControlSpace ? " " : reported else { return }
+        let base = String(scalar).lowercased()
+        var shifted: UInt32 = 0
+        if flags.contains(.shift) && !isControlSpace {
+            let characters = hasControl ? (event.characters(byApplyingModifiers: [.shift]) ?? event.characters)
+                                        : event.characters
+            shifted = characters?.unicodeScalars.first?.value ?? 0
+        }
+        let layout = Self.baseLayoutKeys[event.keyCode]
+        let baseLayoutKey = layout.map { String($0) == base ? 0 : $0.value } ?? 0
+        sendKey(KeyMessage(key: base, code: Self.code(for: event),
+                           modifiers: modifierBits(flags, includeOption: optionAsMetaKey),
+                           eventType: event.isARepeat ? 2 : 1, text: text, shiftedKey: shifted,
+                           baseLayoutKey: baseLayoutKey))
+    }
+
+    /// Navigation, function and keypad keys, with their W3C key and code.
+    private static func functionalKey(for event: NSEvent) -> (key: String, code: String, text: String?)? {
+        if let special = specialKeys[event.keyCode] { return (special.key, special.code, nil) }
+        if let code = keypadCodes[event.keyCode] {
+            let text = event.characters ?? event.charactersIgnoringModifiers ?? ""
+            return (text, code, text.isEmpty ? nil : text)
+        }
+        return nil
+    }
+
+    /// Keypad key codes and their W3C codes (Enter is in `specialKeys`).
+    private static let keypadCodes: [UInt16: String] = [
+        82: "Numpad0", 83: "Numpad1", 84: "Numpad2", 85: "Numpad3", 86: "Numpad4",
+        87: "Numpad5", 88: "Numpad6", 89: "Numpad7", 91: "Numpad8", 92: "Numpad9",
+        65: "NumpadDecimal", 75: "NumpadDivide", 67: "NumpadMultiply", 78: "NumpadSubtract",
+        69: "NumpadAdd", 81: "NumpadEqual",
+    ]
+
+    /// The character at each key position on a US layout (TerminalView's map).
+    private static let baseLayoutKeys: [UInt16: UnicodeScalar] = {
+        let layout: [(UInt16, Character)] = [
+            (0, "a"), (1, "s"), (2, "d"), (3, "f"), (4, "h"), (5, "g"), (6, "z"), (7, "x"), (8, "c"),
+            (9, "v"), (11, "b"), (12, "q"), (13, "w"), (14, "e"), (15, "r"), (16, "y"), (17, "t"),
+            (18, "1"), (19, "2"), (20, "3"), (21, "4"), (22, "6"), (23, "5"), (24, "="), (25, "9"),
+            (26, "7"), (27, "-"), (28, "8"), (29, "0"), (30, "]"), (31, "o"), (32, "u"), (33, "["),
+            (34, "i"), (35, "p"), (37, "l"), (38, "j"), (39, "'"), (40, "k"), (41, ";"), (42, "\\"),
+            (43, ","), (44, "/"), (45, "n"), (46, "m"), (47, "."), (49, " "), (50, "`"),
+        ]
+        var map: [UInt16: UnicodeScalar] = [:]
+        for (code, character) in layout { map[code] = character.unicodeScalars.first }
+        return map
+    }()
 
     override func keyUp(with event: NSEvent) {
         // Release events matter only to programs that asked for them (kitty flag 2).
@@ -527,9 +607,13 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     private func sendKey(for event: NSEvent, key: String, code: String, text: String? = nil) {
+        sendKey(KeyMessage(key: key, code: code, modifiers: modifierBits(event.modifierFlags),
+                           eventType: event.isARepeat ? 2 : 1, text: text))
+    }
+
+    private func sendKey(_ message: KeyMessage) {
         followAfterInput()
-        session.send(key: KeyMessage(key: key, code: code, modifiers: modifierBits(event.modifierFlags),
-                                     eventType: event.isARepeat ? 2 : 1, text: text))
+        session.send(key: message)
         resetCaretBlink()
     }
 

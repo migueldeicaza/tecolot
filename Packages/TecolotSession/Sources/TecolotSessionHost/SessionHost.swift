@@ -73,6 +73,8 @@ public enum SessionTraceEvent: Sendable {
     case waitingForCredit
     /// A client has a frame to get but its frame-rate slot is not open.
     case waitingForSlot
+    /// Bytes that the terminal wrote to the child (encoded keys, replies).
+    case childInput(ArraySlice<UInt8>)
 }
 
 public final class SessionHost: @unchecked Sendable {
@@ -1259,6 +1261,7 @@ public final class SessionHost: @unchecked Sendable {
 
 extension SessionHost: TerminalDelegate {
     public func send(source: Terminal, data: ArraySlice<UInt8>) {
+        trace?(.childInput(data))
         process.send(data: data)
     }
 

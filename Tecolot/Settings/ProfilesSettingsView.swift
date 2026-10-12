@@ -518,6 +518,16 @@ struct ProfileSettingsPage: View {
                     }
                 }
             }
+            Section {
+                Picker("Shell session:", selection: binding(\.sessionPersistence)) {
+                    ForEach(SessionPersistence.allCases, id: \.self) { persistence in
+                        Text(persistence.description).tag(persistence)
+                    }
+                }
+            } footer: {
+                Text("A persistent session keeps the shell running when you close its pane or quit Tecolot. " +
+                     "Use File > Attach to Session to show it again. Applies to new tabs and windows.")
+            }
         }
     }
 
