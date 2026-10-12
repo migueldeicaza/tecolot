@@ -16,6 +16,13 @@ struct LaunchSpec {
     var profileID: TerminalProfile.ID?
     var workingDirectory: String?
     var themeOverride: String?
+    /// Run the shell in a persistent session (tecolot-sessiond) that keeps
+    /// running when the pane closes or the app quits.
+    var persistent = false
+    /// Attach to this running persistent session instead of starting a shell.
+    var attachSessionID: String?
+    /// A saved split layout to rebuild (restore on relaunch).
+    var paneTree: SavedPaneTree?
 }
 
 @MainActor
@@ -197,6 +204,11 @@ final class AppModel {
 
     func discardPendingLaunch() {
         pendingLaunch = nil
+    }
+
+    /// The pane tree of the pending launch, without consuming it.
+    func pendingPaneTree() -> SavedPaneTree? {
+        pendingLaunch?.paneTree
     }
 
     /// Returns and clears the pending launch parameters

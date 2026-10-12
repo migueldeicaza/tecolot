@@ -58,8 +58,8 @@ enum TerminalTabIconStack {
         let ordered = (focused.map { [$0] } ?? []) + workspace.controllers.filter { $0 !== focused }
         let entries = ordered.prefix(3).map { controller in
             let image = TerminalAppIconResolver.shared.icon(forExecutablePath: controller.panePresentation.executablePath)
-            let foreground = controller.terminal?.nativeForegroundColor ?? .labelColor
-            let background = controller.terminal?.nativeBackgroundColor ?? .windowBackgroundColor
+            let foreground = controller.surface?.nativeForegroundColor ?? .labelColor
+            let background = controller.surface?.nativeBackgroundColor ?? .windowBackgroundColor
             let tintedImage = image.isTemplate
                 ? (image.withSymbolConfiguration(.init(paletteColors: [foreground])) ?? image)
                 : image

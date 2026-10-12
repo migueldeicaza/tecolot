@@ -219,7 +219,7 @@ final class TerminalPaneCardView: NSView {
 
     private func selectPane() {
         controller.workspace?.markFocused(controller)
-        if let terminal = controller.terminal, let window {
+        if let terminal = controller.surface, let window {
             window.makeFirstResponder(terminal)
             controller.didBecomeFocused()
         }

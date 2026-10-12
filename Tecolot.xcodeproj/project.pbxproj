@@ -15,6 +15,12 @@
 		4A6A1F111234567800000022 /* NerdFontResources in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000020 /* NerdFontResources */; };
 		4A6A1F111234567800000032 /* terminfo in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000031 /* terminfo */; };
 		5A81CE0000000001AAAA0001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5A81CE0000000001AAAA0002 /* Sparkle */; };
+		7EC05E550000000000000007 /* TecolotSessionClient in Frameworks */ = {isa = PBXBuildFile; productRef = 7EC05E550000000000000003 /* TecolotSessionClient */; };
+		7EC05E550000000000000008 /* TecolotSessionDirectory in Frameworks */ = {isa = PBXBuildFile; productRef = 7EC05E550000000000000004 /* TecolotSessionDirectory */; };
+		7EC05E550000000000000009 /* TecolotWire in Frameworks */ = {isa = PBXBuildFile; productRef = 7EC05E550000000000000005 /* TecolotWire */; };
+		7EC05E55000000000000000A /* TecolotTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 7EC05E550000000000000006 /* TecolotTransport */; };
+		7EC05E55000000000000000C /* TecolotSessionDaemon in Frameworks */ = {isa = PBXBuildFile; productRef = 7EC05E55000000000000000B /* TecolotSessionDaemon */; };
+		7EC05E550000000000000018 /* tecolot-sessiond in Embed Session Helper */ = {isa = PBXBuildFile; fileRef = 7EC05E55000000000000000E /* tecolot-sessiond */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -25,7 +31,28 @@
 			remoteGlobalIDString = 497C9E162E426320008DBCC0;
 			remoteInfo = Tecolot;
 		};
+		7EC05E550000000000000015 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 497C9E0F2E426320008DBCC0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7EC05E55000000000000000D;
+			remoteInfo = "tecolot-sessiond";
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		7EC05E550000000000000017 /* Embed Session Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 6;
+			files = (
+				7EC05E550000000000000018 /* tecolot-sessiond in Embed Session Helper */,
+			);
+			name = "Embed Session Helper";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		497C9E172E426320008DBCC0 /* Tecolot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tecolot.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -35,6 +62,7 @@
 		4A6A1F111234567800000007 /* Fixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fixtures; path = TecolotTests/Fixtures; sourceTree = SOURCE_ROOT; };
 		4A6A1F111234567800000020 /* NerdFontResources */ = {isa = PBXFileReference; lastKnownFileType = folder; name = NerdFontResources; path = Tecolot/NerdFont/NerdFontResources; sourceTree = SOURCE_ROOT; };
 		4A6A1F111234567800000031 /* terminfo */ = {isa = PBXFileReference; lastKnownFileType = folder; path = terminfo; sourceTree = DERIVED_FILE_DIR; };
+		7EC05E55000000000000000E /* tecolot-sessiond */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "tecolot-sessiond"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -64,6 +92,11 @@
 			path = TecolotTests;
 			sourceTree = "<group>";
 		};
+		7EC05E550000000000000011 /* TecolotHelper */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TecolotHelper;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -73,6 +106,10 @@
 			files = (
 				490F324E303671B100A84BCF /* SwiftTerm in Frameworks */,
 				5A81CE0000000001AAAA0001 /* Sparkle in Frameworks */,
+				7EC05E550000000000000007 /* TecolotSessionClient in Frameworks */,
+				7EC05E550000000000000008 /* TecolotSessionDirectory in Frameworks */,
+				7EC05E550000000000000009 /* TecolotWire in Frameworks */,
+				7EC05E55000000000000000A /* TecolotTransport in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -80,6 +117,14 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7EC05E550000000000000010 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7EC05E55000000000000000C /* TecolotSessionDaemon in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -110,6 +155,7 @@
 			children = (
 				497C9E192E426320008DBCC0 /* Tecolot */,
 				4A6A1F111234567800000008 /* TecolotTests */,
+				7EC05E550000000000000011 /* TecolotHelper */,
 				497C9E182E426320008DBCC0 /* Products */,
 				490F1D323033D4F000A84BCF /* Recovered References */,
 				490F324C303671B100A84BCF /* Frameworks */,
@@ -121,6 +167,7 @@
 			children = (
 				497C9E172E426320008DBCC0 /* Tecolot.app */,
 				4A6A1F111234567800000006 /* TecolotTests.xctest */,
+				7EC05E55000000000000000E /* tecolot-sessiond */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -136,10 +183,12 @@
 				497C9E142E426320008DBCC0 /* Frameworks */,
 				4A6A1F111234567800000030 /* Compile SwiftTerm terminfo */,
 				497C9E152E426320008DBCC0 /* Resources */,
+				7EC05E550000000000000017 /* Embed Session Helper */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				7EC05E550000000000000016 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				497C9E192E426320008DBCC0 /* Tecolot */,
@@ -148,6 +197,10 @@
 			packageProductDependencies = (
 				490F324D303671B100A84BCF /* SwiftTerm */,
 				5A81CE0000000001AAAA0002 /* Sparkle */,
+				7EC05E550000000000000003 /* TecolotSessionClient */,
+				7EC05E550000000000000004 /* TecolotSessionDirectory */,
+				7EC05E550000000000000005 /* TecolotWire */,
+				7EC05E550000000000000006 /* TecolotTransport */,
 			);
 			productName = Tecolot;
 			productReference = 497C9E172E426320008DBCC0 /* Tecolot.app */;
@@ -173,6 +226,28 @@
 			productName = TecolotTests;
 			productReference = 4A6A1F111234567800000006 /* TecolotTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		7EC05E55000000000000000D /* tecolot-sessiond */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7EC05E550000000000000012 /* Build configuration list for PBXNativeTarget "tecolot-sessiond" */;
+			buildPhases = (
+				7EC05E55000000000000000F /* Sources */,
+				7EC05E550000000000000010 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				7EC05E550000000000000011 /* TecolotHelper */,
+			);
+			name = "tecolot-sessiond";
+			packageProductDependencies = (
+				7EC05E55000000000000000B /* TecolotSessionDaemon */,
+			);
+			productName = "tecolot-sessiond";
+			productReference = 7EC05E55000000000000000E /* tecolot-sessiond */;
+			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -201,6 +276,7 @@
 			packageReferences = (
 				490F2F093036637800A84BCF /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				5A81CE0000000001AAAA0003 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				7EC05E550000000000000001 /* XCLocalSwiftPackageReference "Packages/TecolotSession" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 497C9E182E426320008DBCC0 /* Products */;
@@ -209,6 +285,7 @@
 			targets = (
 				497C9E162E426320008DBCC0 /* Tecolot */,
 				4A6A1F111234567800000009 /* TecolotTests */,
+				7EC05E55000000000000000D /* tecolot-sessiond */,
 			);
 		};
 /* End PBXProject section */
@@ -279,6 +356,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7EC05E55000000000000000F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -286,6 +370,11 @@
 			isa = PBXTargetDependency;
 			target = 497C9E162E426320008DBCC0 /* Tecolot */;
 			targetProxy = 490F1ED03033D4F000A84BCF /* PBXContainerItemProxy */;
+		};
+		7EC05E550000000000000016 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7EC05E55000000000000000D /* tecolot-sessiond */;
+			targetProxy = 7EC05E550000000000000015 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -511,6 +600,36 @@
 			};
 			name = Release;
 		};
+		7EC05E550000000000000013 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = PJQC57N853;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.5;
+				OTHER_CODE_SIGN_FLAGS = "--timestamp";
+				PRODUCT_BUNDLE_IDENTIFIER = com.tirania.Tecolot.sessiond;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		7EC05E550000000000000014 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = PJQC57N853;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.5;
+				OTHER_CODE_SIGN_FLAGS = "--timestamp";
+				PRODUCT_BUNDLE_IDENTIFIER = com.tirania.Tecolot.sessiond;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -541,7 +660,23 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		7EC05E550000000000000012 /* Build configuration list for PBXNativeTarget "tecolot-sessiond" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7EC05E550000000000000013 /* Debug */,
+				7EC05E550000000000000014 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		7EC05E550000000000000001 /* XCLocalSwiftPackageReference "Packages/TecolotSession" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/TecolotSession;
+		};
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
 		490F2F093036637800A84BCF /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
@@ -549,7 +684,7 @@
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
 			requirement = {
 				kind = revision;
-				revision = c87e81a95af1d9c82996072bbdb37c9ac64e9243;
+				revision = 1944345710240b2380724510e6dd275b8d2b8c7f;
 			};
 		};
 		5A81CE0000000001AAAA0003 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
@@ -572,6 +707,31 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5A81CE0000000001AAAA0003 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		7EC05E550000000000000003 /* TecolotSessionClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7EC05E550000000000000001 /* XCLocalSwiftPackageReference "Packages/TecolotSession" */;
+			productName = TecolotSessionClient;
+		};
+		7EC05E550000000000000004 /* TecolotSessionDirectory */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7EC05E550000000000000001 /* XCLocalSwiftPackageReference "Packages/TecolotSession" */;
+			productName = TecolotSessionDirectory;
+		};
+		7EC05E550000000000000005 /* TecolotWire */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7EC05E550000000000000001 /* XCLocalSwiftPackageReference "Packages/TecolotSession" */;
+			productName = TecolotWire;
+		};
+		7EC05E550000000000000006 /* TecolotTransport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7EC05E550000000000000001 /* XCLocalSwiftPackageReference "Packages/TecolotSession" */;
+			productName = TecolotTransport;
+		};
+		7EC05E55000000000000000B /* TecolotSessionDaemon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7EC05E550000000000000001 /* XCLocalSwiftPackageReference "Packages/TecolotSession" */;
+			productName = TecolotSessionDaemon;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -200,6 +200,21 @@ struct ProfileCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
+            Button("New Persistent Tab") {
+                var spec = WindowOpener.inheritedTabSpec()
+                spec.persistent = true
+                WindowOpener.openTab(spec: spec)
+            }
+            .keyboardShortcut("t", modifiers: [.command, .option])
+            Button("New Persistent Window") {
+                var spec = LaunchSpec()
+                spec.persistent = true
+                WindowOpener.openWindow(spec: spec)
+            }
+            Button("Attach to Session…") {
+                SessionAttachPanel.run()
+            }
+            Divider()
             Menu("New Window with Profile") {
                 ForEach(profiles.profiles) { profile in
                     Button(profile.name) {

@@ -34,6 +34,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 !TerminalSessionRegistry.shared.controllers(for: window).isEmpty
             }
             guard !hasDocument, !hasTerminalWindow else { return }
+            // Windows with persistent sessions come back as they were.
+            if PersistentLayoutStore.shared.restore() {
+                NSApp.activate(ignoringOtherApps: true)
+                return
+            }
             self?.openStartupWindow()
         }
     }
@@ -56,7 +61,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             TerminalSessionRegistry.shared.controllers(for: window)
                 .contains(where: TerminalClosePolicy.requiresConfirmation)
         }
-        guard hasLiveProcess else { return .terminateNow }
+        guard hasLiveProcess else {
+            PersistentLayoutStore.shared.saveForTermination()
+            return .terminateNow
+        }
 
         let alert = NSAlert()
         alert.messageText = "Quit and terminate running processes?"
@@ -64,7 +72,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: "Quit")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
-        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+        guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+        PersistentLayoutStore.shared.saveForTermination()
+        return .terminateNow
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -321,6 +331,11 @@ struct TerminalCommands: Commands {
             .keyboardShortcut("w", modifiers: [.command])
             .disabled(!isEnabled)
 
+            Button("Terminate Session") {
+                controller?.terminateSession()
+            }
+            .disabled(controller?.isPersistent != true)
+
             Divider()
 
             Button("Export Buffer...") {
@@ -437,20 +452,17 @@ struct TerminalCommands: Commands {
     }
 
     private func clearScrollback() {
-        guard let terminal = controller?.terminal else { return }
-        TerminalClearAction.perform(on: terminal)
+        controller?.clearToStart()
     }
 
     private func performFindAction(_ action: NSTextFinder.Action) {
-        let item = NSMenuItem()
-        item.tag = action.rawValue
-        controller?.terminal?.performTextFinderAction(item)
+        controller?.performFind(action)
     }
 
     private func pasteEscaped() {
         guard let text = NSPasteboard.general.string(forType: .string) else { return }
         let escaped = "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        controller?.terminal?.send(txt: escaped)
+        controller?.sendLiteralText(escaped)
     }
 }
 

@@ -63,6 +63,37 @@ final class TerminalPaneWorkspace {
         controller.workspace = self
     }
 
+    @ObservationIgnored private var didConsiderPaneTree = false
+
+    /// Rebuilds the pane tree from a pending launch that carries a saved
+    /// layout (restore on relaunch). Call before any pane view exists.
+    /// Returns the saved divider fractions by split node.
+    func adoptPendingPaneTree() -> [UUID: CGFloat]? {
+        guard !didConsiderPaneTree else { return nil }
+        didConsiderPaneTree = true
+        guard let tree = AppModel.shared.pendingPaneTree() else { return nil }
+        _ = AppModel.shared.takePendingLaunch()
+        var fractions: [UUID: CGFloat] = [:]
+        var first: TerminalSessionController?
+        func build(_ saved: SavedPaneNode) -> TerminalPaneNode {
+            switch saved {
+            case .pane(let pane):
+                let controller = TerminalSessionController(startsProcess: startsProcesses)
+                controller.workspace = self
+                controller.presetLaunch(pane)
+                if first == nil { first = controller }
+                return TerminalPaneNode(content: .terminal(controller))
+            case .split(let orientation, let fraction, let firstChild, let secondChild):
+                let node = TerminalPaneNode(content: .split(orientation, build(firstChild), build(secondChild)))
+                if let fraction { fractions[node.id] = CGFloat(fraction) }
+                return node
+            }
+        }
+        root = build(tree.root)
+        if let first { focusedControllerID = first.id }
+        return fractions
+    }
+
     var controllers: [TerminalSessionController] {
         collectControllers(in: root)
     }
@@ -178,7 +209,7 @@ final class TerminalPaneWorkspace {
     }
 
     func updateWindowTransparency() {
-        guard let window = controllers.compactMap(\.terminal?.window).first else { return }
+        guard let window = controllers.compactMap(\.surface?.window).first else { return }
         TerminalWindowTransparency.apply(
             to: window,
             isEnabled: controllers.contains { $0.effectiveBackgroundOpacity < 1.0 }
@@ -377,6 +408,10 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
         self.document = document
         super.init(frame: .zero)
         workspace.hostView = self
+        if let fractions = workspace.adoptPendingPaneTree() {
+            dividerFractions = fractions
+            needsDividerRestore = !fractions.isEmpty
+        }
         addSubview(backdropView)
         appearanceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
@@ -408,6 +443,9 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
             // Rebuild first. The new card metrics then apply only to the new
             // tree, and each terminal gets one resize.
             rebuild()
+            if workspace.controllers.contains(where: \.isPersistent) {
+                PersistentLayoutStore.shared.scheduleSave()
+            }
         } else if settingsChanged {
             refreshAppearance()
         }
@@ -523,7 +561,8 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
         }
         // Removing a focused terminal does not always make AppKit resign it.
         // Clear the first responder first so the old pane sends focus-out.
-        if let terminal = window?.firstResponder as? AppTerminalView,
+        if let terminal = window?.firstResponder as? NSView,
+           terminal is AppTerminalView || terminal is RemoteTerminalView,
            terminal.isDescendant(of: self) {
             window?.makeFirstResponder(nil)
         }
@@ -664,6 +703,19 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
         }
     }
 
+    /// The size of the first pane of a split over the available length.
+    func dividerFraction(for id: UUID) -> CGFloat? {
+        guard let splitView = splitViews[id], splitView.arrangedSubviews.count == 2 else {
+            return dividerFractions[id]
+        }
+        let length = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
+        let available = length - splitView.dividerThickness
+        let first = splitView.arrangedSubviews[0]
+        let firstLength = splitView.isVertical ? first.frame.width : first.frame.height
+        guard available > 0, firstLength > 0 else { return dividerFractions[id] }
+        return firstLength / available
+    }
+
     func transferDividerPosition(from oldID: UUID, to newID: UUID) {
         pendingDividerTransfers.append((from: oldID, to: newID))
     }
@@ -747,8 +799,8 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
     }
 
     private func terminalCellSize(for controller: TerminalSessionController, horizontal: Bool) -> CGFloat {
-        guard let terminal = controller.terminal else { return 1 }
-        let dimensions = terminal.terminalDimensions
+        guard let terminal = controller.surface else { return 1 }
+        let dimensions = terminal.gridDimensions
         let units = horizontal ? dimensions.cols : dimensions.rows
         let length = horizontal ? terminal.bounds.width : terminal.bounds.height
         guard units > 0, length > 0 else { return 1 }
