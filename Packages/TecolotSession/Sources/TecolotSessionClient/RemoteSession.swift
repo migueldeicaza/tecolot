@@ -163,7 +163,10 @@ public final class RemoteSession: @unchecked Sendable {
                                    viewer: viewer, focused: focused, scale: scale))
     }
 
-    /// Reads the state and the cache under the lock. Keep `body` short.
+    /// Reads the state and the cache under the lock. Keep `body` short, and do
+    /// not call other methods of the session in it: the lock is not
+    /// recursive, and taking it again ends the process. Use `withFrameState`
+    /// to read image pixels too.
     public func withState<R>(_ body: (RemoteSessionState, RowCache) -> R) -> R {
         inner.withLock { body($0.state, $0.cache) }
     }
@@ -249,7 +252,9 @@ public final class RemoteSession: @unchecked Sendable {
 
     // MARK: Images
 
-    /// The pixels of an image, when the session has them.
+    /// The pixels of an image, when the session has them. Takes the session
+    /// lock: inside `withState` or `withFrameState`, use the lookup that
+    /// `withFrameState` passes instead.
     public func image(_ id: UInt64) -> RemoteImage? {
         inner.withLock { $0.images.image(id) }
     }

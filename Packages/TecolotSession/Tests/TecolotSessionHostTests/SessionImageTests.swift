@@ -143,6 +143,35 @@ struct SessionImageTests {
         client.channel.close()
     }
 
+    /// A running Kitty animation sends frames by itself, without output, and
+    /// a looping animation reuses the image IDs of the frames it already sent.
+    @Test func kittyAnimationsAdvanceWithoutOutput() async throws {
+        let host = makeHost(columns: 40, rows: 10)
+        let client = try TestClient(host: host, size: Self.size)
+        _ = try await client.wait("screen") { $0.lastFrame != nil }
+        func kitty(_ control: String, _ pixels: [UInt8]) -> String {
+            "\u{1b}_G\(control);\(Data(pixels).base64EncodedString())\u{1b}\\"
+        }
+        let red: [UInt8] = [255, 0, 0, 255]
+        let blue: [UInt8] = [0, 0, 255, 255]
+        host.inject(kitty("a=T,f=32,s=1,v=1,i=1,c=2,r=1,q=2", red) +
+                    kitty("a=f,f=32,s=1,v=1,i=1,z=30,q=2", blue) +
+                    kitty("a=a,i=1,r=1,z=30,q=2", []) +
+                    kitty("a=a,i=1,s=3,q=2", []))
+        // Collect the image IDs that frames show for image 1, without more output.
+        var shown: [UInt64] = []
+        _ = try await client.wait("animation frames", timeout: 5) { client in
+            shown = client.state.withLock { state in
+                state.frames.compactMap { $0.kitty?.images.first { $0.kittyID == 1 }?.imageID }
+            }
+            var changes = 0
+            for index in shown.indices.dropFirst() where shown[index] != shown[index - 1] { changes += 1 }
+            return changes >= 4
+        }
+        #expect(Set(shown).count == 2, "image IDs \(shown)")
+        client.channel.close()
+    }
+
     /// A wrapped right-to-left paragraph that starts above the view comes with
     /// its rows above the view; a left-to-right one does not.
     @Test func bidiParagraphsBringTheirRowsAboveTheView() async throws {

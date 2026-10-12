@@ -33,12 +33,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let hasTerminalWindow = NSApp.windows.contains { window in
                 !TerminalSessionRegistry.shared.controllers(for: window).isEmpty
             }
-            guard !hasDocument, !hasTerminalWindow else { return }
-            // Windows with persistent sessions come back as they were.
-            if PersistentLayoutStore.shared.restore() {
+            // Windows with persistent sessions come back as they were, next to
+            // the windows that macOS restored (those never hold persistent
+            // panes; see TerminalSessionController.registerWindowIfAvailable).
+            let restored = PersistentLayoutStore.shared.restore()
+            if restored {
                 NSApp.activate(ignoringOtherApps: true)
-                return
             }
+            guard !hasDocument, !hasTerminalWindow, !restored else { return }
             self?.openStartupWindow()
         }
     }

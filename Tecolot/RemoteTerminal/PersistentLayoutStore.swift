@@ -103,6 +103,10 @@ final class PersistentLayoutStore {
     private var saveScheduled = false
     /// Set when the app quits: the last save already has every window.
     private var isTerminating = false
+    /// False until the startup restore ran. Before it, the open windows are
+    /// not the saved layout yet, and saving them would replace it (for
+    /// example when the app quits before it ever became active).
+    private(set) var isReady = false
     private var windowObserver: NSObjectProtocol?
 
     init(url: URL = PersistentLayoutStore.defaultURL, autosaves: Bool = true) {
@@ -123,9 +127,14 @@ final class PersistentLayoutStore {
 
     // MARK: Saving
 
+    /// Allows saves without a restore (the startup found nothing to restore).
+    func markReady() {
+        isReady = true
+    }
+
     /// Saves after the panes settle.
     func scheduleSave() {
-        guard autosaves, !isTerminating, !saveScheduled else { return }
+        guard autosaves, isReady, !isTerminating, !saveScheduled else { return }
         saveScheduled = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             guard let self else { return }
@@ -138,7 +147,7 @@ final class PersistentLayoutStore {
     /// Saves the layout of the open windows now and stops later saves.
     /// Call when the app is about to quit, before its windows close.
     func saveForTermination() {
-        guard autosaves else { return }
+        guard autosaves, isReady else { return }
         save(capture())
         isTerminating = true
     }
@@ -213,11 +222,14 @@ final class PersistentLayoutStore {
 
     // MARK: Restoring
 
-    /// Opens the saved windows whose sessions still run. Returns true when it
-    /// opened a window.
+    /// Opens the saved windows whose sessions still run and no window shows
+    /// yet. Returns true when it opened a window.
     func restore() -> Bool {
+        isReady = true
         guard let saved = load() else { return false }
-        let live = Set(PersistentSessions.list().filter { !$0.exited }.map(\.id))
+        let registry = TerminalSessionRegistry.shared
+        let shown = Set(NSApp.windows.flatMap { registry.controllers(for: $0) }.compactMap(\.persistentSessionID))
+        let live = Set(PersistentSessions.list().filter { !$0.exited }.map(\.id)).subtracting(shown)
         let layout = saved.pruned(liveSessions: live)
         var opened = false
         for savedWindow in layout.windows {

@@ -66,6 +66,9 @@ let package = Package(
         .target(name: "TecolotSessionClient", dependencies: ["TecolotWire", "TecolotTransport"]),
         .testTarget(name: "TecolotSessionClientTests", dependencies: [
             "TecolotSessionClient", "TecolotSessionHost", "TecolotSessionDirectory", "TecolotWire", "TecolotTransport",
+        ], resources: [
+            // Bytes that released helpers wrote; see Golden/README.md.
+            .copy("Golden"),
         ]),
         .testTarget(name: "TecolotSessionDaemonTests", dependencies: [
             "TecolotSessionDaemon", "TecolotSessionDirectory", "TecolotTransport", "TecolotWire",

@@ -114,6 +114,8 @@ public final class SessionHost: @unchecked Sendable {
     private var tickSource: DispatchSourceUserDataOr!
     private var frameTimer: DispatchSourceTimer?
     private var frameTimerDeadline: DispatchTime?
+    private var animationTimer: DispatchSourceTimer?
+    private var animationTimerDeadline: UInt64?
     private var infoTimer: DispatchSourceTimer?
     private var lastSessionInfo: SessionInfoMessage?
     private var pendingPastes: [UInt64: String] = [:]
@@ -724,10 +726,16 @@ public final class SessionHost: @unchecked Sendable {
         guard !candidates.isEmpty else { return }
 
         var outgoing: [(SessionClient, FrameMessage, DefineLinksMessage?)] = []
+        var animationDeadline: UInt64?
         terminal.terminalLock.withLock {
             guard !terminal.synchronizedOutputActive else { return }
             let live = updateNumberingLocked()
             let snapshot = events.withLock { $0 }
+            // Kitty animations advance on SwiftTerm's own timer, which does not
+            // tell the helper. Advance them here and come back at the next
+            // frame's deadline.
+            animationDeadline = terminal.kittyGraphicsAdvanceAnimations(
+                monotonicNanoseconds: DispatchTime.now().uptimeNanoseconds)
             let kitty = terminal.kittyGraphicsRenderSnapshot()
             for client in candidates {
                 client.seenFeed = feed
@@ -738,6 +746,7 @@ public final class SessionHost: @unchecked Sendable {
                 client.needsFrame = false
             }
         }
+        if let animationDeadline { armAnimationTimer(animationDeadline) }
         lineTable.trim()
         kittyImages.prune(keeping: Set(attachedClients.flatMap { $0.lastKitty?.images.map(\.imageID) ?? [] }))
 
@@ -1013,6 +1022,25 @@ public final class SessionHost: @unchecked Sendable {
                                 priority: .bulk, requestID: requestID)
             offset = end
         } while offset < pixels.rgba.count
+    }
+
+    /// Wakes the frame builder when the next Kitty animation frame is due.
+    private func armAnimationTimer(_ deadline: UInt64) {
+        if let current = animationTimerDeadline, current <= deadline, animationTimer != nil { return }
+        animationTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: DispatchTime(uptimeNanoseconds: deadline), leeway: .milliseconds(1))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            animationTimer?.cancel()
+            animationTimer = nil
+            animationTimerDeadline = nil
+            for client in attachedClients { client.needsFrame = true }
+            tick()
+        }
+        animationTimer = timer
+        animationTimerDeadline = deadline
+        timer.resume()
     }
 
     private func armFrameTimer(_ deadline: DispatchTime) {

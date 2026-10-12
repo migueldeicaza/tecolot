@@ -1,0 +1,10 @@
+$ ls
+red true curly 漢字 é
+link 👩‍👩‍👧
+שלום abc 123 مرحبا
+wrapwrapwrapwrapwrapwrapwrapwrapwrapwrap
+wrapwrapwrapwrapwrap
+A
+
+B
+END

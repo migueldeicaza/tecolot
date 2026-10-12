@@ -902,6 +902,11 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     private func registerWindowIfAvailable() {
         guard let window = surface?.window else { return }
         TerminalSessionRegistry.shared.register(controller: self, workspace: workspace, for: window)
+        if isPersistent {
+            // The persistent layout store brings this window back; window
+            // restoration would bring it back a second time, as a local shell.
+            window.isRestorable = false
+        }
         observeWindowKeyState(for: window)
         updateWindowTransparency()
     }

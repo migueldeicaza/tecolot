@@ -57,11 +57,20 @@ final class RasterImageTable: @unchecked Sendable {
 }
 
 /// Kitty image contents by wire ID. Session queue only.
+///
+/// The same pixels get the same wire ID, so an animation that loops reuses
+/// the frames that the client already fetched.
 final class KittyImageTable {
     private struct Key: Hashable {
         var alternate: Bool
         var kittyID: UInt32
         var contentGeneration: UInt64
+    }
+
+    private struct ContentKey: Hashable {
+        var width: Int
+        var height: Int
+        var hash: UInt64
     }
 
     struct Pixels {
@@ -71,6 +80,7 @@ final class KittyImageTable {
     }
 
     private var ids: [Key: UInt64] = [:]
+    private var contentIDs: [ContentKey: UInt64] = [:]
     private(set) var pixels: [UInt64: Pixels] = [:]
     private var next: UInt64 = 1 << 32
 
@@ -79,18 +89,33 @@ final class KittyImageTable {
     func wireID(for image: KittyGraphicsRenderImage, alternate: Bool) -> UInt64 {
         let key = Key(alternate: alternate, kittyID: image.imageId, contentGeneration: image.contentGeneration)
         if let id = ids[key] { return id }
-        let id = next
-        next += 1
+        let content = ContentKey(width: image.width, height: image.height, hash: WireHash.hash64(image.rgba))
+        let id: UInt64
+        if let known = contentIDs[content], pixels[known]?.rgba == image.rgba {
+            id = known
+        } else {
+            id = next
+            next += 1
+            contentIDs[content] = id
+            pixels[id] = Pixels(width: image.width, height: image.height, rgba: image.rgba)
+        }
         ids[key] = id
-        pixels[id] = Pixels(width: image.width, height: image.height, rgba: image.rgba)
         return id
     }
 
-    /// Forgets the images that no client's last Kitty state uses.
-    func prune(keeping used: Set<UInt64>) {
-        guard pixels.count > used.count else { return }
-        pixels = pixels.filter { used.contains($0.key) }
-        ids = ids.filter { used.contains($0.value) }
+    /// Forgets the images that no client's last Kitty state uses. Keeps the
+    /// most recent ones too, up to `retainedBytes`, so that the frames of a
+    /// looping animation keep their IDs.
+    func prune(keeping used: Set<UInt64>, retainedBytes: Int = 64 * 1024 * 1024) {
+        var bytes = pixels.reduce(0) { $0 + $1.value.rgba.count }
+        guard bytes > retainedBytes else { return }
+        for id in pixels.keys.sorted() where !used.contains(id) {
+            bytes -= pixels[id]?.rgba.count ?? 0
+            pixels[id] = nil
+            if bytes <= retainedBytes { break }
+        }
+        ids = ids.filter { pixels[$0.value] != nil }
+        contentIDs = contentIDs.filter { pixels[$0.value] != nil }
     }
 }
 

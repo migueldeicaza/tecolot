@@ -60,6 +60,26 @@ struct PersistentLayoutTests {
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 
+    /// Quitting before the startup restore ran (for example when the app was
+    /// launched behind a full-screen app and never became active) keeps the
+    /// saved layout instead of replacing it with no windows.
+    @Test func savesWaitForTheStartupRestore() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("layout-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = PersistentLayoutStore(url: url, autosaves: true)
+        let layout = SavedLayout(windows: [SavedLayoutWindow(
+            frame: "{{10, 20}, {800, 600}}", tabs: [SavedPaneTree(root: pane("abc"))], selectedTabIndex: 0)])
+        store.save(layout)
+        #expect(!store.isReady)
+        store.saveForTermination()
+        #expect(store.load() == layout)
+        store.markReady()
+        store.saveForTermination()
+        // Now the quit saves the open windows (this test has none with session "abc").
+        #expect(store.load() != layout)
+    }
+
     private func wait(_ what: String, timeout: TimeInterval = 10, _ condition: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
