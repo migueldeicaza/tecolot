@@ -81,9 +81,26 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
                             cellHeight: Int((cellSize.height * scale).rounded()))
     }
 
+    /// Device pixels per point, in hundredths, for the helper's image sizes.
+    var displayScale: Int {
+        Int(((window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2) * 100).rounded())
+    }
+
     private func sendGridSize(columns: Int, rows: Int) {
         guard columns > 1, rows > 1 else { return }
-        session.resize(wireGridSize)
+        session.resize(wireGridSize, scale: displayScale)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        source.displayScale = CGFloat(displayScale) / 100
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        source.displayScale = CGFloat(displayScale) / 100
+        let grid = gridSize
+        sendGridSize(columns: grid.columns, rows: grid.rows)
     }
 
     private func observe(_ session: RemoteSession) {
@@ -467,6 +484,12 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
                 sendBytes(Array((special.key == "ArrowLeft" ? "\u{1b}b" : "\u{1b}f").utf8))
                 return
             }
+            if (special.key == "ArrowLeft" || special.key == "ArrowRight") && swapsArrowKeys(state) {
+                // DECSET 1243: in a right-to-left paragraph the arrows follow the text.
+                let swapped = special.key == "ArrowLeft" ? "ArrowRight" : "ArrowLeft"
+                sendKey(for: event, key: swapped, code: swapped)
+                return
+            }
             sendKey(for: event, key: special.key, code: special.code)
             return
         }
@@ -494,6 +517,13 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         let code = Self.specialKeys[event.keyCode]?.code ?? Self.code(for: event)
         session.send(key: KeyMessage(key: key, code: code, modifiers: modifierBits(event.modifierFlags),
                                      eventType: 3))
+    }
+
+    /// True when the program asked for swapped arrows and the cursor's
+    /// paragraph is drawn right to left, as `TerminalView` decides.
+    private func swapsArrowKeys(_ state: RemoteSessionState) -> Bool {
+        guard state.bidiArrowKeySwap, let cursor = state.cursor else { return false }
+        return baseDirection(row: Int(Int64(cursor.line) - state.displayTop)) == .rightToLeft
     }
 
     private func sendKey(for event: NSEvent, key: String, code: String, text: String? = nil) {
@@ -584,8 +614,10 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         let cell = cell(at: point)
         let state = session.state
         let scale = window?.backingScaleFactor ?? 1
-        return (min(cell.column, max(0, state.columns - 1)), min(cell.row, max(0, state.rows - 1)),
-                Int(max(0, point.x) * scale), Int(max(0, bounds.height - point.y) * scale))
+        let row = min(cell.row, max(0, state.rows - 1))
+        // In bidi rows the clicked (visual) column shows another logical column.
+        let column = logicalColumn(forVisualColumn: min(cell.column, max(0, state.columns - 1)), row: row)
+        return (column, row, Int(max(0, point.x) * scale), Int(max(0, bounds.height - point.y) * scale))
     }
 
     /// Mouse events go to the program when it asked for them, the view

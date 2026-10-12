@@ -1,0 +1,3 @@
+import TecolotSessionDaemon
+
+SessionDaemonCommand.main()

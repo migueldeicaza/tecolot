@@ -1159,7 +1159,8 @@ extension TerminalSessionController {
             persistentSessionID = sessionID
             attachSessionID = nil
             session.start(size: WireGridSize(columns: profile.columns, rows: profile.rows),
-                          focused: false)
+                          focused: false,
+                          scale: Int(((NSScreen.main?.backingScaleFactor ?? 2) * 100).rounded()))
             attachPersistentView()
             PersistentLayoutStore.shared.scheduleSave()
             return view
@@ -1190,7 +1191,8 @@ extension TerminalSessionController {
             let socket = try PersistentSessions.directory().connect(sessionID)
             let session = makeRemoteSession(socket: socket)
             persistentView.replaceSession(session)
-            session.start(size: persistentView.wireGridSize, focused: persistentView.hasFocus)
+            session.start(size: persistentView.wireGridSize, focused: persistentView.hasFocus,
+                          scale: persistentView.displayScale)
             applyPersistentAppearance(to: persistentView)
         } catch {
             persistentView.showBanner("The session is no longer running.", actionTitle: "Close") { [weak self] in

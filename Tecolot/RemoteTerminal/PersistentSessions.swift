@@ -56,6 +56,8 @@ enum PersistentSessions {
             parameters.environment = parameters.environment.map { $0.replacingOccurrences(of: bundle, with: runtime.path) }
             parameters.args = parameters.args.map { $0.replacingOccurrences(of: bundle, with: runtime.path) }
         }
+        // The same image limits as a local pane.
+        let kitty = ProfileApplier.terminalOptions(for: profile).kittyGraphics
         return SessionLaunch(executable: parameters.executable, arguments: parameters.args,
                              argv0: parameters.execName, environment: parameters.environment,
                              workingDirectory: parameters.currentDirectory,
@@ -65,7 +67,9 @@ enum PersistentSessions {
                              termName: profile.termName,
                              cursorStyle: cursorStyleIndex(profile.cursorStyle),
                              featureReport: TerminalFeatureReporting.featureString,
-                             labels: ["profile": profile.name, "profileID": profile.id.uuidString])
+                             labels: ["profile": profile.name, "profileID": profile.id.uuidString],
+                             kittyGraphicsStorageLimit: kitty.storageLimitBytesPerScreen,
+                             kittyGraphicsLocalMedia: kitty.localMediaPolicy.rawValue)
     }
 
     static func cursorStyleIndex(_ style: CursorStyle) -> UInt8 {

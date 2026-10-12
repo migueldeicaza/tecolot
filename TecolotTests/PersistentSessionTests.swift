@@ -264,6 +264,59 @@ struct PersistentPaneTests {
         workspace.terminateAll()
     }
 
+    @Test func imagesAndBidiDrawInPersistentPanes() async throws {
+        setenv("TECOLOT_RUNTIME_DIR", "/tmp/tecolot-tests-\(getpid())", 1)
+        let profile = AppModel.shared.profiles.defaultProfile
+        var spec = LaunchSpec(profileID: profile.id, workingDirectory: "/tmp")
+        spec.persistent = true
+        AppModel.shared.setPendingLaunch(spec)
+        let workspace = TerminalPaneWorkspace()
+        let controller = try #require(workspace.focusedController)
+        let document = TerminalDocument(content: "")
+        let hostView = TerminalPaneHostView(workspace: workspace, document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = hostView
+        hostView.synchronize(revision: workspace.revision, document: document)
+        hostView.layoutSubtreeIfNeeded()
+        let view = try #require(controller.persistentView)
+        let session = view.session
+        let sessionID = try #require(controller.persistentSessionID)
+        defer { try? PersistentSessions.directory().terminate(sessionID, signal: SIGKILL) }
+        try await wait("attached") { session.state.connected }
+
+        // A red Sixel image, a green Kitty image, and a Hebrew line.
+        session.send(text: "clear; printf '\\033Pq#0;2;100;0;0#0!40~-!40~-!40~\\033\\\\'; " +
+                     "printf '\\033_Gi=5,f=24,s=2,v=2,a=T,q=2,c=4,r=2;AP8AAP8AAP8AAP8A\\033\\\\'; " +
+                     "printf '\\nשלום abc\\n'\r")
+        try await wait("hebrew") { screen(session).contains("abc") }
+        // The renderers draw from the view's snapshot (pixel parity with local
+        // panes is tested in SwiftTerm): it has the Sixel slice and the Kitty
+        // placement with its pixels once they arrive.
+        let owner = try #require(Mirror(reflecting: view).superclassMirror?.descendant("owner") as? ExternalRenderOwner)
+        try await wait("sixel slice") {
+            view.frameTick()
+            return owner.snapshot.rows.contains { !$0.images.isEmpty }
+        }
+        try await wait("kitty image") {
+            view.frameTick()
+            let kitty = owner.snapshot.kitty.renderSnapshot
+            return kitty.placements.contains { $0.imageId == 5 } && kitty.imagesById[5]?.width == 2
+        }
+        let slice = try #require(owner.snapshot.rows.lazy.compactMap(\.images.first).first)
+        let scale = window.backingScaleFactor
+        // 40 × 18 device pixels, shown at the display's density.
+        #expect(abs(CGFloat(slice.pixelWidth) - 40 / scale) <= 1)
+        #expect(slice.col == 0)
+        // The Hebrew row is reordered: its first visual column is not column 0.
+        let hebrewRow = try #require(screen(session).split(separator: "\n", omittingEmptySubsequences: false)
+            .firstIndex { $0.contains("abc") })
+        view.frameTick()
+        #expect(view.baseDirection(row: hebrewRow) == .rightToLeft)
+        #expect(view.logicalColumn(forVisualColumn: 0, row: hebrewRow) != 0)
+        workspace.terminateAll()
+    }
+
     @Test func persistentPaneTypesResizesAndDetaches() async throws {
         setenv("TECOLOT_RUNTIME_DIR", "/tmp/tecolot-tests-\(getpid())", 1)
         let profile = AppModel.shared.profiles.defaultProfile
