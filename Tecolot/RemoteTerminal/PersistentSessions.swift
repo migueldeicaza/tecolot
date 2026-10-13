@@ -125,3 +125,24 @@ enum PersistentRuntimeResources {
         }
     }
 }
+
+extension PersistentSessions {
+    /// Uses the remote login shell and only Tecolot's environment values.
+    static func makeRemoteLaunch(profile: TerminalProfile, destination: String,
+                                 parentEnvironment: [String: String] = ProcessInfo.processInfo.environment) -> RemoteSessionLaunch {
+        let allowed = Set(["COLORTERM", "TERM_FEATURES", "LANG"])
+        var environment = TerminalEnvironment.base(parentEnvironment: parentEnvironment, termName: "xterm-256color")
+            .filter { allowed.contains(String($0.prefix { $0 != "=" })) }
+        environment.append("TERM_PROGRAM=\(TecolotShellIntegration.terminalProgram)")
+        environment.append("TERM_PROGRAM_VERSION=\(TecolotShellIntegration.terminalProgramVersion)")
+        let kitty = ProfileApplier.terminalOptions(for: profile).kittyGraphics
+        return RemoteSessionLaunch(environment: environment,
+            columns: max(2, profile.columns), rows: max(2, profile.rows),
+            scrollback: profile.scrollbackLines ?? 100_000, termName: "xterm-256color",
+            cursorStyle: cursorStyleIndex(profile.cursorStyle),
+            featureReport: TerminalFeatureReporting.featureString,
+            labels: ["profile": profile.name, "profileID": profile.id.uuidString, "destination": destination],
+            kittyGraphicsStorageLimit: kitty.storageLimitBytesPerScreen,
+            kittyGraphicsLocalMedia: kitty.localMediaPolicy.rawValue)
+    }
+}

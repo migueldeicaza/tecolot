@@ -167,12 +167,14 @@ public struct HelloMessage: WireMessage, Hashable {
     /// Rows the client keeps above and below its viewport (the retention margin M).
     public var retainMargin: Int
     public var clientName: String
+    /// A pane identifier that stays the same across reconnects.
+    public var clientInstance: String
 
     public init(minimumVersion: UInt32 = SessionProtocol.minimumVersion,
                 maximumVersion: UInt32 = SessionProtocol.version,
                 build: String, capabilities: SessionCapabilities = [],
                 maximumMessageSize: Int = 32 * 1024 * 1024, retainMargin: Int = 256,
-                clientName: String) {
+                clientName: String, clientInstance: String = "") {
         self.minimumVersion = minimumVersion
         self.maximumVersion = maximumVersion
         self.build = build
@@ -180,6 +182,7 @@ public struct HelloMessage: WireMessage, Hashable {
         self.maximumMessageSize = maximumMessageSize
         self.retainMargin = retainMargin
         self.clientName = clientName
+        self.clientInstance = clientInstance
     }
 
     public init(from reader: inout WireReader) throws(WireError) {
@@ -190,6 +193,7 @@ public struct HelloMessage: WireMessage, Hashable {
         maximumMessageSize = try reader.count(limit: Int(Int32.max))
         retainMargin = try reader.count(limit: 1 << 20)
         clientName = try reader.string()
+        clientInstance = reader.isAtEnd ? "" : try reader.string()
     }
 
     public func encode(to writer: inout WireWriter) {
@@ -200,6 +204,7 @@ public struct HelloMessage: WireMessage, Hashable {
         writer.varint(maximumMessageSize)
         writer.varint(retainMargin)
         writer.string(clientName)
+        writer.string(clientInstance)
     }
 }
 

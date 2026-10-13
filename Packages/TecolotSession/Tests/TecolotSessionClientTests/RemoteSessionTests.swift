@@ -23,11 +23,12 @@ extension SessionHost {
     }
 }
 
-func connect(_ host: SessionHost, rows: Int = 10, columns: Int = 40) throws -> RemoteSession {
+func connect(_ host: SessionHost, rows: Int = 10, columns: Int = 40,
+             clientInstance: String = "") throws -> RemoteSession {
     var fds: [Int32] = [0, 0]
     guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else { throw POSIXError(.EIO) }
     host.accept(socket: fds[1])
-    let session = RemoteSession(socket: fds[0], clientName: "test", build: "test")
+    let session = RemoteSession(socket: fds[0], clientName: "test", build: "test", clientInstance: clientInstance)
     session.start(size: WireGridSize(columns: columns, rows: rows), focused: true)
     return session
 }
@@ -61,6 +62,34 @@ final class EventLog: @unchecked Sendable {
 }
 
 struct RemoteSessionTests {
+    @Test func newerClientInstanceClosesTheOlderConnection() async throws {
+        let host = makeHost()
+        let first = try connect(host, clientInstance: "same-pane")
+        defer { first.close() }
+        try await eventually("first attached") { first.state.connected }
+        let log = EventLog()
+        first.onEvent = { log.add($0) }
+        let second = try connect(host, clientInstance: "same-pane")
+        defer { second.close() }
+        try await eventually("second attached") { second.state.connected }
+        try await eventually("first closed") {
+            log.events.withLock { $0.contains { if case .closed = $0 { return true }; return false } }
+        }
+        #expect(!first.state.connected)
+        #expect(second.state.connected)
+    }
+
+    @Test func emptyInstanceAllowsTwoConnections() async throws {
+        let host = makeHost()
+        let first = try connect(host)
+        defer { first.close() }
+        try await eventually("first attached") { first.state.connected }
+        let second = try connect(host)
+        defer { second.close() }
+        try await eventually("second attached") { second.state.connected }
+        #expect(first.state.connected)
+    }
+
     @Test func attachShowsTheLiveScreen() async throws {
         let host = makeHost()
         host.inject("alpha\r\nbeta\r\n\u{1b}]0;hello title\u{07}")

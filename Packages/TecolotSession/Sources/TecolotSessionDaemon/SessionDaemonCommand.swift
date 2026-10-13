@@ -8,7 +8,9 @@
 //   create [--runtime-dir DIR]          SessionLaunch JSON on stdin; prints the record
 //   list [--runtime-dir DIR]            prints the records as JSON
 //   terminate ID [--signal N] [--runtime-dir DIR]
+//   askpass [PROMPT]                   SSH_ASKPASS request to the app
 //   version [--json]
+//   bridge --stdio [--nonce N] [--runtime-dir DIR] [--idle-timeout SECONDS]
 //
 
 import Foundation
@@ -30,15 +32,15 @@ public enum SessionDaemonCommand {
         let command = parser.next() ?? "help"
         do {
             switch command {
+            case "askpass": exit(Askpass.run(arguments: Array(arguments.dropFirst(2))))
             case "serve": try serve(&parser)
             case "create": try create(&parser)
             case "list": try list(&parser)
             case "terminate": try terminate(&parser)
             case "version": version(&parser)
-            case "bridge":
-                fail("bridge is not available in this build")
+            case "bridge": try bridge(&parser)
             default:
-                fail("usage: tecolot-sessiond serve|create|list|terminate|version")
+                fail("usage: tecolot-sessiond serve|create|list|terminate|version|bridge|askpass")
             }
         } catch {
             fail("\(error)")
@@ -89,6 +91,25 @@ public enum SessionDaemonCommand {
         }
         try server.start(readyFD: readyFD)
         server.run()
+    }
+
+    static func bridge(_ parser: inout ArgumentList) throws -> Never {
+        guard parser.flag("--stdio") else { fail("bridge needs --stdio") }
+        let nonce = parser.option("--nonce")
+        if let nonce, nonce.contains("\n") || nonce.contains("\r") {
+            fail("bridge nonce must be one line")
+        }
+        let timeoutText = parser.option("--idle-timeout")
+        let timeout = timeoutText.flatMap(TimeInterval.init) ?? 60
+        guard timeout.isFinite, timeout > 0, timeoutText == nil || TimeInterval(timeoutText!) != nil else {
+            fail("bridge needs a positive --idle-timeout")
+        }
+        let path = parser.option("--runtime-dir") ?? "/tmp/tecolot-\(getuid())"
+        let url = URL(fileURLWithPath: path, isDirectory: true)
+        try RuntimeDirectory.prepare(url)
+        let server = try BridgeServer(directory: SessionDirectory(url: url), helperPath: executablePath,
+                                      build: build, nonce: nonce, idleTimeout: timeout)
+        withExtendedLifetime(server) { server.run() }
     }
 
     static func create(_ parser: inout ArgumentList) throws {

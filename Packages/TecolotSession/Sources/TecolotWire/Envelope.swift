@@ -42,6 +42,21 @@ public struct MessageKind: RawRepresentable, Hashable, Sendable, CustomStringCon
     public static let findPrompt = MessageKind(rawValue: 22)
     public static let fetchImage = MessageKind(rawValue: 23)
 
+    // Link directory messages.
+    public static let linkHello = MessageKind(rawValue: 128)
+    public static let listSessions = MessageKind(rawValue: 129)
+    public static let createSession = MessageKind(rawValue: 130)
+    public static let terminateSession = MessageKind(rawValue: 131)
+    public static let openChannel = MessageKind(rawValue: 132)
+    public static let closeChannel = MessageKind(rawValue: 133)
+    public static let channelWindow = MessageKind(rawValue: 134)
+    public static let linkAck = MessageKind(rawValue: 135)
+    public static let helperInfo = MessageKind(rawValue: 192)
+    public static let sessionList = MessageKind(rawValue: 193)
+    public static let sessionCreated = MessageKind(rawValue: 194)
+    public static let channelOpened = MessageKind(rawValue: 195)
+    public static let directoryDone = MessageKind(rawValue: 196)
+
     // Helper to client.
     public static let helloReply = MessageKind(rawValue: 64)
     public static let frame = MessageKind(rawValue: 65)

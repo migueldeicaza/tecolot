@@ -59,6 +59,16 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored private(set) var persistentView: RemoteTerminalView?
     @ObservationIgnored private var wantsPersistentSession = false
     @ObservationIgnored private var attachSessionID: String?
+    private(set) var remoteDestination: String?
+    @ObservationIgnored private var hostLink: HostLink?
+    @ObservationIgnored private let clientInstance = UUID().uuidString
+    @ObservationIgnored private var remoteGeneration: UInt64 = 0
+    @ObservationIgnored private var remoteOpening = false
+    @ObservationIgnored private var remoteNotice: String?
+    @ObservationIgnored private var remoteSessionEnded = false
+    @ObservationIgnored private var remoteOpenFailed = false
+    /// The link generation in which this pane already reopened a closed session connection.
+    @ObservationIgnored private var remoteReopenedGeneration: UInt64?
     /// The persistent session that this pane shows, if any.
     @ObservationIgnored private(set) var persistentSessionID: String?
     /// Set when this pane detaches on purpose, so the closed connection is expected.
@@ -133,12 +143,13 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         restoredContent = document.content
         wantsPersistentSession = Self.startsPersistentSession(spec: spec, profile: profile)
         attachSessionID = spec?.attachSessionID
+        remoteDestination = spec?.remoteDestination
     }
 
     /// New Persistent Tab and Attach to Session always use the helper; other
     /// new panes follow the profile.
     static func startsPersistentSession(spec: LaunchSpec?, profile: TerminalProfile) -> Bool {
-        spec?.persistent == true || spec?.attachSessionID != nil || profile.sessionPersistence == .persistent
+        spec?.remoteDestination != nil || spec?.persistent == true || spec?.attachSessionID != nil || profile.sessionPersistence == .persistent
     }
 
     /// Sets up a pane of a restored layout.
@@ -149,7 +160,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         profile = pane.profileID.flatMap { AppModel.shared.profiles.profile(withID: $0) }
             ?? AppModel.shared.profiles.defaultProfile
         themeOverride = pane.themeOverride
-        launchDirectory = pane.workingDirectory
+        remoteDestination = pane.remoteDestination
+        wantsPersistentSession = remoteDestination != nil
+        launchDirectory = remoteDestination == nil ? pane.workingDirectory : nil
         if let sessionID = pane.sessionID {
             wantsPersistentSession = true
             attachSessionID = sessionID
@@ -162,7 +175,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         didResolveLaunch = true
         profile = source.profile
         themeOverride = source.themeOverride
-        launchDirectory = source.currentWorkingDirectory
+        remoteDestination = source.remoteDestination
+        launchDirectory = remoteDestination == nil ? source.currentWorkingDirectory : nil
         wantsPersistentSession = source.isPersistent
     }
 
@@ -176,7 +190,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     /// A local OSC 7 directory that the titlebar can open in Finder.
     var titlebarWorkingDirectory: String? {
-        TerminalWorkingDirectory.path(from: postedDirectory)
+        remoteDestination == nil ? TerminalWorkingDirectory.path(from: postedDirectory) : nil
     }
 
     /// The theme currently in effect for this session
@@ -572,6 +586,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// Sends text to the program as if the user typed it.
     func sendLiteralText(_ text: String) {
         if let persistentView {
+            guard persistentView.remoteInputEnabled else { return }
             persistentView.session.send(bytes: Array(text.utf8))
             return
         }
@@ -672,6 +687,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if let persistentView {
             persistentDetached = true
             persistentView.session.detach()
+            if let hostLink {
+                Task { @MainActor in RemoteHosts.shared.removeObserver(link: hostLink, observer: self.id) }
+                self.hostLink = nil
+            }
             return
         }
         terminal?.terminate()
@@ -786,6 +805,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     private func sendBindingText(_ text: String) {
         if let persistentView {
+            guard persistentView.remoteInputEnabled else { return }
             persistentView.session.send(bytes: Array(text.utf8))
         } else {
             terminal?.send(txt: text)
@@ -1144,6 +1164,7 @@ extension TerminalSessionController {
     /// nil, and the pane falls back to a local shell, when that fails.
     @MainActor
     func makePersistentView() -> RemoteTerminalView? {
+        if let remoteDestination { return makeHostPersistentView(destination: remoteDestination) }
         let font = ProfileApplier.font(for: profile)
         do {
             let directory = try PersistentSessions.directory()
@@ -1180,11 +1201,159 @@ extension TerminalSessionController {
         }
     }
 
+    /// Creates the pane before SSH resolves, so connection errors stay in the pane.
+    @MainActor
+    private func makeHostPersistentView(destination: String) -> RemoteTerminalView {
+        let session = makeRemoteSession(socket: -1)
+        let view = RemoteTerminalView(session: session, font: ProfileApplier.font(for: profile))
+        view.sessionController = self
+        view.remoteDestination = destination
+        view.remoteInputEnabled = false
+        view.glyphFallbackProvider = NerdFontFallbackProvider.shared
+        persistentView = view
+        persistentSessionID = attachSessionID
+        attachPersistentView()
+        updateRemoteBanner(state: .resolving)
+        connectRemoteHost()
+        PersistentLayoutStore.shared.scheduleSave()
+        return view
+    }
+
+    @MainActor
+    private func connectRemoteHost() {
+        guard let destination = remoteDestination, !persistentDetached else { return }
+        RemoteHosts.shared.link(destination: destination) { [weak self] result in
+            guard let self, !self.persistentDetached else { return }
+            switch result {
+            case .success(let link):
+                self.hostLink = link
+                self.remoteOpening = true
+                RemoteHosts.shared.observe(link: link, observer: self.id,
+                    state: { [weak self] state in self?.remoteLinkChanged(state) },
+                    notice: { [weak self, weak link] notice in
+                        self?.remoteNotice = notice
+                        if let link { self?.updateRemoteBanner(state: link.state) }
+                    }, window: { [weak self] in self?.surface?.window })
+                self.remoteOpening = false
+                self.openRemotePane(link: link, sessionID: self.persistentSessionID)
+            case .failure(let error):
+                self.showRemoteError(error)
+            }
+        }
+    }
+
+    @MainActor
+    private func openRemotePane(link: HostLink, sessionID: String?) {
+        guard let view = persistentView, !persistentDetached, !remoteOpening, !remoteSessionEnded else { return }
+        remoteOpening = true
+        remoteOpenFailed = false
+        let launch = PersistentSessions.makeRemoteLaunch(profile: profile, destination: remoteDestination ?? link.destination)
+        let socket = link.openPane(sessionID: sessionID, launch: sessionID == nil ? launch : nil, created: { [weak self] id in
+            // Keep the ID also when the attach fails, so that a retry does not create another session.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.persistentDetached else { return }
+                self.persistentSessionID = id
+                self.attachSessionID = nil
+                PersistentLayoutStore.shared.scheduleSave()
+            }
+        }) { [weak self, weak link] result in
+            let generation = link?.connectionGeneration ?? 0
+            DispatchQueue.main.async { [weak self, weak link] in
+                guard let self, let link, !self.persistentDetached else { return }
+                self.remoteOpening = false
+                switch result {
+                case .success(let id):
+                    self.persistentSessionID = id
+                    self.attachSessionID = nil
+                    self.remoteGeneration = generation
+                    self.remoteLinkChanged(link.state)
+                    PersistentLayoutStore.shared.scheduleSave()
+                case .failure(let error):
+                    if let sessionID, case .connected = link.state {
+                        link.listSessions { [weak self] records in
+                            DispatchQueue.main.async { [weak self] in
+                                guard let self, !self.persistentDetached else { return }
+                                if case .success(let records) = records, !records.contains(where: { $0.id == sessionID }) {
+                                    self.remoteSessionEnded = true
+                                    self.persistentView?.remoteInputEnabled = false
+                                    self.persistentView?.showBanner("The session ended.", actionTitle: "Close") { [weak self] in
+                                        self?.closePaneOrWindow()
+                                    }
+                                } else { self.showRemoteError(error) }
+                            }
+                        }
+                    } else { self.showRemoteError(error) }
+                }
+            }
+        }
+        guard socket >= 0 else { remoteOpening = false; return }
+        let session = makeRemoteSession(socket: socket)
+        view.replaceSession(session)
+        view.remoteInputEnabled = false
+        updateRemoteBanner(state: link.state)
+        session.start(size: view.wireGridSize, focused: view.hasFocus, scale: view.displayScale)
+        applyPersistentAppearance(to: view)
+    }
+
+    @MainActor
+    private func remoteLinkChanged(_ state: HostLinkState) {
+        guard !persistentDetached, !remoteSessionEnded, persistentView?.session.state.exitStatus == nil else { return }
+        updateRemoteBanner(state: state)
+        if case .connected(_, let generation) = state, let link = hostLink,
+           generation > remoteGeneration, !remoteOpening {
+            openRemotePane(link: link, sessionID: persistentSessionID)
+        }
+    }
+
+    @MainActor
+    private func updateRemoteBanner(state: HostLinkState) {
+        guard let view = persistentView, let destination = remoteDestination, !remoteSessionEnded,
+              view.session.state.exitStatus == nil else { return }
+        if case .connected = state {
+            if remoteOpenFailed { return }
+            view.remoteInputEnabled = !remoteOpening && view.session.state.connected
+        }
+        else { view.remoteInputEnabled = false }
+        if let remoteNotice {
+            view.showBanner(remoteNotice, actionTitle: "Cancel") { [weak self] in self?.closePaneOrWindow() }
+        } else if let content = RemoteBannerContent.make(state: state, destination: destination) {
+            view.showBanner(content.text, actionTitle: content.primary?.title,
+                action: content.primary.map { button in { [weak self] in self?.performRemoteAction(button.action) } },
+                secondaryActionTitle: content.secondary?.title,
+                secondaryAction: content.secondary.map { button in { [weak self] in self?.performRemoteAction(button.action) } })
+        } else { view.hideBanner() }
+    }
+
+    @MainActor
+    func refreshRemoteConnectionDisplay() {
+        if let hostLink, remoteDestination != nil { updateRemoteBanner(state: hostLink.state) }
+    }
+
+    @MainActor
+    private func performRemoteAction(_ action: RemoteBannerAction) {
+        switch action {
+        case .close: closePaneOrWindow()
+        case .reconnect, .signIn, .retry: reconnectPersistentSession()
+        }
+    }
+
+    @MainActor
+    private func showRemoteError(_ error: Error) {
+        remoteOpenFailed = true
+        persistentView?.remoteInputEnabled = false
+        persistentView?.showBanner((error as? SSHError)?.message ?? String(describing: error), actionTitle: "Retry",
+            action: { [weak self] in self?.reconnectPersistentSession() }, secondaryActionTitle: "Close",
+            secondaryAction: { [weak self] in self?.closePaneOrWindow() })
+    }
+
     private func makeRemoteSession(socket: Int32) -> RemoteSession {
         let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
-        let session = RemoteSession(socket: socket, clientName: "Tecolot", build: version)
-        session.onEvent = { [weak self] event in
-            DispatchQueue.main.async { self?.handlePersistentEvent(event) }
+        let session = RemoteSession(socket: socket, clientName: "Tecolot", build: version, clientInstance: clientInstance)
+        session.onEvent = { [weak self, weak session] event in
+            DispatchQueue.main.async { [weak self, weak session] in
+                guard let self, self.persistentView?.session === session else { return }
+                self.handlePersistentEvent(event)
+            }
         }
         return session
     }
@@ -1192,6 +1361,12 @@ extension TerminalSessionController {
     /// Connects again to the session after the connection dropped.
     @MainActor
     func reconnectPersistentSession() {
+        if remoteDestination != nil {
+            guard let hostLink else { connectRemoteHost(); return }
+            if case .connected = hostLink.state { openRemotePane(link: hostLink, sessionID: persistentSessionID) }
+            else { hostLink.reconnectNow() }
+            return
+        }
         guard let persistentView, let sessionID = persistentSessionID else { return }
         do {
             let socket = try PersistentSessions.directory().connect(sessionID)
@@ -1296,12 +1471,37 @@ extension TerminalSessionController {
             // Programs cannot read the clipboard, as with the local view.
             persistentView?.session.replyClipboard(request: request, data: nil)
         case .exited(let code):
+            if remoteDestination != nil {
+                remoteSessionEnded = true
+                persistentView?.remoteInputEnabled = false
+            }
             processTerminated(source: nil, exitCode: code)
         case .info(let info):
             updatePaneExecutablePath(info.foreground?.path)
         case .closed:
             guard !persistentDetached, let persistentView,
                   persistentView.session.state.exitStatus == nil else { return }
+            if remoteDestination != nil {
+                guard let hostLink else { return }
+                updateRemoteBanner(state: hostLink.state)
+                // A link drop reaches the pane before the link state changes;
+                // the reconnect then reopens the pane. When the link stays up,
+                // the session closed only this connection: reopen it once.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    guard let self, let link = self.hostLink, !self.persistentDetached,
+                          !self.remoteSessionEnded, !self.remoteOpening,
+                          self.persistentView?.session.state.connected == false,
+                          case .connected(_, let current) = link.state,
+                          current == self.remoteGeneration else { return }
+                    if self.remoteReopenedGeneration == current {
+                        self.showRemoteError(SSHError(kind: .other, message: "Disconnected from the session."))
+                    } else {
+                        self.remoteReopenedGeneration = current
+                        self.openRemotePane(link: link, sessionID: self.persistentSessionID)
+                    }
+                }
+                return
+            }
             let alive = persistentSessionID.map { id in
                 PersistentSessions.list().contains { $0.id == id && !$0.exited }
             } ?? false

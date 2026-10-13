@@ -21,6 +21,7 @@ struct SavedPane: Codable, Hashable {
     var profileID: UUID?
     var themeOverride: String?
     var workingDirectory: String?
+    var remoteDestination: String? = nil
 }
 
 /// A pane tree, like TerminalPaneNode.
@@ -41,7 +42,7 @@ indirect enum SavedPaneNode: Codable, Hashable {
     func pruned(liveSessions: Set<String>) -> SavedPaneNode? {
         switch self {
         case .pane(let pane):
-            if let id = pane.sessionID, !liveSessions.contains(id) { return nil }
+            if pane.remoteDestination == nil, let id = pane.sessionID, !liveSessions.contains(id) { return nil }
             return self
         case .split(let orientation, let fraction, let first, let second):
             switch (first.pruned(liveSessions: liveSessions), second.pruned(liveSessions: liveSessions)) {
@@ -57,7 +58,7 @@ indirect enum SavedPaneNode: Codable, Hashable {
 struct SavedPaneTree: Codable, Hashable {
     var root: SavedPaneNode
 
-    var hasPersistentPane: Bool { root.panes.contains { $0.sessionID != nil } }
+    var hasPersistentPane: Bool { root.panes.contains { $0.sessionID != nil || $0.remoteDestination != nil } }
 }
 
 struct SavedLayoutWindow: Codable, Hashable {
@@ -202,7 +203,8 @@ final class PersistentLayoutStore {
             return .pane(SavedPane(sessionID: controller.persistentSessionID,
                                    profileID: controller.profile.id,
                                    themeOverride: controller.themeOverride,
-                                   workingDirectory: controller.currentWorkingDirectory))
+                                   workingDirectory: controller.currentWorkingDirectory,
+                                   remoteDestination: controller.remoteDestination))
         case .split(let orientation, let first, let second):
             let fraction = hostView?.dividerFraction(for: node.id).map(Double.init)
             return .split(orientation, fraction: fraction,

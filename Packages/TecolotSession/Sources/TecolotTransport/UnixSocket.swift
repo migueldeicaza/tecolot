@@ -139,6 +139,12 @@ public enum UnixSocket {
         #endif
     }
 
+    /// True when the other end of a connected stream socket is closed. Does not block.
+    public static func peerClosed(_ fd: Int32) -> Bool {
+        var entry = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        return poll(&entry, 1, 0) == 1 && entry.revents & Int16(POLLHUP) != 0
+    }
+
     public static func setNonBlocking(_ fd: Int32) {
         let flags = fcntl(fd, F_GETFL)
         if flags >= 0 { _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK) }
@@ -146,14 +152,17 @@ public enum UnixSocket {
 
     /// A write to a closed peer fails with EPIPE instead of raising SIGPIPE,
     /// which would end the process. Works for sockets and pipes on Darwin;
-    /// on Linux the helper ignores SIGPIPE.
+    /// on Linux SIGPIPE is ignored for the process.
     public static func setNoSignalOnBrokenPipe(_ fd: Int32) {
         #if canImport(Darwin)
         // Pipes take the fcntl; sockets take the socket option. Each call
-        // fails harmlessly on the other kind of descriptor.
+        // fails harmlessly on the other kind of descriptor. Socket options
+        // can fail after the peer closes, so posixWrite also uses MSG_NOSIGNAL.
         _ = fcntl(fd, F_SETNOSIGPIPE, 1)
         var on: Int32 = 1
         _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        #elseif canImport(Glibc)
+        _ = signal(SIGPIPE, SIG_IGN)
         #endif
     }
 
@@ -183,7 +192,7 @@ public enum RuntimeDirectory {
     /// Returns the default directory for this user, creating it when needed.
     ///
     /// On macOS it is `tecolot` inside the per-user temporary directory. On
-    /// Linux it is `$XDG_RUNTIME_DIR/tecolot`, or `/tmp/tecolot-<uid>`.
+    /// Linux it is `/tmp/tecolot-<uid>`.
     public static func defaultURL() throws -> URL {
         let url = defaultLocation()
         try prepare(url)
@@ -204,11 +213,6 @@ public enum RuntimeDirectory {
         }
         return URL(fileURLWithPath: "/tmp/tecolot-\(getuid())", isDirectory: true)
         #else
-        if let runtime = ProcessInfo.processInfo.environment["XDG_RUNTIME_DIR"], !runtime.isEmpty,
-           FileManager.default.fileExists(atPath: runtime) {
-            return URL(fileURLWithPath: runtime, isDirectory: true)
-                .appendingPathComponent("tecolot", isDirectory: true)
-        }
         return URL(fileURLWithPath: "/tmp/tecolot-\(getuid())", isDirectory: true)
         #endif
     }
@@ -241,8 +245,14 @@ public enum RuntimeDirectory {
     read(fd, buffer, count)
 }
 
+// Socket flags can no longer be set after a peer closes on Darwin.
+// Suppress SIGPIPE at each socket write too. Pipes use their descriptor flag
+// on Darwin, and the process signal setting on Linux.
 @inline(__always) func posixWrite(_ fd: Int32, _ buffer: UnsafeRawPointer?, _ count: Int) -> Int {
-    write(fd, buffer, count)
+    // Glibc imports MSG_NOSIGNAL as Int.
+    let sent = send(fd, buffer, count, Int32(MSG_NOSIGNAL))
+    if sent < 0 && errno == ENOTSOCK { return write(fd, buffer, count) }
+    return sent
 }
 
 @inline(__always) func posixClose(_ fd: Int32) {

@@ -183,14 +183,23 @@ enum WindowOpener {
     /// The LaunchSpec a plain New Tab should use, honoring the General
     /// settings for working-directory and profile inheritance
     static func inheritedTabSpec() -> LaunchSpec {
-        let defaults = UserDefaults.standard
+        let front = TerminalSessionRegistry.shared.controller(for: NSApp.keyWindow ?? NSApp.mainWindow)
+        return inheritedTabSpec(profileID: front?.profile.id,
+                                workingDirectory: front?.currentWorkingDirectory,
+                                remoteDestination: front?.remoteDestination)
+    }
+
+    static func inheritedTabSpec(profileID: TerminalProfile.ID?, workingDirectory: String?,
+                                 remoteDestination: String?, defaults: UserDefaults = .standard) -> LaunchSpec {
         let inheritDirectory = defaults.object(forKey: "newTabsUseCurrentDirectory") as? Bool ?? true
         let inheritProfile = defaults.object(forKey: "newTabsUseCurrentProfile") as? Bool ?? true
-        let front = TerminalSessionRegistry.shared.controller(for: NSApp.keyWindow ?? NSApp.mainWindow)
-        return LaunchSpec(
-            profileID: inheritProfile ? front?.profile.id : nil,
-            workingDirectory: inheritDirectory ? front?.currentWorkingDirectory : nil
+        var spec = LaunchSpec(
+            profileID: inheritProfile ? profileID : nil,
+            workingDirectory: remoteDestination == nil && inheritDirectory ? workingDirectory : nil
         )
+        spec.remoteDestination = remoteDestination
+        if spec.remoteDestination != nil { spec.persistent = true }
+        return spec
     }
 }
 
@@ -214,6 +223,14 @@ struct ProfileCommands: Commands {
             Button("Attach to Session…") {
                 SessionAttachPanel.run()
             }
+            Button("New Remote Session…") {
+                guard let destination = RemoteDestinationPanel.run() else { return }
+                var spec = LaunchSpec()
+                spec.remoteDestination = destination
+                spec.persistent = true
+                WindowOpener.openTab(spec: spec)
+            }
+            .keyboardShortcut("t", modifiers: [.command, .option, .shift])
             Divider()
             Menu("New Window with Profile") {
                 ForEach(profiles.profiles) { profile in
