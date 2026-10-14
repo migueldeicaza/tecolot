@@ -80,6 +80,31 @@ struct PersistentLayoutTests {
         #expect(store.load() != layout)
     }
 
+    @Test func oldPaneJSONHasNoRemoteDestination() throws {
+        let json = Data(#"{"sessionID":"local","workingDirectory":"/tmp"}"#.utf8)
+        let pane = try JSONDecoder().decode(SavedPane.self, from: json)
+        #expect(pane.sessionID == "local")
+        #expect(pane.remoteDestination == nil)
+    }
+
+    @Test func remoteLayoutRoundTripsAndSurvivesLocalPruning() throws {
+        let remote = SavedPane(sessionID: "remote-id", profileID: nil, themeOverride: "theme",
+                               workingDirectory: "/home/user", remoteDestination: "user@host")
+        let pending = SavedPane(sessionID: nil, profileID: nil, themeOverride: nil,
+                                workingDirectory: nil, remoteDestination: "other-host")
+        let layout = SavedLayout(windows: [SavedLayoutWindow(
+            frame: "{{0, 0}, {800, 600}}",
+            tabs: [SavedPaneTree(root: .split(.vertical, fraction: 0.4,
+                                             first: .pane(remote), second: pane("ended-local"))),
+                   SavedPaneTree(root: .pane(pending))],
+            selectedTabIndex: 1)])
+        let encoded = try JSONEncoder().encode(layout)
+        #expect(try JSONDecoder().decode(SavedLayout.self, from: encoded) == layout)
+        let pruned = layout.pruned(liveSessions: [])
+        #expect(pruned.windows.first?.tabs.map(\.root) == [.pane(remote), .pane(pending)])
+        #expect(pruned.windows.first?.selectedTabIndex == 1)
+    }
+
     private func wait(_ what: String, timeout: TimeInterval = 10, _ condition: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {

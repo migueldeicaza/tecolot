@@ -422,6 +422,16 @@ public final class SessionHost: @unchecked Sendable {
             return
         }
         client.negotiatedVersion = version
+        client.clientInstance = hello.clientInstance
+        if !hello.clientInstance.isEmpty {
+            let older = attachedClients.filter {
+                $0 !== client && $0.clientInstance == hello.clientInstance
+            }
+            for previous in older {
+                remove(previous)
+                previous.channel.close()
+            }
+        }
         client.retainMargin = max(0, min(hello.retainMargin, 4096))
         client.channel.send(HelloReplyMessage(version: version, build: build, capabilities: .helper,
                                               sessionID: id), requestID: requestID)

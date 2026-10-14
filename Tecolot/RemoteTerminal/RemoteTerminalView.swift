@@ -25,6 +25,20 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     var optionAsMetaKey = true
     var backspaceSendsControlH = false
+    var remoteDestination: String?
+    var remoteInputEnabled = true {
+        didSet {
+            guard remoteInputEnabled != oldValue else { return }
+            inputShade.isHidden = remoteInputEnabled
+            if !remoteInputEnabled {
+                markedText = nil
+                keyboardRouter.markedTextChanged(composing: false)
+                keyboardRouter.focusLost()
+                pressedButton = nil
+            }
+        }
+    }
+    private let inputShade = RemoteInputShade(frame: .zero)
     /// Profile key bindings and Command shortcuts run first; see the controller.
     var shouldSendCommandKeyToTerminal: ((NSEvent) -> Bool)?
 
@@ -53,6 +67,12 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         scroller.action = #selector(scrollerMoved(_:))
         scroller.alphaValue = 0
         scroller.isEnabled = false
+        addSubview(inputShade)
+        inputShade.wantsLayer = true
+        inputShade.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.28).cgColor
+        inputShade.autoresizingMask = [.width, .height]
+        inputShade.frame = bounds
+        inputShade.isHidden = true
         addSubview(scroller)
     }
 
@@ -99,6 +119,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         source.displayScale = CGFloat(displayScale) / 100
+        registerForDraggedTypes([.fileURL])
     }
 
     override func viewDidChangeBackingProperties() {
@@ -111,6 +132,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     private func observe(_ session: RemoteSession) {
         session.onChange = { [weak self] change in
             self?.requestRedraw()
+            DispatchQueue.main.async { [weak self] in self?.sessionController?.refreshRemoteConnectionDisplay() }
             if !change.isDisjoint(with: [.geometry, .viewport, .buffer]) {
                 DispatchQueue.main.async { self?.scheduleScrollerUpdate() }
             }
@@ -310,6 +332,12 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     var bannerText: String? { banner?.text }
 
     func showBanner(_ text: String, actionTitle: String? = nil, action: (() -> Void)? = nil) {
+        showBanner(text, actionTitle: actionTitle, action: action,
+                   secondaryActionTitle: nil, secondaryAction: nil)
+    }
+
+    func showBanner(_ text: String, actionTitle: String?, action: (() -> Void)?,
+                    secondaryActionTitle: String?, secondaryAction: (() -> Void)?) {
         let banner = self.banner ?? RemoteSessionBanner()
         if self.banner == nil {
             banner.translatesAutoresizingMaskIntoConstraints = false
@@ -321,12 +349,42 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
             ])
             self.banner = banner
         }
-        banner.configure(text: text, actionTitle: actionTitle, action: action)
+        banner.configure(text: text, actionTitle: actionTitle, action: action,
+                         secondaryActionTitle: secondaryActionTitle, secondaryAction: secondaryAction)
     }
 
     func hideBanner() {
         banner?.removeFromSuperview()
         banner = nil
+    }
+
+    // MARK: File drops
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard remoteDestination != nil, sender.draggingSourceOperationMask.contains(.copy),
+              TerminalFileDrop.hasFileURLs(in: sender.draggingPasteboard) else { return [] }
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        draggingEntered(sender)
+    }
+
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        draggingEntered(sender) == .copy
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard draggingEntered(sender) == .copy else { return false }
+        let alert = NSAlert()
+        alert.messageText = "Files cannot be dropped into a remote session."
+        alert.addButton(withTitle: "OK")
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+        return false
     }
 
     // MARK: Scroll bar
@@ -434,36 +492,45 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        keyboardRouter.performKeyEquivalent(event) || super.performKeyEquivalent(with: event)
+        (remoteInputEnabled && keyboardRouter.performKeyEquivalent(event)) || super.performKeyEquivalent(with: event)
     }
 
     override func keyDown(with event: NSEvent) {
+        guard remoteInputEnabled else {
+            if event.modifierFlags.contains(.command) { super.keyDown(with: event) }
+            return
+        }
         keyboardRouter.keyDown(event)
     }
 
     override func keyUp(with event: NSEvent) {
-        keyboardRouter.keyUp(event)
+        if remoteInputEnabled { keyboardRouter.keyUp(event) }
         super.keyUp(with: event)
     }
 
     override func flagsChanged(with event: NSEvent) {
-        routesModifierKey = true
-        keyboardRouter.flagsChanged(event)
-        routesModifierKey = false
+        if remoteInputEnabled {
+            routesModifierKey = true
+            keyboardRouter.flagsChanged(event)
+            routesModifierKey = false
+        }
         super.flagsChanged(with: event)
     }
 
     override func doCommand(by selector: Selector) {
+        guard remoteInputEnabled else { return }
         keyboardRouter.doCommand(selector)
     }
 
     /// The controller hides the pointer while the user types, when the
     /// profile asks for it.
     func keyboardRouterKeyDown(_ event: NSEvent) {
+        guard remoteInputEnabled else { return }
         clearSelection()
     }
 
     func keyboardRouter(send event: TerminalKeyEvent, bytes: [UInt8]) {
+        guard remoteInputEnabled else { return }
         // Releases and modifier keys keep the selection (as in a local
         // pane) and the scroll position.
         if event.eventType != 3 && !routesModifierKey {
@@ -488,6 +555,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     func keyboardRouter(send bytes: [UInt8]) {
+        guard remoteInputEnabled else { return }
         followAfterInput()
         session.send(bytes: bytes)
         resetCaretBlink()
@@ -495,6 +563,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     /// The helper encodes typed text with the terminal's modes of now.
     func keyboardRouter(sendText text: String) {
+        guard remoteInputEnabled else { return }
         followAfterInput()
         session.send(text: text)
         resetCaretBlink()
@@ -503,6 +572,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     /// As `TerminalView.pageUp()`: the alternate screen gets the key, the
     /// normal screen scrolls one page.
     func keyboardRouterScrollPage(up: Bool) {
+        guard remoteInputEnabled else { return }
         let state = session.state
         if state.buffer == .alternate {
             keyboardRouter(send: up ? EscapeSequences.cmdPageUp : EscapeSequences.cmdPageDown)
@@ -520,6 +590,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     // MARK: NSTextInputClient
 
     func insertText(_ string: Any, replacementRange: NSRange) {
+        guard remoteInputEnabled else { return }
         let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
         markedText = nil
         guard !text.isEmpty else {
@@ -531,6 +602,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        guard remoteInputEnabled else { return }
         if let attributed = string as? NSAttributedString {
             markedText = attributed.length == 0 ? nil : attributed
         } else if let plain = string as? String {
@@ -584,10 +656,11 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     /// follows the live screen, and Shift is not held.
     private func reportsMouse(_ event: NSEvent) -> Bool {
         let state = session.state
-        return state.mouseReporting && state.follow && !event.modifierFlags.contains(.shift)
+        return remoteInputEnabled && state.mouseReporting && state.follow && !event.modifierFlags.contains(.shift)
     }
 
     private func sendMouse(_ action: TerminalMouseAction, _ button: TerminalMouseButton, _ event: NSEvent) {
+        guard remoteInputEnabled else { return }
         let cell = mouseCell(event)
         let flags = event.modifierFlags
         var modifiers: UInt8 = 0
@@ -664,7 +737,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
                 sendMouse(.wheel, lines > 0 ? .wheelUp : .wheelDown, event)
             }
         } else if state.buffer == .alternate {
-            if state.alternateScroll {
+            if remoteInputEnabled && state.alternateScroll {
                 let key = lines > 0 ? "ArrowUp" : "ArrowDown"
                 for _ in 0 ..< min(abs(lines), 10) {
                     session.send(key: KeyMessage(key: key, code: key))
@@ -768,6 +841,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     @objc func paste(_ sender: Any?) {
+        guard remoteInputEnabled else { return }
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
         keyboardRouter.textWillBePasted()
         followAfterInput()
@@ -778,13 +852,15 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     private func confirmUnsafePaste(token: UInt64) {
+        guard remoteInputEnabled else { return }
         let alert = NSAlert()
         alert.messageText = "Paste text that contains control characters?"
         alert.informativeText = "The text has characters that a program can treat as commands."
         alert.addButton(withTitle: "Paste")
         alert.addButton(withTitle: "Cancel")
         let approve: (NSApplication.ModalResponse) -> Void = { [weak self] response in
-            self?.session.approvePaste(token: token, approved: response == .alertFirstButtonReturn)
+            guard let self, remoteInputEnabled else { return }
+            session.approvePaste(token: token, approved: response == .alertFirstButtonReturn)
         }
         if let window {
             alert.beginSheetModal(for: window, completionHandler: approve)
@@ -803,7 +879,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
         case #selector(copy(_:)): return selectionActive
-        case #selector(paste(_:)): return NSPasteboard.general.string(forType: .string) != nil
+        case #selector(paste(_:)): return remoteInputEnabled && NSPasteboard.general.string(forType: .string) != nil
         default: return true
         }
     }
@@ -814,4 +890,8 @@ extension RemoteTerminalView: TerminalSurface {
         let grid = gridSize
         return (grid.columns, grid.rows)
     }
+}
+
+private final class RemoteInputShade: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

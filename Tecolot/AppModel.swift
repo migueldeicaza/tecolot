@@ -15,6 +15,8 @@ import Foundation
 struct LaunchSpec {
     var profileID: TerminalProfile.ID?
     var workingDirectory: String?
+    /// The SSH destination for a remote persistent session.
+    var remoteDestination: String?
     var themeOverride: String?
     /// Run the shell in a persistent session (tecolot-sessiond) that keeps
     /// running when the pane closes or the app quits.

@@ -248,6 +248,25 @@ public struct SessionDirectory: Sendable {
         posix_spawn_file_actions_adddup2(&actions, 1, 2)
         if let readyFD { posix_spawn_file_actions_adddup2(&actions, readyFD, 3) }
 
+        #if canImport(Glibc)
+        // glibc 2.34 has a close-from action. Use it when it is available.
+        // Older systems add one close action for each open descriptor.
+        let firstClosed: Int32 = readyFD == nil ? 3 : 4
+        if let symbol = dlsym(nil, "posix_spawn_file_actions_addclosefrom_np") {
+            typealias CloseFrom = @convention(c) (UnsafeMutablePointer<posix_spawn_file_actions_t>, Int32) -> Int32
+            let closeFrom = unsafeBitCast(symbol, to: CloseFrom.self)
+            let result = closeFrom(&actions, firstClosed)
+            guard result == 0 else { throw SessionDirectoryError.spawnFailed(result) }
+        } else {
+            let descriptors = try FileManager.default.contentsOfDirectory(atPath: "/proc/self/fd")
+            for name in descriptors {
+                guard let fd = Int32(name), fd >= firstClosed else { continue }
+                let result = posix_spawn_file_actions_addclose(&actions, fd)
+                guard result == 0 else { throw SessionDirectoryError.spawnFailed(result) }
+            }
+        }
+        #endif
+
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
         var flags = Int32(POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK)

@@ -63,7 +63,7 @@ let package = Package(
 
         // The client: connection, state, row cache, viewport and prefetch.
         // No SwiftTerm and no AppKit; the app turns cached rows into lines.
-        .target(name: "TecolotSessionClient", dependencies: ["TecolotWire", "TecolotTransport"]),
+        .target(name: "TecolotSessionClient", dependencies: ["TecolotWire", "TecolotTransport", "TecolotSessionDirectory"]),
         .testTarget(name: "TecolotSessionClientTests", dependencies: [
             "TecolotSessionClient", "TecolotSessionHost", "TecolotSessionDirectory", "TecolotWire", "TecolotTransport",
         ], resources: [
@@ -71,7 +71,7 @@ let package = Package(
             .copy("Golden"),
         ]),
         .testTarget(name: "TecolotSessionDaemonTests", dependencies: [
-            "TecolotSessionDaemon", "TecolotSessionDirectory", "TecolotTransport", "TecolotWire",
+            "TecolotSessionDaemon", "TecolotSessionClient", "TecolotSessionDirectory", "TecolotTransport", "TecolotWire",
             // Built so that the tests can start the real helper.
             "tecolot-sessiond",
         ]),

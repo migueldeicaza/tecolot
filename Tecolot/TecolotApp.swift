@@ -84,6 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         SecureKeyboardEntry.shared.disableForTermination()
+        RemoteHosts.shared.shutdown()
     }
 
     private func openStartupWindow() {

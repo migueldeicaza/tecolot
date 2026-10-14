@@ -29,6 +29,8 @@ public final class SessionServer: @unchecked Sendable {
     private var exitSeen = false
     private var lingerTimer: DispatchSourceTimer?
     private var signalSources: [DispatchSourceSignal] = []
+    private var upkeepTimer: DispatchSourceTimer?
+    private var restoringListener = false
     private var finished = false
 
     /// How long a session whose exit no client saw stays available.
@@ -115,6 +117,11 @@ public final class SessionServer: @unchecked Sendable {
             exitWhenAppropriate()
         }
         installSignalHandlers()
+        let upkeep = DispatchSource.makeTimerSource(queue: host.queue)
+        upkeep.schedule(deadline: .now() + .seconds(3600), repeating: .seconds(3600))
+        upkeep.setEventHandler { [weak self] in self?.touchFiles() }
+        upkeepTimer = upkeep
+        upkeep.resume()
         Self.report(readyFD, "ready \(getpid())")
     }
 
@@ -161,6 +168,43 @@ public final class SessionServer: @unchecked Sendable {
             source.resume()
             signalSources.append(source)
         }
+        signal(SIGUSR1, SIG_IGN)
+        let restore = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: host.queue)
+        restore.setEventHandler { [weak self] in self?.restoreListenerIfMissing() }
+        signalSources.append(restore)
+        restore.resume()
+    }
+
+    /// Updates file times so that temporary-file cleaners keep the session.
+    func touchFiles() {
+        guard !finished else { return }
+        for path in [directory.socketPath(for: id), directory.recordURL(for: id).path,
+                     directory.logURL(for: id).path] {
+            _ = utimensat(AT_FDCWD, path, nil, AT_SYMLINK_NOFOLLOW)
+        }
+    }
+
+    /// Restores the socket after a temporary-file cleaner removes it.
+    private func restoreListenerIfMissing() {
+        guard !finished, !restoringListener,
+              access(directory.socketPath(for: id), F_OK) != 0 else { return }
+        restoringListener = true
+        // SocketListener.stop queues its unlink. Create the replacement after it.
+        listener?.stop()
+        host.queue.async { [weak self] in
+            guard let self else { return }
+            defer { restoringListener = false }
+            guard !finished else { return }
+            do {
+                let replacement = try SocketListener(path: directory.socketPath(for: id), queue: host.queue) { [host] fd in
+                    host.accept(socket: fd)
+                }
+                listener = replacement
+                replacement.start()
+            } catch {
+                fputs("cannot restore session socket: \(error)\n", stderr)
+            }
+        }
     }
 
     /// Ends the child and then the helper.
@@ -176,6 +220,12 @@ public final class SessionServer: @unchecked Sendable {
     private func finish() {
         guard !finished else { return }
         finished = true
+        upkeepTimer?.cancel()
+        upkeepTimer = nil
+        lingerTimer?.cancel()
+        lingerTimer = nil
+        for source in signalSources { source.cancel() }
+        signalSources.removeAll()
         listener?.stop()
         directory.removeFiles(for: id)
         // A normal end needs no log; a crash leaves it for diagnosis.
@@ -185,6 +235,7 @@ public final class SessionServer: @unchecked Sendable {
 
     static func report(_ fd: Int32?, _ message: String) {
         guard let fd, fd >= 0 else { return }
+        UnixSocket.setNoSignalOnBrokenPipe(fd)
         let line = Array((message + "\n").utf8)
         _ = line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
         close(fd)

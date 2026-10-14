@@ -12,7 +12,9 @@ import AppKit
 final class RemoteSessionBanner: NSView {
     private let label = NSTextField(labelWithString: "")
     private let button = NSButton(title: "", target: nil, action: nil)
+    private let secondaryButton = NSButton(title: "", target: nil, action: nil)
     private var handler: (() -> Void)?
+    private var secondaryHandler: (() -> Void)?
 
     init() {
         super.init(frame: .zero)
@@ -27,7 +29,11 @@ final class RemoteSessionBanner: NSView {
         button.controlSize = .small
         button.target = self
         button.action = #selector(buttonPressed)
-        let stack = NSStackView(views: [label, button])
+        secondaryButton.bezelStyle = .rounded
+        secondaryButton.controlSize = .small
+        secondaryButton.target = self
+        secondaryButton.action = #selector(secondaryButtonPressed)
+        let stack = NSStackView(views: [label, button, secondaryButton])
         stack.orientation = .horizontal
         stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 4, right: 6)
@@ -48,14 +54,22 @@ final class RemoteSessionBanner: NSView {
 
     var text: String { label.stringValue }
 
-    func configure(text: String, actionTitle: String?, action: (() -> Void)?) {
+    func configure(text: String, actionTitle: String?, action: (() -> Void)?,
+                   secondaryActionTitle: String? = nil, secondaryAction: (() -> Void)? = nil) {
         label.stringValue = text
         button.title = actionTitle ?? ""
         button.isHidden = actionTitle == nil
         handler = action
+        secondaryButton.title = secondaryActionTitle ?? ""
+        secondaryButton.isHidden = secondaryActionTitle == nil
+        secondaryHandler = secondaryAction
     }
 
     @objc private func buttonPressed() {
         handler?()
+    }
+
+    @objc private func secondaryButtonPressed() {
+        secondaryHandler?()
     }
 }

@@ -14,6 +14,7 @@ import TecolotWire
 final class SessionClient: @unchecked Sendable {
     let channel: MessageChannel
     var negotiatedVersion: UInt32?
+    var clientInstance = ""
     var retainMargin = 256
     var attached = false
     var size = WireGridSize(columns: 80, rows: 24)

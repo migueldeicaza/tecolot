@@ -108,6 +108,7 @@ public final class RemoteSession: @unchecked Sendable {
     public let queue: DispatchQueue
     private let channel: MessageChannel
     private let clientName: String
+    private let clientInstance: String
     private let build: String
     private let maximumFramesPerSecond: Int
     private let inner = Mutex(Inner())
@@ -142,18 +143,19 @@ public final class RemoteSession: @unchecked Sendable {
 
     /// A session over a connected socket (or any read/write descriptor pair).
     public init(readFD: Int32, writeFD: Int32, clientName: String, build: String,
-                maximumFramesPerSecond: Int = 120) {
+                maximumFramesPerSecond: Int = 120, clientInstance: String = "") {
         queue = DispatchQueue(label: "tecolot.remote-session", qos: .userInitiated)
         channel = MessageChannel(readFD: readFD, writeFD: writeFD, queue: queue)
         self.clientName = clientName
+        self.clientInstance = clientInstance
         self.build = build
         self.maximumFramesPerSecond = maximumFramesPerSecond
     }
 
     public convenience init(socket fd: Int32, clientName: String, build: String,
-                            maximumFramesPerSecond: Int = 120) {
+                            maximumFramesPerSecond: Int = 120, clientInstance: String = "") {
         self.init(readFD: fd, writeFD: fd, clientName: clientName, build: build,
-                  maximumFramesPerSecond: maximumFramesPerSecond)
+                  maximumFramesPerSecond: maximumFramesPerSecond, clientInstance: clientInstance)
     }
 
     /// Says hello and attaches with the view's grid size.
@@ -163,7 +165,7 @@ public final class RemoteSession: @unchecked Sendable {
         channel.onClose = { [weak self] error in self?.channelClosed(error) }
         channel.onDrained = nil
         channel.start()
-        channel.send(HelloMessage(build: build, clientName: clientName))
+        channel.send(HelloMessage(build: build, clientName: clientName, clientInstance: clientInstance))
         channel.send(AttachMessage(size: size, maximumFramesPerSecond: maximumFramesPerSecond,
                                    viewer: viewer, focused: focused, scale: scale))
     }
