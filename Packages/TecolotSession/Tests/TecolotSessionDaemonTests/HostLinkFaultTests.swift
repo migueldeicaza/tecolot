@@ -36,7 +36,8 @@ final class HostFaultFixture {
     let resolved: SSHConfiguration
     private var links: [HostLink] = []
 
-    init(rejectMultiplex: Bool = false, reconnectPrompt: String? = nil, masterError: String? = nil) throws {
+    init(rejectMultiplex: Bool = false, reconnectPrompt: String? = nil, masterError: String? = nil,
+         loginPrompt: String? = nil) throws {
         let nonce = String(UInt64.random(in: 0 ... .max), radix: 16)
         root = URL(fileURLWithPath: "/tmp/hf-\(nonce)", isDirectory: true)
         remoteRuntime = URL(fileURLWithPath: "/tmp/tt-\(nonce)", isDirectory: true)
@@ -65,6 +66,7 @@ final class HostFaultFixture {
             config.environment["TECOLOT_FAKE_STATE"] = stateDirectory.path
             config.environment["TECOLOT_FAKE_REJECT_MULTIPLEX"] = rejectMultiplex ? "1" : "0"
             if let masterError { config.environment["TECOLOT_FAKE_MASTER_ERROR"] = masterError }
+            if let loginPrompt { config.environment["TECOLOT_FAKE_LOGIN_PROMPT"] = loginPrompt }
             if let reconnectPrompt { config.environment["TECOLOT_FAKE_RECONNECT_PROMPT"] = reconnectPrompt }
             configuration = config
         } catch {
@@ -135,6 +137,9 @@ final class HostFaultFixture {
         printf '%s\n' "$TECOLOT_FAKE_MASTER_ERROR" >&2
         exit 255
       fi
+      if [ "${TECOLOT_FAKE_LOGIN_PROMPT+x}" = x ]; then
+        "$SSH_ASKPASS" "$TECOLOT_FAKE_LOGIN_PROMPT" > /dev/null || exit 255
+      fi
       if [ "$count" -gt 1 ] && [ "${TECOLOT_FAKE_RECONNECT_PROMPT+x}" = x ]; then
         rm -f "$control"
         SSH_ASKPASS_PROMPT=$TECOLOT_FAKE_RECONNECT_PROMPT
@@ -179,6 +184,20 @@ private func faultScreen(_ session: RemoteSession) -> [String] {
             return cache.text(from: (line, 0), to: (line, row.cells.count - 1))?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
+    }
+}
+
+/// Has a helper only for Linux on ARM, so that the probe on this Mac finds none.
+private struct OtherPlatformSource: RemoteHelperSource {
+    let base: LocalHelperSource
+    var askpassHelperPath: String? { base.askpassHelperPath }
+    func metadata(for binaryID: String) throws -> RemoteHelperMetadata? {
+        guard binaryID == "linux-aarch64", let local = try base.metadata(for: "darwin-universal") else { return nil }
+        return RemoteHelperMetadata(binaryID: binaryID, version: local.version, sha256: local.sha256,
+                                    uncompressedSize: local.uncompressedSize)
+    }
+    func payload(for binaryID: String, compressed: Bool, cacheDirectory: URL) throws -> RemoteHelperPayload {
+        throw TransportError("no helper for \(binaryID)", code: ENOENT)
     }
 }
 
@@ -431,6 +450,72 @@ struct HostLinkFaultTests {
         defer { close(fd) }
         try await faultWait("retry with backoff") { fixture.log.filter { $0 == "master" }.count >= 2 }
         if case .failed = link.state { Issue.record("A restored pane stopped its retries") }
+    }
+
+    @Test func openPromptPausesMasterTimeout() async throws {
+        let fixture = try HostFaultFixture(loginPrompt: "test@fault-host's password: ")
+        defer { fixture.cleanup() }
+        var configuration = fixture.configuration
+        configuration.masterTimeout = 0.3
+        let link = HostLink(destination: "fault-host", configuration: configuration, askpassServer: fixture.server)
+        fixture.track(link)
+        let prompts = Mutex(0)
+        link.confirmInstall = { _, _, reply in reply(true) }
+        // The user types the password after more than the master timeout.
+        link.askpass = { _, reply in
+            prompts.withLock { $0 += 1 }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.8) { reply("secret") }
+        }
+        let result = Mutex<Result<[SessionRecord], Error>?>(nil)
+        link.retain()
+        link.listSessions { value in result.withLock { $0 = value } }
+        try await faultWait("connection after slow prompt") { result.withLock { $0 != nil } }
+        _ = try result.withLock { $0! }.get()
+        #expect(prompts.withLock { $0 } == 1)
+        #expect(fixture.log.filter { $0 == "master" }.count == 1)
+    }
+
+    @Test func stopAllEndsMastersBeforeItReturns() async throws {
+        let fixture = try HostFaultFixture()
+        defer { fixture.cleanup() }
+        let registry = HostLinkRegistry()
+        let link = registry.link(configuration: fixture.resolved, hostConfiguration: fixture.configuration,
+                                 askpassServer: fixture.server)
+        fixture.track(link)
+        link.confirmInstall = { _, _, reply in reply(true) }
+        let result = Mutex<Result<[SessionRecord], Error>?>(nil)
+        link.retain()
+        link.listSessions { value in result.withLock { $0 = value } }
+        try await faultWait("connection") { result.withLock { $0 != nil } }
+        _ = try result.withLock { $0! }.get()
+        let masterPID = try #require(link.masterProcessIdentifier)
+
+        // The app can exit as soon as this call returns.
+        registry.stopAll()
+        if case .idle = link.state {} else { Issue.record("stopAll returned before the link stopped: \(link.state)") }
+        #expect(link.masterProcessIdentifier == nil)
+        try await faultWait("master ends") { kill(masterPID, 0) != 0 }
+        try await faultWait("master exit request") { fixture.log.contains("exit") }
+    }
+
+    @Test func unsupportedHostTellsWhy() async throws {
+        let fixture = try HostFaultFixture()
+        defer { fixture.cleanup() }
+        var configuration = fixture.configuration
+        configuration.helperSource = OtherPlatformSource(
+            base: try LocalHelperSource(executable: URL(fileURLWithPath: helperPath()), version: "test"))
+        let link = HostLink(destination: "fault-host", configuration: configuration, askpassServer: fixture.server)
+        fixture.track(link)
+        let completion = Mutex<Result<String, Error>?>(nil)
+        let fd = link.openPane(sessionID: nil, launch: RemoteSessionLaunch()) { value in completion.withLock { $0 = value } }
+        guard fd >= 0 else { throw TransportError("unsupported pane socket") }
+        defer { close(fd) }
+        try await faultWait("unsupported completion") { completion.withLock { $0 != nil } }
+        guard case .failure(let error) = try #require(completion.withLock { $0 }) else {
+            Issue.record("An unsupported host opened a pane"); return
+        }
+        if case .unsupportedBinary? = error as? RemoteBootstrapError {} else { Issue.record("Wrong error: \(error)") }
+        if case .unsupported = link.state {} else { Issue.record("Wrong state: \(link.state)") }
     }
 }
 #endif

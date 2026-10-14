@@ -240,4 +240,26 @@ struct AskpassTests {
             try AskpassServer.writeWrapper(helperPath: "/bad'path", in: directory.url)
         }
     }
+
+    @Test func wrapperIsReplacedOnlyWhenItChanges() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory.url) }
+        let wrapper = try AskpassServer.writeWrapper(helperPath: "/opt/one/tecolot-sessiond", in: directory.url)
+        var first = stat()
+        #expect(stat(wrapper.path, &first) == 0)
+        #expect(first.st_mode & 0o777 == 0o700)
+        // An ssh process can run the wrapper while another one starts: it keeps the same file.
+        _ = try AskpassServer.writeWrapper(helperPath: "/opt/one/tecolot-sessiond", in: directory.url)
+        var same = stat()
+        #expect(stat(wrapper.path, &same) == 0)
+        #expect(same.st_ino == first.st_ino)
+        _ = try AskpassServer.writeWrapper(helperPath: "/opt/two/tecolot-sessiond", in: directory.url)
+        var changed = stat()
+        #expect(stat(wrapper.path, &changed) == 0)
+        #expect(changed.st_ino != first.st_ino)
+        #expect(changed.st_mode & 0o777 == 0o700)
+        #expect(try String(contentsOf: wrapper, encoding: .utf8).contains("/opt/two/tecolot-sessiond"))
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.url.path)
+        #expect(!names.contains { $0.hasPrefix(".askpass-") })
+    }
 }

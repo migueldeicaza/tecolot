@@ -28,7 +28,7 @@ public final class LinkEndpoint: @unchecked Sendable {
     private static let queueKey = DispatchSpecificKey<ObjectIdentifier>()
     private let readFD: Int32
     private let writeFD: Int32
-    private let descriptors: LinkDescriptorOwner
+    private let descriptors: DescriptorOwner
     private let receiveWindow: UInt64
     private var peerReceiveWindow: UInt64
     private let marker: [UInt8]?
@@ -75,7 +75,7 @@ public final class LinkEndpoint: @unchecked Sendable {
         UnixSocket.setCloseOnExec(writeFD)
         self.readFD = readFD
         self.writeFD = writeFD
-        descriptors = LinkDescriptorOwner(readFD: readFD, writeFD: writeFD)
+        descriptors = DescriptorOwner(readFD: readFD, writeFD: writeFD)
         self.receiveWindow = max(1, receiveWindow)
         self.peerReceiveWindow = max(1, peerReceiveWindow)
         self.queue = queue
@@ -581,30 +581,9 @@ public final class LinkEndpoint: @unchecked Sendable {
     }
 }
 
-/// Closes descriptors only after all source cancellation handlers have run.
-private final class LinkDescriptorOwner: @unchecked Sendable {
-    private let readFD: Int32
-    private let writeFD: Int32
-    private let group = DispatchGroup()
-    private var closing = false
-    init(readFD: Int32, writeFD: Int32) { self.readFD = readFD; self.writeFD = writeFD }
-    func track(_ source: any DispatchSourceProtocol) {
-        group.enter()
-        source.setCancelHandler { [group] in group.leave() }
-    }
-    func close(on queue: DispatchQueue) {
-        guard !closing else { return }
-        closing = true
-        group.notify(queue: queue) { [readFD, writeFD] in
-            posixClose(readFD)
-            if readFD != writeFD { posixClose(writeFD) }
-        }
-    }
-}
-
 private final class LinkDataChannel {
     let descriptor: Int32
-    let owner: LinkDescriptorOwner
+    let owner: DescriptorOwner
     let receiveWindow: UInt64
     var receiveCredit: UInt64
     var sendCredit: UInt64
@@ -622,7 +601,7 @@ private final class LinkDataChannel {
         self.receiveWindow = receiveWindow
         receiveCredit = receiveWindow
         sendCredit = sendWindow
-        owner = LinkDescriptorOwner(readFD: descriptor, writeFD: descriptor)
+        owner = DescriptorOwner(readFD: descriptor, writeFD: descriptor)
     }
     func cancel(queue: DispatchQueue) {
         if readSuspended { readSource?.resume(); readSuspended = false }

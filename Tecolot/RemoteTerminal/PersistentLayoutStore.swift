@@ -45,12 +45,19 @@ indirect enum SavedPaneNode: Codable, Hashable {
             if pane.remoteDestination == nil, let id = pane.sessionID, !liveSessions.contains(id) { return nil }
             return self
         case .split(let orientation, let fraction, let first, let second):
-            switch (first.pruned(liveSessions: liveSessions), second.pruned(liveSessions: liveSessions)) {
-            case (let left?, let right?): return .split(orientation, fraction: fraction, first: left, second: right)
-            case (let left?, nil): return left
-            case (nil, let right?): return right
-            case (nil, nil): return nil
-            }
+            return .split(orientation, fraction: fraction, first.pruned(liveSessions: liveSessions),
+                          second.pruned(liveSessions: liveSessions))
+        }
+    }
+
+    /// A split of the children that are left. A split with one child left becomes that child.
+    static func split(_ orientation: TerminalPaneSplit, fraction: Double?,
+                      _ first: SavedPaneNode?, _ second: SavedPaneNode?) -> SavedPaneNode? {
+        switch (first, second) {
+        case (let left?, let right?): return .split(orientation, fraction: fraction, first: left, second: right)
+        case (let left?, nil): return left
+        case (nil, let right?): return right
+        case (nil, nil): return nil
         }
     }
 }
@@ -194,7 +201,8 @@ final class PersistentLayoutStore {
             var selected = 0
             for tabWindow in tabWindows {
                 guard let workspace = registry.workspace(for: tabWindow) else { continue }
-                let tree = SavedPaneTree(root: Self.capture(workspace.root, hostView: workspace.hostView))
+                guard let root = Self.capture(workspace.root, hostView: workspace.hostView) else { continue }
+                let tree = SavedPaneTree(root: root)
                 guard tree.hasPersistentPane else { continue }
                 if tabWindow === selectedWindow { selected = tabs.count }
                 tabs.append(tree)
@@ -206,9 +214,12 @@ final class PersistentLayoutStore {
         return layout
     }
 
-    static func capture(_ node: TerminalPaneNode, hostView: TerminalPaneHostView?) -> SavedPaneNode {
+    /// Leaves out remote panes whose session ended: the app cannot list remote
+    /// sessions at launch, so it would connect again only to show the end.
+    static func capture(_ node: TerminalPaneNode, hostView: TerminalPaneHostView?) -> SavedPaneNode? {
         switch node.content {
         case .terminal(let controller):
+            guard !controller.remoteSessionEnded else { return nil }
             return .pane(SavedPane(sessionID: controller.persistentSessionID,
                                    profileID: controller.profile.id,
                                    themeOverride: controller.themeOverride,
@@ -216,9 +227,8 @@ final class PersistentLayoutStore {
                                    remoteDestination: controller.remoteDestination))
         case .split(let orientation, let first, let second):
             let fraction = hostView?.dividerFraction(for: node.id).map(Double.init)
-            return .split(orientation, fraction: fraction,
-                          first: capture(first, hostView: hostView),
-                          second: capture(second, hostView: hostView))
+            return SavedPaneNode.split(orientation, fraction: fraction, capture(first, hostView: hostView),
+                                       capture(second, hostView: hostView))
         }
     }
 

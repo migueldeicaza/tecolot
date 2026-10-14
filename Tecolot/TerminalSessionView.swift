@@ -64,8 +64,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored private let clientInstance = UUID().uuidString
     @ObservationIgnored private var remoteGeneration: UInt64 = 0
     @ObservationIgnored private var remoteOpening = false
+    @ObservationIgnored private var remoteLinking = false
     @ObservationIgnored private var remoteNotice: String?
-    @ObservationIgnored private var remoteSessionEnded = false
+    /// The remote session of this pane ended. The saved layout leaves the pane out.
+    @ObservationIgnored private(set) var remoteSessionEnded = false
     @ObservationIgnored private var remoteOpenFailed = false
     /// The link generation in which this pane already reopened a closed session connection.
     @ObservationIgnored private var remoteReopenedGeneration: UInt64?
@@ -1246,20 +1248,22 @@ extension TerminalSessionController {
 
     @MainActor
     private func connectRemoteHost() {
-        guard let destination = remoteDestination, !persistentDetached else { return }
+        guard let destination = remoteDestination, !persistentDetached, !remoteLinking else { return }
+        remoteLinking = true
         RemoteHosts.shared.link(destination: destination) { [weak self] result in
-            guard let self, !self.persistentDetached else { return }
+            guard let self else { return }
+            self.remoteLinking = false
+            guard !self.persistentDetached else { return }
             switch result {
             case .success(let link):
                 self.hostLink = link
-                self.remoteOpening = true
+                // The state callback can open the pane first; openRemotePane opens it only once.
                 RemoteHosts.shared.observe(link: link, observer: self.id,
                     state: { [weak self] state in self?.remoteLinkChanged(state) },
                     notice: { [weak self, weak link] notice in
                         self?.remoteNotice = notice
                         if let link { self?.updateRemoteBanner(state: link.state) }
                     }, window: { [weak self] in self?.surface?.window })
-                self.remoteOpening = false
                 self.openRemotePane(link: link, sessionID: self.persistentSessionID)
             case .failure(let error):
                 self.showRemoteError(error)
@@ -1294,13 +1298,17 @@ extension TerminalSessionController {
                     self.remoteLinkChanged(link.state)
                     PersistentLayoutStore.shared.scheduleSave()
                 case .failure(let error):
-                    if let sessionID, case .connected = link.state {
+                    if case .unsupported = link.state {
+                        // The state banner tells why. A retry cannot help.
+                        self.updateRemoteBanner(state: link.state)
+                    } else if let sessionID, case .connected = link.state {
                         link.listSessions { [weak self] records in
                             DispatchQueue.main.async { [weak self] in
                                 guard let self, !self.persistentDetached else { return }
                                 if case .success(let records) = records, !records.contains(where: { $0.id == sessionID }) {
                                     self.remoteSessionEnded = true
                                     self.persistentView?.remoteInputEnabled = false
+                                    PersistentLayoutStore.shared.scheduleSave()
                                     self.persistentView?.showBanner("The session ended.", actionTitle: "Close") { [weak self] in
                                         self?.closePaneOrWindow()
                                     }
@@ -1499,6 +1507,7 @@ extension TerminalSessionController {
             if remoteDestination != nil {
                 remoteSessionEnded = true
                 persistentView?.remoteInputEnabled = false
+                PersistentLayoutStore.shared.scheduleSave()
             }
             processTerminated(source: nil, exitCode: code)
         case .info(let info):

@@ -259,3 +259,26 @@ public enum RuntimeDirectory {
 @inline(__always) func posixClose(_ fd: Int32) {
     _ = close(fd)
 }
+
+/// Closes descriptors only after the cancel handlers of all their sources ran.
+/// A closed number can be used again at once, and a source that libdispatch still
+/// removes must not act on the new descriptor.
+final class DescriptorOwner: @unchecked Sendable {
+    private let readFD: Int32
+    private let writeFD: Int32
+    private let group = DispatchGroup()
+    private var closing = false
+    init(readFD: Int32, writeFD: Int32) { self.readFD = readFD; self.writeFD = writeFD }
+    func track(_ source: any DispatchSourceProtocol) {
+        group.enter()
+        source.setCancelHandler { [group] in group.leave() }
+    }
+    func close(on queue: DispatchQueue) {
+        guard !closing else { return }
+        closing = true
+        group.notify(queue: queue) { [readFD, writeFD] in
+            posixClose(readFD)
+            if readFD != writeFD { posixClose(writeFD) }
+        }
+    }
+}

@@ -38,7 +38,7 @@ private final class RunningBridge: @unchecked Sendable {
     let closeError = Mutex<String?>(nil)
     let errors = Pipe()
 
-    init(directory: SessionDirectory, host: String? = nil) throws {
+    init(directory: SessionDirectory, host: String? = nil, environment: [String: String] = [:]) throws {
         let input = Pipe()
         let output = Pipe()
         let nonce = host.map { _ in String(UInt64.random(in: 0 ... .max), radix: 16) }
@@ -46,6 +46,7 @@ private final class RunningBridge: @unchecked Sendable {
         let command = ["bridge", "--stdio", "--runtime-dir", directory.url.path] + (nonce.map { ["--nonce", $0] } ?? [])
         process.executableURL = URL(fileURLWithPath: host == nil ? helper : "/usr/bin/ssh")
         process.arguments = host.map { ["-T", "-o", "BatchMode=yes", $0, helper] + command } ?? command
+        process.environment = ProcessInfo.processInfo.environment.merging(environment) { $1 }
         process.standardInput = input
         process.standardOutput = output
         process.standardError = errors
@@ -163,6 +164,29 @@ struct BridgeTests {
                    "Set TECOLOT_SSH_TEST_HOST to run the SSH bridge test"))
     func sshBridgeSurvivesDisconnectAndReconnect() async throws {
         try await bridgeFlow(host: ProcessInfo.processInfo.environment["TECOLOT_SSH_TEST_HOST"])
+    }
+
+    @Test func sessionsUseTheAgentOfTheNewestBridge() async throws {
+        let directory = try makeDirectory()
+        defer {
+            for record in directory.list() { kill(record.pid, SIGTERM) }
+            try? FileManager.default.removeItem(at: directory.url)
+        }
+        let link = directory.url.appendingPathComponent("agent.sock").path
+        let seen = directory.url.appendingPathComponent("seen-agent").path
+        let first = try RunningBridge(directory: directory, environment: ["SSH_AUTH_SOCK": "/tmp/first-agent"])
+        _ = try await first.waitReady()
+        let launch = RemoteSessionLaunch(command: "printf '%s' \"$SSH_AUTH_SOCK\" > '\(seen)'; exec /bin/sleep 30")
+        _ = try await bridgeResult("createSession") { first.client.createSession(launch, completion: $0) }
+        try await bridgeWait("session writes its agent path") { FileManager.default.fileExists(atPath: seen) }
+        try await bridgeWait("agent path is complete") { (try? String(contentsOfFile: seen, encoding: .utf8)) == link }
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link) == "/tmp/first-agent")
+        try await first.stop()
+
+        let second = try RunningBridge(directory: directory, environment: ["SSH_AUTH_SOCK": "/tmp/second-agent"])
+        _ = try await second.waitReady()
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link) == "/tmp/second-agent")
+        try await second.stop()
     }
 
     @Test func missingSessionErrorsDoNotCloseTheBridge() async throws {

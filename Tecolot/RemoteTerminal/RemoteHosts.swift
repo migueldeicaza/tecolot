@@ -87,7 +87,13 @@ final class RemoteHosts {
         let task = configurationTask()
         Task { @MainActor in
             do {
-                let prepared = try await task.value
+                let prepared: Prepared
+                do { prepared = try await task.value }
+                catch {
+                    // Keep only a setup that worked, so that Retry tries a failed one again.
+                    if setup == task { setup = nil }
+                    throw error
+                }
                 guard !stopped else {
                     prepared.askpass.close()
                     throw CocoaError(.userCancelled)

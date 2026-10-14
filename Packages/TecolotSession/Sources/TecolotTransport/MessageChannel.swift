@@ -42,6 +42,7 @@ public final class MessageChannel: @unchecked Sendable {
     private let readFD: Int32
     private let writeFD: Int32
     private let ownsDescriptors: Bool
+    private let descriptors: DescriptorOwner
     private var decoder: EnvelopeStreamDecoder
     private var readSource: DispatchSourceRead?
     // Exists only while a write waits for the socket to become writable.
@@ -66,6 +67,7 @@ public final class MessageChannel: @unchecked Sendable {
         self.readFD = readFD
         self.writeFD = writeFD
         self.ownsDescriptors = ownsDescriptors
+        descriptors = DescriptorOwner(readFD: readFD, writeFD: writeFD)
         self.queue = queue
         decoder = EnvelopeStreamDecoder(maximumMessageSize: maximumMessageSize)
         queue.setSpecific(key: Self.queueKey, value: ObjectIdentifier(queue))
@@ -78,10 +80,7 @@ public final class MessageChannel: @unchecked Sendable {
     deinit {
         readSource?.cancel()
         writeSource?.cancel()
-        if !closed && ownsDescriptors {
-            posixClose(readFD)
-            if writeFD != readFD { posixClose(writeFD) }
-        }
+        if !closed && ownsDescriptors { descriptors.close(on: queue) }
     }
 
     /// A channel over one connected socket.
@@ -104,6 +103,7 @@ public final class MessageChannel: @unchecked Sendable {
 
         let read = DispatchSource.makeReadSource(fileDescriptor: readFD, queue: queue)
         read.setEventHandler { [weak self] in self?.readAvailable() }
+        descriptors.track(read)
         readSource = read
         read.resume()
         if hasPendingWrites { flush() }
@@ -262,6 +262,7 @@ public final class MessageChannel: @unchecked Sendable {
             writeSource = nil
             flush()
         }
+        descriptors.track(source)
         writeSource = source
         source.resume()
     }
@@ -277,10 +278,7 @@ public final class MessageChannel: @unchecked Sendable {
         bulk = WriteQueue()
         current = []
         queuedBytes = 0
-        if ownsDescriptors {
-            posixClose(readFD)
-            if writeFD != readFD { posixClose(writeFD) }
-        }
+        if ownsDescriptors { descriptors.close(on: queue) }
         let handler = onClose
         onMessage = nil
         onDrained = nil

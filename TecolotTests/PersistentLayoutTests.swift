@@ -146,7 +146,7 @@ struct PersistentLayoutTests {
             for id in ids { try? PersistentSessions.directory().terminate(id, signal: SIGKILL) }
         }
 
-        let tree = SavedPaneTree(root: PersistentLayoutStore.capture(workspace.root, hostView: hostView))
+        let tree = SavedPaneTree(root: try #require(PersistentLayoutStore.capture(workspace.root, hostView: hostView)))
         guard case .split(.vertical, let fraction, _, _) = tree.root else {
             Issue.record("expected a vertical split, got \(tree.root)")
             return

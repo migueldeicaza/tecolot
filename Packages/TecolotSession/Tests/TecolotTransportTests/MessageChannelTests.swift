@@ -131,6 +131,46 @@ struct MessageChannelTests {
         try await inbox.waitClosed()
         close(fds[1])
     }
+
+    @Test func closeAndReleaseEndThePeerConnection() async throws {
+        let (a, _, b, inboxB) = try makePair()
+        a.close()
+        try await inboxB.waitClosed()
+        b.close()
+        var (c, _, d, inboxD): (MessageChannel?, Inbox, MessageChannel, Inbox) = try makePair()
+        _ = c
+        c = nil
+        try await inboxD.waitClosed()
+        d.close()
+    }
+
+    @Test func descriptorOwnerClosesAfterCancelHandlers() async throws {
+        var fds: [Int32] = [0, 0]
+        #expect(pipe(&fds) == 0)
+        defer { close(fds[1]) }
+        UnixSocket.setNoSignalOnBrokenPipe(fds[1])
+        let queue = DispatchQueue(label: "descriptor-owner-test")
+        let owner = DescriptorOwner(readFD: fds[0], writeFD: fds[0])
+        let source = DispatchSource.makeReadSource(fileDescriptor: fds[0], queue: queue)
+        owner.track(source)
+        source.resume()
+        let gate = DispatchSemaphore(value: 0)
+        // The cancel handler cannot run until the gate opens.
+        queue.async { gate.wait() }
+        source.cancel()
+        owner.close(on: queue)
+        // A write to the pipe works only while its read end is open.
+        var byte: UInt8 = 1
+        #expect(write(fds[1], &byte, 1) == 1)
+        gate.signal()
+        let deadline = Date().addingTimeInterval(5)
+        var closed = false
+        while !closed && Date() < deadline {
+            closed = write(fds[1], &byte, 1) < 0 && errno == EPIPE
+            if !closed { try await Task.sleep(nanoseconds: 2_000_000) }
+        }
+        #expect(closed)
+    }
 }
 
 struct SocketTests {
