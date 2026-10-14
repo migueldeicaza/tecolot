@@ -154,8 +154,21 @@ public final class AskpassServer: @unchecked Sendable {
         }
         try RuntimeDirectory.prepare(directory)
         let url = directory.appendingPathComponent("askpass")
-        try Data("#!/bin/sh\nexec '\(helperPath)' askpass \"$@\"\n".utf8).write(to: url, options: .atomic)
-        guard chmod(url.path, 0o700) == 0 else { throw TransportError("chmod askpass wrapper") }
+        let script = Data("#!/bin/sh\nexec '\(helperPath)' askpass \"$@\"\n".utf8)
+        // Other ssh processes can run the wrapper at this time. Keep a correct
+        // wrapper, and replace it only with a complete file that can run.
+        var status = stat()
+        if lstat(url.path, &status) == 0, (status.st_mode & S_IFMT) == S_IFREG, status.st_mode & 0o777 == 0o700,
+           (try? Data(contentsOf: url)) == script {
+            return url
+        }
+        let temporary = directory.appendingPathComponent(".askpass-\(UUID().uuidString)")
+        try script.write(to: temporary, options: .withoutOverwriting)
+        guard chmod(temporary.path, 0o700) == 0, rename(temporary.path, url.path) == 0 else {
+            let error = TransportError("install askpass wrapper")
+            unlink(temporary.path)
+            throw error
+        }
         return url
     }
 

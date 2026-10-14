@@ -120,6 +120,38 @@ public struct SessionDirectory: Sendable {
         !id.isEmpty && id.count <= 32 && id.allSatisfy { $0.isHexDigit || $0 == "-" }
     }
 
+    /// True when `record.pid` is still the helper that wrote the record. After
+    /// the helper ends, its PID can belong to another process, which started
+    /// later. Send a signal to a record's PID only when this is true.
+    public static func isHelperRunning(_ record: SessionRecord) -> Bool {
+        guard kill(record.pid, 0) == 0, let started = processStartTime(record.pid) else { return false }
+        // The helper creates the record just after it starts. The record keeps whole seconds.
+        return started <= record.createdAt.addingTimeInterval(5)
+    }
+
+    static func processStartTime(_ pid: Int32) -> Date? {
+        #if canImport(Darwin)
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(info.pbi_start_tvsec)
+                    + TimeInterval(info.pbi_start_tvusec) / 1_000_000)
+        #else
+        // Field 22 of /proc/<pid>/stat is the start in clock ticks after boot. The
+        // command name (field 2) can contain spaces, so count after its parenthesis.
+        guard let stat = try? String(contentsOfFile: "/proc/\(pid)/stat", encoding: .utf8),
+              let end = stat.lastIndex(of: ")") else { return nil }
+        let fields = stat[stat.index(after: end)...].split(separator: " ")
+        guard fields.count > 19, let ticks = Double(fields[19]),
+              let system = try? String(contentsOfFile: "/proc/stat", encoding: .utf8),
+              let line = system.split(separator: "\n").first(where: { $0.hasPrefix("btime ") }),
+              let boot = Double(line.dropFirst(6).trimmingCharacters(in: .whitespaces)) else { return nil }
+        let rate = Double(sysconf(Int32(_SC_CLK_TCK)))
+        guard rate > 0 else { return nil }
+        return Date(timeIntervalSince1970: boot + ticks / rate)
+        #endif
+    }
+
     // MARK: Records
 
     public func readRecord(_ id: String) -> SessionRecord? {
@@ -324,7 +356,7 @@ public struct SessionDirectory: Sendable {
             close(fd)
             if written == bytes.count { return }
         }
-        kill(record.pid, SIGTERM)
+        if Self.isHelperRunning(record) { kill(record.pid, SIGTERM) }
     }
 
     static let encoder: JSONEncoder = {

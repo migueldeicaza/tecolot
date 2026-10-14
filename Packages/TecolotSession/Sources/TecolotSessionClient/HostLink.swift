@@ -31,6 +31,8 @@ public struct HostLinkConfiguration: Sendable {
     public var askpassHelperPath: String?
     public var build: String
     public var idleDelay: TimeInterval = 300
+    /// Seconds that the master has to log in. The time while a prompt is open does not count.
+    public var masterTimeout: TimeInterval = 60
     public var backoffSchedule: [TimeInterval] = [1, 2, 4, 8, 15, 30]
     public var keepaliveInterval: TimeInterval = 10
     public var receiveTimeout: TimeInterval = 30
@@ -88,6 +90,8 @@ public final class HostLink: @unchecked Sendable {
     private var installConfirmed = false
     private var inactivePrompt = false
     private var cancelledPrompt = false
+    private var openPrompts: Set<UUID> = []
+    private var masterDeadline = Date.distantFuture
     private var waiting: [Waiting] = []
     private struct Waiting: Sendable {
         /// The action attaches to a session that exists, as after a relaunch.
@@ -166,6 +170,11 @@ public final class HostLink: @unchecked Sendable {
         }
     }
     public func stop() { queue.async { [self] in stopOnQueue() } }
+    /// Stops the link before it returns, for example when the app quits.
+    public func stopNow() {
+        dispatchPrecondition(condition: .notOnQueue(queue))
+        queue.sync { stopOnQueue() }
+    }
     public func reconnectNow() {
         queue.async { [self] in
             resetProcesses()
@@ -315,6 +324,7 @@ public final class HostLink: @unchecked Sendable {
                             }
                             return
                         }
+                        openPrompts.insert(request.id)
                         handler(request) { [weak self] text in
                             guard let self else { reply(nil); return }
                             queue.async { [self] in
@@ -327,7 +337,13 @@ public final class HostLink: @unchecked Sendable {
                 }
             }, onDismiss: { [weak self] id in
                 guard let self else { return }
-                queue.async { [self] in settings.withLock { $0.onAskpassDismiss }?(id) }
+                queue.async { [self] in
+                    // The login continues after the prompt, with the full time again.
+                    if openPrompts.remove(id) != nil {
+                        masterDeadline = Date().addingTimeInterval(configuration.masterTimeout)
+                    }
+                    settings.withLock { $0.onAskpassDismiss }?(id)
+                }
             })
         do {
             guard let helperPath = configuration.askpassHelperPath ?? configuration.helperSource.askpassHelperPath else {
@@ -388,10 +404,12 @@ public final class HostLink: @unchecked Sendable {
         }
         settings.withLock { $0.masterPID = process.pid }
         process.write(Data())
-        waitForMaster(ticket: ticket, deadline: Date().addingTimeInterval(60))
+        openPrompts.removeAll()
+        masterDeadline = Date().addingTimeInterval(configuration.masterTimeout)
+        waitForMaster(ticket: ticket)
     }
 
-    private func waitForMaster(ticket: UInt64, deadline: Date) {
+    private func waitForMaster(ticket: UInt64) {
         guard epoch == ticket, let master, master.isRunning else { return }
         if FileManager.default.fileExists(atPath: socketPath!) {
             do {
@@ -400,10 +418,10 @@ public final class HostLink: @unchecked Sendable {
                     else { handleFailure(SSHErrorClassifier.classify(stderr: child.stderr, cancelled: cancelledPrompt)) }
                 }
             } catch { fail(error) }
-        } else if Date() >= deadline {
+        } else if openPrompts.isEmpty && Date() >= masterDeadline {
             handleFailure(SSHErrorClassifier.classify(stderr: "Connection timed out"))
         } else {
-            queue.asyncAfter(deadline: .now() + 0.05) { [self] in waitForMaster(ticket: ticket, deadline: deadline) }
+            queue.asyncAfter(deadline: .now() + 0.05) { [self] in waitForMaster(ticket: ticket) }
         }
     }
 
@@ -460,7 +478,7 @@ public final class HostLink: @unchecked Sendable {
         guard let binaryID = result.binaryID,
               let metadata = try configuration.helperSource.metadata(for: binaryID) else {
             setState(.unsupported(os: result.os, arch: result.arch))
-            failWaiting(LinkClientError.invalidReply); return
+            failWaiting(RemoteBootstrapError.unsupportedBinary("\(result.os), \(result.arch)")); return
         }
         guard result.homeOK else {
             throw SSHError(kind: .other, message: "The helper directory is not safe or cannot be created.")
@@ -704,5 +722,6 @@ public final class HostLinkRegistry: @unchecked Sendable {
         }
     }
     deinit { for link in links.withLock({ Array($0.values) }) { link.stop() } }
-    public func stopAll() { for link in links.withLock({ Array($0.values) }) { link.stop() } }
+    /// Stops the masters before it returns, so that none stays after the app quits.
+    public func stopAll() { for link in links.withLock({ Array($0.values) }) { link.stopNow() } }
 }

@@ -53,4 +53,22 @@ struct SessionUpkeepTests {
         channel.send(HelloMessage(build: "test", clientName: "socket-upkeep"))
         try await waitFor("restored socket accepts hello") { inbox.all.contains { $0.kind == .helloReply } }
     }
+
+    @Test func signalsGoOnlyToTheHelperThatWroteTheRecord() throws {
+        func record(pid: Int32, createdAt: Date) -> SessionRecord {
+            SessionRecord(id: "abc123", pid: pid, shellPID: 0, protocolVersion: 1, build: "test",
+                          createdAt: createdAt, executable: "/bin/sh", workingDirectory: nil, labels: [:],
+                          columns: 80, rows: 24)
+        }
+        // This test process plays the helper: it started before the record.
+        #expect(SessionDirectory.isHelperRunning(record(pid: getpid(), createdAt: Date())))
+        // A record from before this process started: the PID belongs to a new process.
+        #expect(!SessionDirectory.isHelperRunning(record(pid: getpid(), createdAt: Date().addingTimeInterval(-24 * 3600))))
+        // A helper that ended.
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try child.run()
+        child.waitUntilExit()
+        #expect(!SessionDirectory.isHelperRunning(record(pid: child.processIdentifier, createdAt: Date())))
+    }
 }

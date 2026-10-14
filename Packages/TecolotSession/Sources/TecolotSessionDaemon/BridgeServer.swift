@@ -35,7 +35,11 @@ final class BridgeServer: @unchecked Sendable {
         self.build = build
         self.idleTimeout = idleTimeout
         user = try RemoteUserInfo.current()
-        environment = ProcessInfo.processInfo.environment
+        var environment = ProcessInfo.processInfo.environment
+        if let agent = Self.linkAgent(environment["SSH_AUTH_SOCK"], in: directory.url) {
+            environment["SSH_AUTH_SOCK"] = agent
+        }
+        self.environment = environment
         // A marker with an empty nonce also precedes the first frame.
         endpoint = LinkEndpoint(readFD: STDIN_FILENO, writeFD: STDOUT_FILENO, startNonce: nonce ?? "")
         endpoint.onControl = { [weak self] envelope in self?.handle(envelope) }
@@ -159,7 +163,7 @@ final class BridgeServer: @unchecked Sendable {
         catch {
             let path = directory.socketPath(for: id)
             guard !FileManager.default.fileExists(atPath: path), let record = directory.readRecord(id),
-                  kill(record.pid, 0) == 0, kill(record.pid, SIGUSR1) == 0 else { throw error }
+                  SessionDirectory.isHelperRunning(record), kill(record.pid, SIGUSR1) == 0 else { throw error }
             let deadline = DispatchTime.now().uptimeNanoseconds + 1_000_000_000
             repeat {
                 if let fd = try? directory.connect(id) { return fd }
@@ -178,6 +182,21 @@ final class BridgeServer: @unchecked Sendable {
                                  machineID: Self.machineID(), hostName: String(decoding: host.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self),
                                  runtimeDirectory: directory.url.path, home: user.home,
                                  shell: user.shell.isEmpty ? "/bin/sh" : user.shell, receiveWindow: receiveWindow)
+    }
+
+    /// A forwarded agent socket ends with its ssh connection, but a session
+    /// continues after it. Sessions get a fixed path in the runtime directory,
+    /// which points to the agent of the newest bridge. Returns that path.
+    static func linkAgent(_ socket: String?, in runtime: URL) -> String? {
+        guard let socket, !socket.isEmpty else { return nil }
+        let path = runtime.appendingPathComponent("agent.sock").path
+        // A bridge that starts in a session already has the fixed path.
+        guard socket != path else { return path }
+        let temporary = runtime.appendingPathComponent(".agent-\(getpid()).sock").path
+        unlink(temporary)
+        guard symlink(socket, temporary) == 0 else { return nil }
+        guard rename(temporary, path) == 0 else { unlink(temporary); return nil }
+        return path
     }
 
     private static func cString<T>(_ tuple: T) -> String {
