@@ -546,3 +546,11 @@ print("  rounds where the marker frame waited for a credit: \(creditWaits) of \(
 if !bytes.isEmpty {
     print("  bytes parsed after the key (p50): \(bytes[bytes.count / 2]); frames sent until the marker (p50): \(frames[frames.count / 2])")
 }
+
+// The slowest rounds, stage by stage: where a tail comes from.
+print("")
+print("slowest inproc rounds (microseconds)   total  key->pty  pty->parsed  parsed->frame  frame->client  bytes  frames  credit/slot waits")
+for (round, end) in traced.sorted(by: { $0.end - $0.round.start > $1.end - $1.round.start }).prefix(5) {
+    func us(_ value: UInt64?) -> String { value.map { String(format: "%8.0f", Double($0) / 1000) } ?? "       -" }
+    print("                                     \(us(end - round.start))  \(us(difference(round.input, round.start)))  \(us(difference(round.parsed, round.input)))     \(us(difference(round.frame, round.parsed)))       \(us(difference(end, round.frame)))  \(String(format: "%6d", round.bytesAfterInput))  \(String(format: "%6d", round.framesAfterInput))  \(round.creditWaitsAfterMarker)/\(round.slotWaitsAfterMarker)")
+}

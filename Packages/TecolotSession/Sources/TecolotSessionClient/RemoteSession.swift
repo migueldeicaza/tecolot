@@ -78,6 +78,11 @@ public enum RemoteSessionEvent: Sendable {
     case bell
     case clipboardCopy([UInt8])
     case clipboardReadRequest(request: UInt64, selection: String)
+    /// A progress report (OSC 9;4). A terminal removes the bar 15 seconds
+    /// after the last report.
+    case progress(WireProgress)
+    /// A program asked for a desktop notification (OSC 9 or OSC 777).
+    case notification(title: String, body: String)
     case exited(Int32?)
     case info(SessionInfoMessage)
     case error(ErrorMessage)
@@ -397,6 +402,9 @@ public final class RemoteSession: @unchecked Sendable {
                 onEvent?(.bell)
             case .clipboardCopy:
                 onEvent?(.clipboardCopy(try envelope.decode(ClipboardCopyMessage.self).data))
+            case .notification:
+                let message = try envelope.decode(NotificationMessage.self)
+                onEvent?(.notification(title: message.title, body: message.body))
             case .clipboardReadRequest:
                 let request = try envelope.decode(ClipboardReadRequestMessage.self)
                 onEvent?(.clipboardReadRequest(request: request.request, selection: request.selection))
@@ -506,6 +514,9 @@ public final class RemoteSession: @unchecked Sendable {
             if let directory = frame.directory {
                 state.directory = directory
                 events.append(.directory(directory))
+            }
+            if let progress = frame.progress {
+                events.append(.progress(progress))
             }
             if let colors = frame.colors {
                 state.colors = colors

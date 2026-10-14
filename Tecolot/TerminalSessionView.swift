@@ -66,6 +66,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored weak var workspace: TerminalPaneWorkspace?
     @ObservationIgnored private var isConfigured = false
     @ObservationIgnored private var didRequestFocus = false
+    /// Reads notifications (OSC 9, OSC 777) from the local terminal.
+    @ObservationIgnored private var oscObservation: TerminalOscObservation?
 
     /// The profile driving this session; replaced by applyProfile(_:)
     private(set) var profile = TerminalProfile(name: "Untitled")
@@ -325,6 +327,15 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         terminal.sessionController = self
         // Bundled Symbols Nerd Font supplies icons the profile font lacks.
         terminal.glyphFallbackProvider = NerdFontFallbackProvider.shared
+        // SwiftTerm does not show notifications; the helper does the same
+        // for persistent panes.
+        oscObservation = terminal.observeOscEvents(codes: [9, 777]) { [weak self] event in
+            guard let message = NotificationMessage(oscCode: event.code, payload: event.payload) else { return }
+            Task { @MainActor in
+                guard let self else { return }
+                TerminalNotifier.shared.notify(title: message.title, body: message.body, from: self)
+            }
+        }
         attach(to: terminal)
         if !startsProcess {
             restoreBufferIfNeeded(on: terminal)
@@ -338,6 +349,15 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         TerminalSessionRegistry.shared.focus(controller: self, for: window)
         setHasActivity(false)
         updateWindowTitle()
+    }
+
+    /// Brings the window of this pane to the front and focuses the pane.
+    func reveal() {
+        guard let surface, let window = surface.window else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(surface)
+        didBecomeFocused()
     }
 
     func requestFocus() {
@@ -1304,6 +1324,14 @@ extension TerminalSessionController {
             processTerminated(source: nil, exitCode: code)
         case .info(let info):
             updatePaneExecutablePath(info.foreground?.path)
+        case .progress(let progress):
+            let state = Terminal.ProgressReportState(rawValue: Int(progress.state)) ?? .remove
+            // A report that came before this pane attached shows for the
+            // time that is left.
+            persistentView?.showProgress(Terminal.ProgressReport(state: state, progress: progress.progress),
+                                         duration: 15 - Double(progress.age) / 1000)
+        case .notification(let title, let body):
+            TerminalNotifier.shared.notify(title: title, body: body, from: self)
         case .closed:
             guard !persistentDetached, let persistentView,
                   persistentView.session.state.exitStatus == nil else { return }
@@ -1702,6 +1730,16 @@ final class TerminalSessionRegistry {
 
     func workspace(for window: NSWindow?) -> TerminalPaneWorkspace? {
         controller(for: window)?.workspace
+    }
+
+    /// The persistent sessions that panes of this app show.
+    func shownPersistentSessionIDs() -> Set<String> {
+        Set(NSApp.windows.flatMap { controllers(for: $0) }.compactMap(\.persistentSessionID))
+    }
+
+    /// The pane that shows the persistent session `id`, if any.
+    func controller(showingPersistentSession id: String) -> TerminalSessionController? {
+        NSApp.windows.lazy.flatMap { self.controllers(for: $0) }.first { $0.persistentSessionID == id }
     }
 }
 

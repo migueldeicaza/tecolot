@@ -227,8 +227,7 @@ final class PersistentLayoutStore {
     func restore() -> Bool {
         isReady = true
         guard let saved = load() else { return false }
-        let registry = TerminalSessionRegistry.shared
-        let shown = Set(NSApp.windows.flatMap { registry.controllers(for: $0) }.compactMap(\.persistentSessionID))
+        let shown = TerminalSessionRegistry.shared.shownPersistentSessionIDs()
         let live = Set(PersistentSessions.list().filter { !$0.exited }.map(\.id)).subtracting(shown)
         let layout = saved.pruned(liveSessions: live)
         var opened = false

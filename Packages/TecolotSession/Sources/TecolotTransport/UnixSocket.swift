@@ -146,7 +146,8 @@ public enum UnixSocket {
 
     /// A write to a closed peer fails with EPIPE instead of raising SIGPIPE,
     /// which would end the process. Works for sockets and pipes on Darwin;
-    /// on Linux the helper ignores SIGPIPE.
+    /// on Linux the helper ignores SIGPIPE. Darwin refuses it (EINVAL) on a
+    /// socket whose peer already closed, so set it before the peer can close.
     public static func setNoSignalOnBrokenPipe(_ fd: Int32) {
         #if canImport(Darwin)
         // Pipes take the fcntl; sockets take the socket option. Each call

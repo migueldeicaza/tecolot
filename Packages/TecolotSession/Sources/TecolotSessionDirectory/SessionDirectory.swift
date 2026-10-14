@@ -48,6 +48,9 @@ public struct SessionRecord: Codable, Hashable, Sendable {
     public var foreground: String?
     public var exited: Bool
     public var exitCode: Int32?
+    /// The last notification (OSC 9 or OSC 777) that came while no client
+    /// was attached. The app shows it.
+    public var notification: SessionNotification?
 
     public init(id: String, pid: Int32, shellPID: Int32, protocolVersion: UInt32, build: String,
                 createdAt: Date, executable: String, workingDirectory: String?, labels: [String: String],
@@ -70,6 +73,21 @@ public struct SessionRecord: Codable, Hashable, Sendable {
         lastAttachedAt = nil
         exited = false
         exitCode = nil
+    }
+}
+
+/// A notification that a program in a detached session asked for.
+public struct SessionNotification: Codable, Hashable, Sendable {
+    /// Counts the notifications of the session, so that the app shows each
+    /// one once.
+    public var serial: UInt64
+    public var title: String
+    public var body: String
+
+    public init(serial: UInt64, title: String, body: String) {
+        self.serial = serial
+        self.title = title
+        self.body = body
     }
 }
 

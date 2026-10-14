@@ -111,9 +111,18 @@ enum WindowOpener {
         return window
     }
 
+    /// The window that a new tab joins: the key or main window when it
+    /// holds terminals, else the frontmost window that does. Other windows
+    /// (Settings, Sessions) cannot hold a terminal tab.
+    static func frontTerminalWindow(
+        in candidates: [NSWindow] = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 } + NSApp.orderedWindows
+    ) -> NSWindow? {
+        candidates.first { TerminalSessionRegistry.shared.controller(for: $0) != nil }
+    }
+
     @discardableResult
     static func openTab(spec: LaunchSpec, targetWindow: NSWindow? = nil) -> NSWindow? {
-        let targetWindow = targetWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let targetWindow = targetWindow ?? frontTerminalWindow()
         guard let (document, _, newWindow) = makeDocumentWindow(spec: spec) else {
             return nil
         }
@@ -186,7 +195,7 @@ enum WindowOpener {
         let defaults = UserDefaults.standard
         let inheritDirectory = defaults.object(forKey: "newTabsUseCurrentDirectory") as? Bool ?? true
         let inheritProfile = defaults.object(forKey: "newTabsUseCurrentProfile") as? Bool ?? true
-        let front = TerminalSessionRegistry.shared.controller(for: NSApp.keyWindow ?? NSApp.mainWindow)
+        let front = TerminalSessionRegistry.shared.controller(for: frontTerminalWindow())
         return LaunchSpec(
             profileID: inheritProfile ? front?.profile.id : nil,
             workingDirectory: inheritDirectory ? front?.currentWorkingDirectory : nil
@@ -196,6 +205,7 @@ enum WindowOpener {
 
 struct ProfileCommands: Commands {
     @ObservedObject var profiles: ProfileStore
+    @Environment(\.openWindow) private var openWindow
     @State private var commandState = TerminalCommandState()
 
     var body: some Commands {
@@ -212,7 +222,7 @@ struct ProfileCommands: Commands {
                 WindowOpener.openWindow(spec: spec)
             }
             Button("Attach to Session…") {
-                SessionAttachPanel.run()
+                openWindow(id: SessionBrowserWindowID.value)
             }
             Divider()
             Menu("New Window with Profile") {

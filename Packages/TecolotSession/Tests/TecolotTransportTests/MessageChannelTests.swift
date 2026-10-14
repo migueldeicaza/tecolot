@@ -204,13 +204,19 @@ struct SocketTests {
         #else
         guard socketpair(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0, &fds) == 0 else { throw TransportError("socketpair") }
         #endif
-        close(fds[1])
         let channel = MessageChannel(socket: fds[0])
         let inbox = Inbox()
         channel.onClose = { _ in inbox.markClosed() }
         channel.start()
-        channel.send(TextMessage(text: "nobody listens"))
-        channel.queue.sync { channel.flushPending() }
+        // The peer closes after the channel started (Darwin refuses
+        // SO_NOSIGPIPE on a socket whose peer closed), and in the same turn
+        // of the queue as the write, so that the end of file cannot come
+        // first.
+        channel.queue.sync {
+            close(fds[1])
+            channel.send(TextMessage(text: "nobody listens"))
+            channel.flushPending()
+        }
         try await inbox.waitClosed()
     }
 }

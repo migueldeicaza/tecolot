@@ -28,9 +28,13 @@ public struct SessionCapabilities: OptionSet, Hashable, Sendable {
     /// The helper sends the paragraph rows that bidi layout needs and the
     /// paragraph row limit.
     public static let bidi = SessionCapabilities(rawValue: 1 << 5)
+    /// The helper reads the options and the bytes of `KeyMessage`. An
+    /// older helper ignores them: Backspace then sends DEL, whatever the
+    /// client's setting.
+    public static let keyBytes = SessionCapabilities(rawValue: 1 << 6)
 
     /// What this build of the helper handles.
-    public static let helper: SessionCapabilities = [.search, .reset, .prompts, .images, .bidi]
+    public static let helper: SessionCapabilities = [.search, .reset, .prompts, .images, .bidi, .keyBytes]
 }
 
 public enum WireBuffer: UInt8, Hashable, Sendable {
@@ -410,8 +414,18 @@ public struct FetchRowsMessage: WireMessage, Hashable {
 
 /// A key event with W3C `KeyboardEvent` names, encoded by the helper with
 /// `Terminal.sendHostKey`.
+///
+/// The client can send the bytes that it made for the key, with the modes
+/// that it used. The helper sends these bytes when the terminal still has
+/// these modes (so a key sends the same bytes as in a local pane), and
+/// encodes the key otherwise (so a mode change cannot race a key).
 public struct KeyMessage: WireMessage, Hashable {
     public static let kind = MessageKind.key
+    /// The bits of `Terminal.hostInputModes` that change the bytes of a
+    /// key: application cursor (bit 0), application keypad (bit 1) and the
+    /// kitty keyboard flags (bits 8 to 12).
+    public static let keyboardModeMask: UInt32 = 0x1f03
+    public static let bytesLimit = 4096
     public var key: String
     public var code: String
     /// Kitty modifier bits: shift 1, alt 2, ctrl 4, super 8, hyper 16, meta 32, caps 64, num 128.
@@ -421,9 +435,21 @@ public struct KeyMessage: WireMessage, Hashable {
     public var text: String?
     public var shiftedKey: UInt32
     public var baseLayoutKey: UInt32
+    /// An input method composes text at this time (kitty reports only
+    /// modifier keys then).
+    public var composing: Bool
+    /// The client's setting: Backspace sends ^H instead of DEL.
+    public var backspaceSendsControlH: Bool
+    /// The bytes that the client made for the key, or nil.
+    public var bytes: [UInt8]?
+    /// The client's `Terminal.hostInputModes` when it made `bytes`; only
+    /// `keyboardModeMask` counts.
+    public var modes: UInt32
 
     public init(key: String, code: String, modifiers: UInt32 = 0, eventType: UInt32 = 1,
-                text: String? = nil, shiftedKey: UInt32 = 0, baseLayoutKey: UInt32 = 0) {
+                text: String? = nil, shiftedKey: UInt32 = 0, baseLayoutKey: UInt32 = 0,
+                composing: Bool = false, backspaceSendsControlH: Bool = false,
+                bytes: [UInt8]? = nil, modes: UInt32 = 0) {
         self.key = key
         self.code = code
         self.modifiers = modifiers
@@ -431,6 +457,16 @@ public struct KeyMessage: WireMessage, Hashable {
         self.text = text
         self.shiftedKey = shiftedKey
         self.baseLayoutKey = baseLayoutKey
+        self.composing = composing
+        self.backspaceSendsControlH = backspaceSendsControlH
+        self.bytes = bytes
+        self.modes = bytes == nil ? 0 : modes & Self.keyboardModeMask
+    }
+
+    /// True when `bytes` apply to a terminal whose `hostInputModes` is
+    /// `terminalModes`.
+    public func bytesApply(to terminalModes: UInt32) -> Bool {
+        bytes != nil && terminalModes & Self.keyboardModeMask == modes
     }
 
     public init(from reader: inout WireReader) throws(WireError) {
@@ -441,6 +477,17 @@ public struct KeyMessage: WireMessage, Hashable {
         text = try reader.optionalString()
         shiftedKey = try reader.varint32()
         baseLayoutKey = try reader.varint32()
+        // Added later: older clients do not send it.
+        let options = reader.isAtEnd ? 0 : try reader.u8()
+        composing = options & 1 != 0
+        backspaceSendsControlH = options & 2 != 0
+        if options & 4 != 0 {
+            modes = try reader.varint32() & Self.keyboardModeMask
+            bytes = try reader.blob(limit: Self.bytesLimit)
+        } else {
+            modes = 0
+            bytes = nil
+        }
     }
 
     public func encode(to writer: inout WireWriter) {
@@ -451,6 +498,11 @@ public struct KeyMessage: WireMessage, Hashable {
         writer.optionalString(text)
         writer.varint(shiftedKey)
         writer.varint(baseLayoutKey)
+        writer.u8((composing ? 1 : 0) | (backspaceSendsControlH ? 2 : 0) | (bytes != nil ? 4 : 0))
+        if let bytes {
+            writer.varint(modes)
+            writer.blob(bytes)
+        }
     }
 }
 
@@ -939,11 +991,14 @@ public struct FrameMessage: WireMessage, Hashable {
     public var maximumBidiParagraphRows: Int?
     /// The Kitty graphics that touch the client's rows; nil when unchanged.
     public var kitty: WireKittyState?
+    /// The last progress report (OSC 9;4); nil when no new report came.
+    public var progress: WireProgress?
 
     struct Extensions: OptionSet {
         let rawValue: UInt32
         static let bidi = Extensions(rawValue: 1 << 0)
         static let kitty = Extensions(rawValue: 1 << 1)
+        static let progress = Extensions(rawValue: 1 << 2)
     }
 
     public init(sequence: UInt64, snapshotSequence: UInt64, buffer: WireBuffer, epoch: UInt64,
@@ -951,7 +1006,8 @@ public struct FrameMessage: WireMessage, Hashable {
                 cursor: WireCursor, modes: WireModes? = nil, title: String? = nil,
                 iconTitle: String? = nil, directory: String? = nil, colors: WireColorState? = nil,
                 reverseVideo: Bool? = nil, changedRows: [WireRowRecord] = [],
-                maximumBidiParagraphRows: Int? = nil, kitty: WireKittyState? = nil) {
+                maximumBidiParagraphRows: Int? = nil, kitty: WireKittyState? = nil,
+                progress: WireProgress? = nil) {
         self.sequence = sequence
         self.snapshotSequence = snapshotSequence
         self.buffer = buffer
@@ -971,6 +1027,7 @@ public struct FrameMessage: WireMessage, Hashable {
         self.changedRows = changedRows
         self.maximumBidiParagraphRows = maximumBidiParagraphRows
         self.kitty = kitty
+        self.progress = progress
     }
 
     public init(from reader: inout WireReader) throws(WireError) {
@@ -1017,6 +1074,7 @@ public struct FrameMessage: WireMessage, Hashable {
         let extensions = Extensions(rawValue: try reader.varint32())
         if extensions.contains(.bidi) { maximumBidiParagraphRows = try reader.count(limit: 1 << 20) }
         if extensions.contains(.kitty) { kitty = try WireKittyState(from: &reader) }
+        if extensions.contains(.progress) { progress = try WireProgress(from: &reader) }
     }
 
     public func encode(to writer: inout WireWriter) {
@@ -1064,10 +1122,45 @@ public struct FrameMessage: WireMessage, Hashable {
         var extensions: Extensions = []
         if maximumBidiParagraphRows != nil { extensions.insert(.bidi) }
         if kitty != nil { extensions.insert(.kitty) }
+        if progress != nil { extensions.insert(.progress) }
         guard !extensions.isEmpty else { return }
         writer.varint(extensions.rawValue)
         if let maximumBidiParagraphRows { writer.varint(maximumBidiParagraphRows) }
         if let kitty { kitty.encode(to: &writer) }
+        if let progress { progress.encode(to: &writer) }
+    }
+}
+
+/// A progress report (OSC 9;4): the values of SwiftTerm's
+/// `Terminal.ProgressReport`.
+public struct WireProgress: Hashable, Sendable {
+    /// `Terminal.ProgressReportState`: 0 remove, 1 set, 2 error,
+    /// 3 indeterminate, 4 pause.
+    public var state: UInt8
+    /// 0 to 100, or nil.
+    public var progress: UInt8?
+    /// How long ago the program sent the report, in milliseconds. A
+    /// terminal removes the bar 15 seconds after the last report, so a
+    /// client that gets an older report shows it for the time that is left.
+    public var age: UInt32
+
+    public init(state: UInt8, progress: UInt8?, age: UInt32 = 0) {
+        self.state = state
+        self.progress = progress
+        self.age = age
+    }
+
+    init(from reader: inout WireReader) throws(WireError) {
+        state = try reader.u8()
+        let value = try reader.u8()
+        progress = value == 0xFF ? nil : min(value, 100)
+        age = try reader.varint32()
+    }
+
+    func encode(to writer: inout WireWriter) {
+        writer.u8(state)
+        writer.u8(progress ?? 0xFF)
+        writer.varint(age)
     }
 }
 
@@ -1336,6 +1429,76 @@ public struct BellMessage: WireMessage, Hashable {
     public init() {}
     public init(from reader: inout WireReader) throws(WireError) {}
     public func encode(to writer: inout WireWriter) {}
+}
+
+/// A desktop notification that a program asked for (OSC 9 or OSC 777).
+public struct NotificationMessage: WireMessage, Hashable {
+    public static let kind = MessageKind.notification
+    public static let titleLimit = 256
+    public static let bodyLimit = 2048
+
+    public var title: String
+    public var body: String
+
+    public init(title: String, body: String) {
+        self.title = title
+        self.body = body
+    }
+
+    /// The notification in an OSC sequence, or nil when the sequence is not
+    /// one:
+    /// - `OSC 9 ; body`, from iTerm2. ConEmu uses OSC 9 with a number first
+    ///   (`OSC 9 ; 4 ; ...` reports progress), so a payload that starts with
+    ///   digits and a semicolon is not a notification.
+    /// - `OSC 777 ; notify ; title ; body`, from rxvt-unicode.
+    ///
+    /// Control characters are removed, and long texts are cut.
+    public init?(oscCode code: Int, payload: [UInt8]) {
+        // Other codes can carry large payloads (images): do not decode them.
+        guard code == 9 || code == 777 else { return nil }
+        let text = String(decoding: payload, as: UTF8.self)
+        switch code {
+        case 9:
+            let digits = text.prefix { $0.isASCII && $0.isNumber }
+            if !digits.isEmpty, text.dropFirst(digits.count).first == ";" || digits.count == text.count {
+                return nil
+            }
+            title = ""
+            body = text
+        case 777:
+            let parts = text.split(separator: ";", maxSplits: 2, omittingEmptySubsequences: false)
+            guard parts.count >= 2, parts[0] == "notify" else { return nil }
+            title = String(parts[1])
+            body = parts.count > 2 ? String(parts[2]) : ""
+        default:
+            return nil
+        }
+        title = Self.clean(title, limit: Self.titleLimit)
+        body = Self.clean(body, limit: Self.bodyLimit)
+        guard !title.isEmpty || !body.isEmpty else { return nil }
+    }
+
+    static func clean(_ text: String, limit: Int) -> String {
+        let scalars = text.unicodeScalars
+            .filter { $0.properties.generalCategory != .control }
+            .prefix(limit)
+        let trimmed = scalars
+            .drop { $0.properties.isWhitespace }
+            .reversed()
+            .drop { $0.properties.isWhitespace }
+            .reversed()
+        return String(String.UnicodeScalarView(trimmed))
+    }
+
+    public init(from reader: inout WireReader) throws(WireError) {
+        title = try reader.string(limit: Self.titleLimit * 4)
+        body = try reader.string(limit: Self.bodyLimit * 4)
+    }
+
+    public func encode(to writer: inout WireWriter) {
+        writer.string(title)
+        writer.string(body)
+    }
 }
 
 public struct ClipboardCopyMessage: WireMessage, Hashable {

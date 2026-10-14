@@ -6,8 +6,11 @@
 //  TerminalRenderView and runs no terminal emulator: tecolot-sessiond owns
 //  the terminal, and the view sends it keys, text, mouse reports and pastes.
 //
-//  Keys go to the helper as W3C key events, and the helper encodes them with
-//  the terminal's current modes, so a mode change can never race a key.
+//  Keys go to the helper as W3C key events with the bytes that SwiftTerm's
+//  keyboard router made for them and the modes that it used. The helper
+//  sends these bytes while the terminal has these modes, and encodes the key
+//  with the modes of now otherwise, so a mode change can never race a key.
+//  Typed text goes as text, which the helper encodes with its modes too.
 //
 
 import AppKit
@@ -15,7 +18,7 @@ import SwiftTerm
 import TecolotSessionClient
 import TecolotWire
 
-final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuItemValidation {
+final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuItemValidation, TerminalKeyboardHost {
     private(set) var session: RemoteSession
     let source: RemoteFrameSource
     weak var sessionController: TerminalSessionController?
@@ -69,6 +72,8 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     override func resignFirstResponder() -> Bool {
         hasFocus = false
         session.setFocus(false)
+        // Releases can be lost while another view has the keys.
+        keyboardRouter.focusLost()
         return true
     }
 
@@ -403,224 +408,108 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     // MARK: Keyboard
 
-    private struct SpecialKey {
-        let key: String
-        let code: String
-    }
+    /// SwiftTerm's keyboard router makes the same decisions as in a local
+    /// pane, so a key reaches the program as the same bytes (KeyParityTests).
+    private lazy var keyboardRouter = TerminalKeyboardRouter(host: self)
 
-    private static let specialKeys: [UInt16: SpecialKey] = [
-        123: SpecialKey(key: "ArrowLeft", code: "ArrowLeft"),
-        124: SpecialKey(key: "ArrowRight", code: "ArrowRight"),
-        125: SpecialKey(key: "ArrowDown", code: "ArrowDown"),
-        126: SpecialKey(key: "ArrowUp", code: "ArrowUp"),
-        115: SpecialKey(key: "Home", code: "Home"),
-        119: SpecialKey(key: "End", code: "End"),
-        116: SpecialKey(key: "PageUp", code: "PageUp"),
-        121: SpecialKey(key: "PageDown", code: "PageDown"),
-        117: SpecialKey(key: "Delete", code: "Delete"),
-        114: SpecialKey(key: "Insert", code: "Insert"),
-        53: SpecialKey(key: "Escape", code: "Escape"),
-        36: SpecialKey(key: "Enter", code: "Enter"),
-        76: SpecialKey(key: "Enter", code: "NumpadEnter"),
-        48: SpecialKey(key: "Tab", code: "Tab"),
-        51: SpecialKey(key: "Backspace", code: "Backspace"),
-        122: SpecialKey(key: "F1", code: "F1"), 120: SpecialKey(key: "F2", code: "F2"),
-        99: SpecialKey(key: "F3", code: "F3"), 118: SpecialKey(key: "F4", code: "F4"),
-        96: SpecialKey(key: "F5", code: "F5"), 97: SpecialKey(key: "F6", code: "F6"),
-        98: SpecialKey(key: "F7", code: "F7"), 100: SpecialKey(key: "F8", code: "F8"),
-        101: SpecialKey(key: "F9", code: "F9"), 109: SpecialKey(key: "F10", code: "F10"),
-        103: SpecialKey(key: "F11", code: "F11"), 111: SpecialKey(key: "F12", code: "F12"),
-        105: SpecialKey(key: "F13", code: "F13"), 107: SpecialKey(key: "F14", code: "F14"),
-        113: SpecialKey(key: "F15", code: "F15"), 106: SpecialKey(key: "F16", code: "F16"),
-        64: SpecialKey(key: "F17", code: "F17"), 79: SpecialKey(key: "F18", code: "F18"),
-        80: SpecialKey(key: "F19", code: "F19"), 90: SpecialKey(key: "F20", code: "F20"),
-    ]
+    /// The input modes that the router read last: the modes of the bytes
+    /// that it sends next.
+    private var routerInputModes: UInt32 = 0
+    /// True while the router reports a modifier key (kitty "report all
+    /// keys"). A modifier key does not end the selection or leave the
+    /// scrollback, so that Command-C copies the selection.
+    private var routesModifierKey = false
 
-    /// Kitty modifier bits: shift 1, alt 2, control 4, super 8, caps lock 64.
-    private func modifierBits(_ flags: NSEvent.ModifierFlags, includeOption: Bool = true) -> UInt32 {
-        var bits: UInt32 = 0
-        if flags.contains(.shift) { bits |= 1 }
-        if includeOption && flags.contains(.option) { bits |= 2 }
-        if flags.contains(.control) { bits |= 4 }
-        if flags.contains(.command) { bits |= 8 }
-        if flags.contains(.capsLock) { bits |= 64 }
-        return bits
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard window?.firstResponder === self, event.modifierFlags.contains(.command),
-              session.state.kittyKeyboardFlags != 0, shouldSendCommandKeyToTerminal?(event) == true else {
-            return super.performKeyEquivalent(with: event)
-        }
-        sendKey(for: event, key: event.charactersIgnoringModifiers ?? "", code: Self.code(for: event))
-        return true
-    }
-
-    // The decisions below follow SwiftTerm's TerminalView.keyDown, so that a
-    // key reaches the program as the same bytes in a persistent pane as in a
-    // local one (KeyParityTests). The helper encodes the keys.
-    override func keyDown(with event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.command) {
-            super.keyDown(with: event)
-            return
-        }
-        NSCursor.setHiddenUntilMouseMoves(true)
-        if markedText != nil {
-            interpretKeyEvents([event])
-            return
-        }
-        let state = session.state
-        let kitty = state.kittyKeyboardFlags != 0
-        // Function, navigation and keypad keys. Option counts as Alt only when
-        // it is the Meta key; without the kitty protocol, a non-Meta Option
-        // leaves these keys to the input system.
-        if let special = Self.functionalKey(for: event), kitty || !flags.contains(.option) || optionAsMetaKey {
-            let modifiers = modifierBits(flags, includeOption: optionAsMetaKey)
-            if !kitty, special.key == "PageUp" || special.key == "PageDown",
-               modifiers & 0x7 == 0, !state.applicationCursor {
-                session.scroll(by: (special.key == "PageUp" ? -1 : 1) * max(1, state.rows - 1))
-                flashScroller()
-                return
-            }
-            if special.key == "Backspace" && backspaceSendsControlH && modifiers == 0 {
-                sendBytes([0x08])
-                return
-            }
-            var key = special.key
-            if (key == "ArrowLeft" || key == "ArrowRight") && swapsArrowKeys(state) {
-                // DECSET 1243: in a right-to-left paragraph the arrows follow the text.
-                key = key == "ArrowLeft" ? "ArrowRight" : "ArrowLeft"
-            }
-            sendKey(KeyMessage(key: key, code: key == special.key ? special.code : key, modifiers: modifiers,
-                               eventType: event.isARepeat ? 2 : 1, text: special.text))
-            return
-        }
-        if kitty {
-            if flags.contains(.control) || (optionAsMetaKey && flags.contains(.option)) {
-                sendTextKey(event, text: nil)
-            } else if let characters = event.characters, !characters.isEmpty {
-                sendTextKey(event, text: characters)
-            } else {
-                interpretKeyEvents([event])
-            }
-            return
-        }
-        if optionAsMetaKey && flags.contains(.option) {
-            if let characters = event.charactersIgnoringModifiers, !characters.isEmpty {
-                sendBytes([0x1b] + Array(characters.utf8))
-            }
-            return
-        }
-        if flags.contains(.control) {
-            if event.keyCode == 49 {
-                // Control-Space is NUL, whatever AppKit reports for it.
-                sendBytes([0])
-                return
-            }
-            if let characters = event.charactersIgnoringModifiers, !characters.isEmpty {
-                sendKey(KeyMessage(key: characters.lowercased(), code: Self.code(for: event),
-                                   modifiers: modifierBits(flags, includeOption: optionAsMetaKey),
-                                   eventType: event.isARepeat ? 2 : 1,
-                                   baseLayoutKey: Self.baseLayoutKeys[event.keyCode]?.value ?? 0))
-            }
-            return
-        }
-        interpretKeyEvents([event])
-    }
-
-    /// A text key as TerminalView's kitty text event describes it: the
-    /// unshifted key, the shifted key, and the key at that position on a US
-    /// layout.
-    private func sendTextKey(_ event: NSEvent, text: String?) {
-        let flags = event.modifierFlags
-        let hasControl = flags.contains(.control)
-        let isControlSpace = hasControl && event.keyCode == 49
-        // With Control, charactersIgnoringModifiers keeps Control's translation.
-        let reported = hasControl
-            ? (event.characters(byApplyingModifiers: [])?.unicodeScalars.first
-                ?? event.charactersIgnoringModifiers?.unicodeScalars.first)
-            : event.charactersIgnoringModifiers?.unicodeScalars.first
-        guard let scalar = isControlSpace ? " " : reported else { return }
-        let base = String(scalar).lowercased()
-        var shifted: UInt32 = 0
-        if flags.contains(.shift) && !isControlSpace {
-            let characters = hasControl ? (event.characters(byApplyingModifiers: [.shift]) ?? event.characters)
-                                        : event.characters
-            shifted = characters?.unicodeScalars.first?.value ?? 0
-        }
-        let layout = Self.baseLayoutKeys[event.keyCode]
-        let baseLayoutKey = layout.map { String($0) == base ? 0 : $0.value } ?? 0
-        sendKey(KeyMessage(key: base, code: Self.code(for: event),
-                           modifiers: modifierBits(flags, includeOption: optionAsMetaKey),
-                           eventType: event.isARepeat ? 2 : 1, text: text, shiftedKey: shifted,
-                           baseLayoutKey: baseLayoutKey))
-    }
-
-    /// Navigation, function and keypad keys, with their W3C key and code.
-    private static func functionalKey(for event: NSEvent) -> (key: String, code: String, text: String?)? {
-        if let special = specialKeys[event.keyCode] { return (special.key, special.code, nil) }
-        if let code = keypadCodes[event.keyCode] {
-            let text = event.characters ?? event.charactersIgnoringModifiers ?? ""
-            return (text, code, text.isEmpty ? nil : text)
-        }
-        return nil
-    }
-
-    /// Keypad key codes and their W3C codes (Enter is in `specialKeys`).
-    private static let keypadCodes: [UInt16: String] = [
-        82: "Numpad0", 83: "Numpad1", 84: "Numpad2", 85: "Numpad3", 86: "Numpad4",
-        87: "Numpad5", 88: "Numpad6", 89: "Numpad7", 91: "Numpad8", 92: "Numpad9",
-        65: "NumpadDecimal", 75: "NumpadDivide", 67: "NumpadMultiply", 78: "NumpadSubtract",
-        69: "NumpadAdd", 81: "NumpadEqual",
-    ]
-
-    /// The character at each key position on a US layout (TerminalView's map).
-    private static let baseLayoutKeys: [UInt16: UnicodeScalar] = {
-        let layout: [(UInt16, Character)] = [
-            (0, "a"), (1, "s"), (2, "d"), (3, "f"), (4, "h"), (5, "g"), (6, "z"), (7, "x"), (8, "c"),
-            (9, "v"), (11, "b"), (12, "q"), (13, "w"), (14, "e"), (15, "r"), (16, "y"), (17, "t"),
-            (18, "1"), (19, "2"), (20, "3"), (21, "4"), (22, "6"), (23, "5"), (24, "="), (25, "9"),
-            (26, "7"), (27, "-"), (28, "8"), (29, "0"), (30, "]"), (31, "o"), (32, "u"), (33, "["),
-            (34, "i"), (35, "p"), (37, "l"), (38, "j"), (39, "'"), (40, "k"), (41, ";"), (42, "\\"),
-            (43, ","), (44, "/"), (45, "n"), (46, "m"), (47, "."), (49, " "), (50, "`"),
-        ]
-        var map: [UInt16: UnicodeScalar] = [:]
-        for (code, character) in layout { map[code] = character.unicodeScalars.first }
-        return map
-    }()
-
-    override func keyUp(with event: NSEvent) {
-        // Release events matter only to programs that asked for them (kitty flag 2).
-        guard session.state.kittyKeyboardFlags & 2 != 0 else { return }
-        let key = Self.specialKeys[event.keyCode]?.key ?? event.charactersIgnoringModifiers ?? ""
-        let code = Self.specialKeys[event.keyCode]?.code ?? Self.code(for: event)
-        session.send(key: KeyMessage(key: key, code: code, modifiers: modifierBits(event.modifierFlags),
-                                     eventType: 3))
+    var keyboardModes: TerminalKeyboardModes {
+        routerInputModes = session.state.inputModes
+        return TerminalKeyboardModes(hostInputModes: routerInputModes)
     }
 
     /// True when the program asked for swapped arrows and the cursor's
     /// paragraph is drawn right to left, as `TerminalView` decides.
-    private func swapsArrowKeys(_ state: RemoteSessionState) -> Bool {
+    var swapsHorizontalArrowKeys: Bool {
+        let state = session.state
         guard state.bidiArrowKeySwap, let cursor = state.cursor else { return false }
         return baseDirection(row: Int(Int64(cursor.line) - state.displayTop)) == .rightToLeft
     }
 
-    private func sendKey(for event: NSEvent, key: String, code: String, text: String? = nil) {
-        sendKey(KeyMessage(key: key, code: code, modifiers: modifierBits(event.modifierFlags),
-                           eventType: event.isARepeat ? 2 : 1, text: text))
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        keyboardRouter.performKeyEquivalent(event) || super.performKeyEquivalent(with: event)
     }
 
-    private func sendKey(_ message: KeyMessage) {
-        followAfterInput()
-        session.send(key: message)
+    override func keyDown(with event: NSEvent) {
+        keyboardRouter.keyDown(event)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        keyboardRouter.keyUp(event)
+        super.keyUp(with: event)
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        routesModifierKey = true
+        keyboardRouter.flagsChanged(event)
+        routesModifierKey = false
+        super.flagsChanged(with: event)
+    }
+
+    override func doCommand(by selector: Selector) {
+        keyboardRouter.doCommand(selector)
+    }
+
+    /// The controller hides the pointer while the user types, when the
+    /// profile asks for it.
+    func keyboardRouterKeyDown(_ event: NSEvent) {
+        clearSelection()
+    }
+
+    func keyboardRouter(send event: TerminalKeyEvent, bytes: [UInt8]) {
+        // Releases and modifier keys keep the selection (as in a local
+        // pane) and the scroll position.
+        if event.eventType != 3 && !routesModifierKey {
+            followAfterInput()
+        }
+        if event.isText, let text = event.text {
+            session.send(text: text)
+        } else if session.state.helperCapabilities.contains(.keyBytes), bytes.count <= KeyMessage.bytesLimit {
+            let fields = event.hostKey
+            session.send(key: KeyMessage(key: fields.key, code: fields.code, modifiers: event.modifiers,
+                                         eventType: event.eventType, text: event.text,
+                                         shiftedKey: event.shiftedKey, baseLayoutKey: event.baseLayoutKey,
+                                         composing: event.composing,
+                                         backspaceSendsControlH: event.backspaceSendsControlH,
+                                         bytes: bytes, modes: routerInputModes))
+        } else {
+            // A helper from an older build ignores the options of a key
+            // (Backspace would send DEL): send the bytes themselves.
+            session.send(bytes: bytes)
+        }
         resetCaretBlink()
     }
 
-    private func sendBytes(_ bytes: [UInt8]) {
+    func keyboardRouter(send bytes: [UInt8]) {
         followAfterInput()
         session.send(bytes: bytes)
         resetCaretBlink()
+    }
+
+    /// The helper encodes typed text with the terminal's modes of now.
+    func keyboardRouter(sendText text: String) {
+        followAfterInput()
+        session.send(text: text)
+        resetCaretBlink()
+    }
+
+    /// As `TerminalView.pageUp()`: the alternate screen gets the key, the
+    /// normal screen scrolls one page.
+    func keyboardRouterScrollPage(up: Bool) {
+        let state = session.state
+        if state.buffer == .alternate {
+            keyboardRouter(send: up ? EscapeSequences.cmdPageUp : EscapeSequences.cmdPageDown)
+            return
+        }
+        session.scroll(by: (up ? -1 : 1) * max(1, state.rows))
+        flashScroller()
     }
 
     private func followAfterInput() {
@@ -628,34 +517,17 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         if !session.state.follow { session.followLive() }
     }
 
-    /// The W3C `code` for a character key on a US layout.
-    private static func code(for event: NSEvent) -> String {
-        guard let character = event.charactersIgnoringModifiers?.uppercased().first else { return "" }
-        if character.isLetter, character.isASCII { return "Key\(character)" }
-        if character.isNumber, character.isASCII { return "Digit\(character)" }
-        return ""
-    }
-
     // MARK: NSTextInputClient
 
     func insertText(_ string: Any, replacementRange: NSRange) {
         let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
         markedText = nil
-        guard !text.isEmpty else { return }
-        followAfterInput()
-        session.send(text: text)
-        resetCaretBlink()
-    }
-
-    override func doCommand(by selector: Selector) {
-        switch selector {
-        case #selector(insertNewline(_:)): session.send(key: KeyMessage(key: "Enter", code: "Enter"))
-        case #selector(insertTab(_:)): session.send(key: KeyMessage(key: "Tab", code: "Tab"))
-        case #selector(insertBacktab(_:)): session.send(key: KeyMessage(key: "Tab", code: "Tab", modifiers: 1))
-        case #selector(deleteBackward(_:)): session.send(key: KeyMessage(key: "Backspace", code: "Backspace"))
-        case #selector(cancelOperation(_:)): session.send(key: KeyMessage(key: "Escape", code: "Escape"))
-        default: break
+        guard !text.isEmpty else {
+            keyboardRouter.markedTextChanged(composing: false)
+            return
         }
+        // A commit ends the preedit; the router clears it.
+        keyboardRouter.insertText(text)
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -663,11 +535,15 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
             markedText = attributed.length == 0 ? nil : attributed
         } else if let plain = string as? String {
             markedText = plain.isEmpty ? nil : NSAttributedString(string: plain)
+        } else {
+            markedText = nil
         }
+        keyboardRouter.markedTextChanged(composing: markedText != nil)
     }
 
     func unmarkText() {
         markedText = nil
+        keyboardRouter.markedTextChanged(composing: false)
     }
 
     func selectedRange() -> NSRange { NSRange(location: NSNotFound, length: 0) }
@@ -893,6 +769,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     @objc func paste(_ sender: Any?) {
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
+        keyboardRouter.textWillBePasted()
         followAfterInput()
         session.paste(text) { [weak self] result in
             guard result.status == .needsApproval else { return }

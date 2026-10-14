@@ -112,6 +112,20 @@ struct SessionDaemonTests {
         #expect(!FileManager.default.fileExists(atPath: directory.socketPath(for: record.id)))
     }
 
+    /// No client is attached: the helper keeps the notification in the
+    /// session record, where the app reads it.
+    @Test func detachedNotificationsGoToTheRecord() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory.url) }
+        let launch = SessionLaunch(executable: "/bin/sh",
+                                   arguments: ["-c", "sleep 0.3; printf '\\033]9;Build done\\007'; exec sleep 60"],
+                                   environment: ["PATH=/usr/bin:/bin"], columns: 40, rows: 8)
+        let record = try directory.create(launch, helperPath: try helperPath())
+        defer { kill(record.pid, SIGTERM) }
+        try await waitFor("notification in the record") { directory.readRecord(record.id)?.notification != nil }
+        #expect(directory.readRecord(record.id)?.notification == SessionNotification(serial: 1, title: "", body: "Build done"))
+    }
+
     @Test func sessionSurvivesClientDisconnect() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory.url) }

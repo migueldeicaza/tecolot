@@ -73,6 +73,23 @@ struct SessionImageTests {
         client.channel.close()
     }
 
+    /// At 2 device pixels per point, the 40 columns of 10 pixel cells are 400
+    /// device pixels (200 points). Programs size Sixel images in device
+    /// pixels: a 300 pixel image fits and keeps its size; a 500 pixel image
+    /// takes the terminal's width.
+    @Test func sixelImagesShrinkOnlyWhenWiderThanTheTerminal() async throws {
+        let host = makeHost(columns: 40, rows: 10)
+        let client = try TestClient(host: host, size: Self.size)
+        _ = try await client.wait("screen") { $0.lastFrame != nil }
+        host.inject("\u{1b}Pq#0;2;100;0;0#0!300~\u{1b}\\\r\n")
+        _ = try await client.wait("first image") { self.rowImages($0).count == 1 }
+        #expect(rowImages(client).first?.image.width == 300)
+        host.inject("\u{1b}Pq#0;2;100;0;0#0!500~\u{1b}\\\r\n")
+        _ = try await client.wait("second image") { self.rowImages($0).count == 2 }
+        #expect(rowImages(client).last?.image.width == 400)
+        client.channel.close()
+    }
+
     #if canImport(ImageIO)
     @Test func iTermImagesAreDecoded() async throws {
         // A 4 × 2 blue PNG, sent as OSC 1337 File=.

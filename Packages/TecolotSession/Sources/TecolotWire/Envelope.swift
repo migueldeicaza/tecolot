@@ -59,6 +59,7 @@ public struct MessageKind: RawRepresentable, Hashable, Sendable, CustomStringCon
     public static let searchResult = MessageKind(rawValue: 77)
     public static let promptResult = MessageKind(rawValue: 78)
     public static let imageData = MessageKind(rawValue: 79)
+    public static let notification = MessageKind(rawValue: 80)
 }
 
 /// Per-message flags.

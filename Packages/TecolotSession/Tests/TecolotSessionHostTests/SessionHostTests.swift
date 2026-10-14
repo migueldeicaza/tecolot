@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 import TecolotWire
 @testable import TecolotSessionHost
@@ -188,6 +189,67 @@ struct SessionHostScenarioTests {
         try await client.wait("bell") { client in
             client.state.withLock { $0.events.contains { $0.kind == .bell } }
         }
+        client.close()
+    }
+
+    @Test func progressAndNotificationsArrive() async throws {
+        let host = makeHost()
+        let client = try TestClient(host: host)
+        try await client.wait("first frame") { $0.frameCount >= 1 }
+        host.inject("\u{1b}]9;4;1;40\u{07}\u{1b}]777;notify;Build;Done\u{07}\u{1b}]9;Tests passed\u{1b}\\")
+        try await client.wait("progress") { client in
+            client.state.withLock { $0.frames.contains { $0.progress?.state == 1 && $0.progress?.progress == 40 } }
+        }
+        func notifications(_ client: TestClient) -> [NotificationMessage] {
+            client.state.withLock { state in
+                state.events.filter { $0.kind == .notification }.compactMap { try? $0.decode(NotificationMessage.self) }
+            }
+        }
+        try await client.wait("notifications") { notifications($0).count == 2 }
+        #expect(notifications(client) == [NotificationMessage(title: "Build", body: "Done"),
+                                          NotificationMessage(title: "", body: "Tests passed")])
+
+        // A client that attaches while the report is current gets it too,
+        // with its age: the client shows the bar for the time that is left.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let late = try TestClient(host: host)
+        try await late.wait("progress for a late client") { client in
+            client.state.withLock { $0.frames.contains { $0.progress?.state == 1 && $0.progress?.progress == 40 } }
+        }
+        let lateProgress = late.state.withLock { $0.frames.compactMap(\.progress).first }
+        #expect((lateProgress?.age ?? 0) >= 250)
+        host.inject("\u{1b}]9;4;0\u{07}")
+        try await client.wait("progress removed") { client in
+            client.state.withLock { $0.frames.contains { $0.progress?.state == 0 } }
+        }
+        late.close()
+        client.close()
+    }
+
+    /// A program that prints notifications in a loop sends at most five in
+    /// 30 seconds. A notification that comes while no client is attached
+    /// goes to the owner (the helper keeps it in the session record).
+    @Test func notificationsHaveALimitAndReachTheOwnerWhenDetached() async throws {
+        let host = makeHost()
+        let detached = Mutex<[NotificationMessage]>([])
+        host.onDetachedNotification = { message in detached.withLock { $0.append(message) } }
+        host.inject("\u{1b}]9;While detached\u{07}")
+        let deadline = Date().addingTimeInterval(5)
+        while detached.withLock({ $0.isEmpty }) && Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(detached.withLock { $0 } == [NotificationMessage(title: "", body: "While detached")])
+
+        let client = try TestClient(host: host)
+        try await client.wait("first frame") { $0.frameCount >= 1 }
+        host.inject((0 ..< 8).map { "\u{1b}]9;Note \($0)\u{07}" }.joined())
+        func count(_ client: TestClient) -> Int {
+            client.state.withLock { state in state.events.filter { $0.kind == .notification }.count }
+        }
+        try await client.wait("notifications") { count($0) == SessionHost.notificationLimit - 1 }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        #expect(count(client) == SessionHost.notificationLimit - 1)
+        #expect(detached.withLock { $0.count } == 1)
         client.close()
     }
 
@@ -415,6 +477,29 @@ struct SessionHostProcessTests {
             client.state.withLock { $0.events.contains { $0.kind == .processExited } }
         }
         #expect(exited.isSet)
+        client.close()
+    }
+}
+
+struct SessionHostKeyTests {
+    /// The helper sends the client's bytes for a key while the terminal has
+    /// the modes that the client used. When the program changed the modes
+    /// before the key arrived, the helper encodes the key again.
+    @Test func keyBytesApplyOnlyWithTheClientsModes() async throws {
+        let host = makeHost(rows: 10, executable: "/bin/sh",
+                            arguments: ["-c", "stty -icanon -echo; echo ready; head -c 1 | xxd -p; head -c 8 | xxd -p; sleep 30"])
+        try host.start()
+        let client = try TestClient(host: host)
+        try await client.waitForScreen(containing: "ready", timeout: 10)
+
+        let controlW = KeyMessage(key: "w", code: "", modifiers: 4, bytes: [0x17], modes: 0)
+        client.channel.send(controlW)
+        try await client.waitForScreen(containing: "17", timeout: 10)
+        // The program enables the kitty protocol; the client does not know yet.
+        host.inject("\u{1b}[>1u")
+        client.channel.send(controlW)
+        try await client.waitForScreen(containing: "1b5b3131393b3575", timeout: 10)
+        host.terminate(signal: SIGKILL)
         client.close()
     }
 }

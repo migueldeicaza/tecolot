@@ -199,6 +199,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var environmentVariables: [TerminalEnvironmentVariable]
     /// How the terminal responds to the bell character
     public var bellStyle: BellStyle
+    /// Programs can show desktop notifications (OSC 9, OSC 777)
+    public var allowsNotifications: Bool
 
     public init (id: UUID = UUID (), name: String) {
         let defaults = TerminalProfile.standardValues
@@ -230,6 +232,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.termVersion = defaults.termVersion
         self.environmentVariables = defaults.environmentVariables
         self.bellStyle = defaults.bellStyle
+        self.allowsNotifications = defaults.allowsNotifications
     }
 
     /// The defaults applied to new profiles and to fields missing from
@@ -245,7 +248,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
                                 hidePointerWhileTyping: Bool, termName: String,
                                 termProgram: String, termVersion: String,
                                 environmentVariables: [TerminalEnvironmentVariable], bellStyle: BellStyle,
-                                keyBindings: [TerminalKeyBinding]) {
+                                allowsNotifications: Bool, keyBindings: [TerminalKeyBinding]) {
         (themeName: TerminalTheme.fallback.name, fontFamily: nil, fontSize: 12,
          fontSmoothing: true, useBrightColorsForBold: true,
          cursorStyle: .blinkBlock, backgroundOpacity: 1.0,
@@ -256,7 +259,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
          sessionPersistence: .standard, optionAsMetaKey: true, backspaceSendsControlH: false, hidePointerWhileTyping: true,
          termName: "xterm-256color",
          termProgram: "ghostty", termVersion: "1.3.1",
-         environmentVariables: [], bellStyle: .sound, keyBindings: [])
+         environmentVariables: [], bellStyle: .sound, allowsNotifications: true, keyBindings: [])
     }
 
     enum CodingKeys: String, CodingKey {
@@ -267,7 +270,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         case shell, whenShellExits, askBeforeClosing, sessionPersistence
         case optionAsMetaKey, backspaceSendsControlH, hidePointerWhileTyping, keyBindings
         case termName, termProgram, termVersion
-        case environmentVariables, bellStyle
+        case environmentVariables, bellStyle, allowsNotifications
     }
 
     // Hand-written decoding: every field except id/name falls back to the
@@ -328,6 +331,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         } else {
             self.bellStyle = defaults.bellStyle
         }
+        self.allowsNotifications = try c.decodeIfPresent (Bool.self, forKey: .allowsNotifications)
+            ?? defaults.allowsNotifications
     }
 
     public func encode (to encoder: Encoder) throws {
@@ -361,6 +366,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode(termVersion, forKey: .termVersion)
         try c.encode (environmentVariables, forKey: .environmentVariables)
         try c.encode (bellStyle.tagName, forKey: .bellStyle)
+        try c.encode (allowsNotifications, forKey: .allowsNotifications)
     }
 }
 

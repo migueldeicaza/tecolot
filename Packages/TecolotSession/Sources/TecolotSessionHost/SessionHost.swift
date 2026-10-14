@@ -35,6 +35,7 @@ struct HostEvents {
         case clipboardCopy([UInt8])
         case clipboardRead(UInt64, String)
         case exited(Int32?)
+        case notification(NotificationMessage)
     }
 
     var latched: UInt64 = 0
@@ -44,6 +45,13 @@ struct HostEvents {
     var iconTitleVersion: UInt64 = 0
     var directory = ""
     var directoryVersion: UInt64 = 0
+    /// The last progress report (OSC 9;4) and when it came. The continuous
+    /// clock counts the time that the Mac sleeps.
+    var progress: WireProgress?
+    var progressVersion: UInt64 = 0
+    var progressTime = ContinuousClock.Instant.now
+    /// When the recent notifications came, for the rate limit.
+    var notificationTimes: [ContinuousClock.Instant] = []
     var colorsVersion: UInt64 = 0
     var paletteOverrides = Set<UInt8>()
     var cursorVisible = true
@@ -59,6 +67,15 @@ struct HostEvents {
     var windowSize = (columns: 80, rows: 24, cellWidth: 0, cellHeight: 0)
 
     mutating func bumpLatched() { latched &+= 1 }
+
+    /// Records a notification that came at `now`, unless `limit` came in
+    /// the `window` before it.
+    mutating func admitNotification(at now: ContinuousClock.Instant, limit: Int, window: Duration) -> Bool {
+        notificationTimes.removeAll { now - $0 >= window }
+        guard notificationTimes.count < limit else { return false }
+        notificationTimes.append(now)
+        return true
+    }
 }
 
 /// Points in the life of a keystroke, for latency measurements.
@@ -81,6 +98,14 @@ public final class SessionHost: @unchecked Sendable {
     /// Development only (tecolot-latency): set before `start()`. Called on
     /// the thread where the event happens.
     public var trace: (@Sendable (SessionTraceEvent) -> Void)?
+
+    /// How long a progress report stays current, as in TerminalView.
+    static let progressLifetime: Duration = .seconds(15)
+    /// At most this many notifications in `notificationWindow`, so that a
+    /// program that prints them in a loop does not flood the clients. The
+    /// app has the same limit for each pane.
+    static let notificationLimit = 5
+    static let notificationWindow: Duration = .seconds(30)
 
     public let id: String
     public let build: String
@@ -123,6 +148,7 @@ public final class SessionHost: @unchecked Sendable {
     private var clipboardReaders: [UInt64: SessionClient] = [:]
     private var started = false
     private var notifiedTitleVersion: UInt64 = 0
+    private var oscObservation: TerminalOscObservation?
     private var notifiedDirectoryVersion: UInt64 = 0
 
     /// The exit status once the child process ended.
@@ -140,6 +166,9 @@ public final class SessionHost: @unchecked Sendable {
     public var onGridChange: ((_ columns: Int, _ rows: Int) -> Void)?
     /// Called on the session queue when the title or directory changed.
     public var onMetadataChange: ((_ title: String, _ directory: String) -> Void)?
+    /// Called on the session queue with a notification (OSC 9 or OSC 777)
+    /// that came while no client was attached.
+    public var onDetachedNotification: ((NotificationMessage) -> Void)?
 
     public init(id: String, launch: SessionLaunch, build: String = "dev") {
         self.id = id
@@ -166,6 +195,18 @@ public final class SessionHost: @unchecked Sendable {
         }
         terminal = Terminal(delegate: self, options: options)
         process = LocalProcess(delegate: self, dispatchQueue: ptyQueue, directDelivery: false)
+        // Notifications: SwiftTerm does not report OSC 9, so read both
+        // forms here.
+        oscObservation = terminal.observeOscEvents(codes: [9, 777]) { [weak self] event in
+            guard let self, let message = NotificationMessage(oscCode: event.code, payload: event.payload) else { return }
+            let admitted = events.withLock { state in
+                guard state.admitNotification(at: .now, limit: Self.notificationLimit,
+                                              window: Self.notificationWindow) else { return false }
+                state.edges.append(.notification(message))
+                return true
+            }
+            if admitted { signal() }
+        }
 
         let source = DispatchSource.makeUserDataOrSource(queue: queue)
         source.setEventHandler { [weak self] in self?.tick() }
@@ -407,6 +448,7 @@ public final class SessionHost: @unchecked Sendable {
         client.seenIconTitle = 0
         client.seenDirectory = 0
         client.seenColors = 0
+        client.seenProgress = 0
         client.seenReverse = nil
         client.lastKitty = nil
         client.sentParagraphRows = nil
@@ -469,9 +511,17 @@ public final class SessionHost: @unchecked Sendable {
     private func handleKey(_ key: KeyMessage, from client: SessionClient) {
         noteInput(from: client)
         terminal.terminalLock.withLock {
+            // The client's bytes are right while the terminal has the modes
+            // that the client used; else the key gets the modes of now.
+            if let bytes = key.bytes, key.bytesApply(to: terminal.hostInputModes) {
+                terminal.sendUserInput(bytes[...])
+                return
+            }
             let result = terminal.sendHostKey(key: key.key, code: key.code, modifiers: key.modifiers,
                                               eventType: key.eventType, text: key.text,
-                                              shiftedKey: key.shiftedKey, baseLayoutKey: key.baseLayoutKey)
+                                              shiftedKey: key.shiftedKey, baseLayoutKey: key.baseLayoutKey,
+                                              composing: key.composing,
+                                              backspaceSendsControlH: key.backspaceSendsControlH)
             if result == 0, let text = key.text, !text.isEmpty, key.eventType != 3 {
                 _ = terminal.sendHostText(text)
             }
@@ -747,8 +797,6 @@ public final class SessionHost: @unchecked Sendable {
             }
         }
         if let animationDeadline { armAnimationTimer(animationDeadline) }
-        lineTable.trim()
-        kittyImages.prune(keeping: Set(attachedClients.flatMap { $0.lastKitty?.images.map(\.imageID) ?? [] }))
 
         for (client, frame, linkDefinitions) in outgoing {
             if let linkDefinitions { client.channel.send(linkDefinitions) }
@@ -760,6 +808,9 @@ public final class SessionHost: @unchecked Sendable {
             client.channel.flushPending()
             trace?(.frameSent(sequence: frame.sequence, feed: feed))
         }
+        // Housekeeping after the frames left, so that it does not delay them.
+        lineTable.trim()
+        kittyImages.prune(keeping: Set(attachedClients.flatMap { $0.lastKitty?.images.map(\.imageID) ?? [] }))
     }
 
     /// Reads the live buffer state and updates the numbering. Hold the lock.
@@ -878,6 +929,18 @@ public final class SessionHost: @unchecked Sendable {
             frame.directory = events.directory
             client.seenDirectory = events.directoryVersion
             meaningful = true
+        }
+        if client.seenProgress != events.progressVersion {
+            client.seenProgress = events.progressVersion
+            // A client that attaches late gets a report only while it is
+            // current: a terminal removes the bar 15 seconds after the last
+            // one. The age tells the client the time that is left.
+            let age = ContinuousClock.now - events.progressTime
+            if var progress = events.progress, age < Self.progressLifetime {
+                progress.age = UInt32(max(0, age / .milliseconds(1)))
+                frame.progress = progress
+                meaningful = true
+            }
         }
         if client.seenColors != events.colorsVersion {
             var overrides: [UInt8: WireRGB] = [:]
@@ -1087,6 +1150,12 @@ public final class SessionHost: @unchecked Sendable {
                 for client in attached { client.channel.send(BellMessage()) }
             case .clipboardCopy(let data):
                 for client in attached { client.channel.send(ClipboardCopyMessage(data: data)) }
+            case .notification(let message):
+                if attached.isEmpty {
+                    onDetachedNotification?(message)
+                } else {
+                    for client in attached { client.channel.send(message) }
+                }
             case .clipboardRead(let request, let selection):
                 let reader = sizeOwner ?? attached.first
                 if let reader {
@@ -1306,6 +1375,16 @@ extension SessionHost: TerminalDelegate {
         events.withLock {
             $0.iconTitle = title
             $0.iconTitleVersion &+= 1
+            $0.bumpLatched()
+        }
+        signal()
+    }
+
+    public func progressReport(source: Terminal, report: Terminal.ProgressReport) {
+        events.withLock {
+            $0.progress = WireProgress(state: UInt8(report.state.rawValue), progress: report.progress)
+            $0.progressVersion &+= 1
+            $0.progressTime = .now
             $0.bumpLatched()
         }
         signal()

@@ -52,6 +52,7 @@ final class SessionClient: @unchecked Sendable {
     var seenIconTitle: UInt64 = 0
     var seenDirectory: UInt64 = 0
     var seenColors: UInt64 = 0
+    var seenProgress: UInt64 = 0
     var seenReverse: Bool?
     var lastCursor: WireCursor?
     var lastModes: WireModes?

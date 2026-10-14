@@ -17,6 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = true
         _ = SecureKeyboardEntry.shared
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            DetachedSessionNotifications.shared.start()
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -558,5 +561,10 @@ struct TecolotApp: App {
         }
         .defaultSize(width: 820, height: 560)
         .windowResizability(.contentMinSize)
+
+        Window("Sessions", id: SessionBrowserWindowID.value) {
+            SessionBrowserView()
+        }
+        .defaultSize(width: 860, height: 320)
     }
 }

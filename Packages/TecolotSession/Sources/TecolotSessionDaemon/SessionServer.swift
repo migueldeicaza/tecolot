@@ -98,6 +98,13 @@ public final class SessionServer: @unchecked Sendable {
             record.foreground = name
             scheduleRecordWrite()
         }
+        host.onDetachedNotification = { [weak self] message in
+            guard let self else { return }
+            // The app watches the records: it shows the notification.
+            record.notification = SessionNotification(serial: (record.notification?.serial ?? 0) + 1,
+                                                      title: message.title, body: message.body)
+            scheduleRecordWrite()
+        }
         host.onExit = { [weak self] code in
             guard let self else { return }
             record.exited = true

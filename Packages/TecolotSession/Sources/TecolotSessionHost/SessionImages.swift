@@ -151,11 +151,12 @@ extension SessionHost {
                                               rgba: bytes) else { return }
         rasterImages.register(image)
         let metrics = imageMetrics()
-        // As TerminalView does: an image wider than the terminal (in points)
-        // takes the terminal's width.
-        let terminalPoints = Double(source.cols * metrics.cellWidth) / metrics.scale
+        // As TerminalView does: programs size Sixel images in device pixels
+        // (the cell size that the terminal reports), and only an image wider
+        // than the terminal in device pixels takes the terminal's width.
+        let terminalPixels = source.cols * metrics.cellWidth
         source.insertRasterImage(image, cellWidth: metrics.cellWidth, cellHeight: metrics.cellHeight,
-                                 width: Double(width) > terminalPoints ? .percent(100) : .auto,
+                                 width: width > terminalPixels ? .percent(100) : .auto,
                                  height: .auto, preserveAspectRatio: true)
     }
 

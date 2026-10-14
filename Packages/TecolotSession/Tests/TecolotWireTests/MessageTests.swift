@@ -33,6 +33,10 @@ struct MessageTests {
                          known: [WireKnownVersion(line: 10, version: 1)]),
         KeyMessage(key: "ArrowUp", code: "ArrowUp", modifiers: 5, eventType: 1, text: nil),
         KeyMessage(key: "a", code: "KeyA", text: "a", shiftedKey: 65, baseLayoutKey: 97),
+        KeyMessage(key: "Shift", code: "ShiftLeft", modifiers: 1, composing: true),
+        KeyMessage(key: "Backspace", code: "Backspace", backspaceSendsControlH: true),
+        KeyMessage(key: "w", code: "", modifiers: 4, bytes: [0x17], modes: 0x0101),
+        KeyMessage(key: "Enter", code: "Enter", bytes: [], modes: 0x1f03),
         TextMessage(text: "こんにちは"),
         InputMessage(bytes: [0x1b, 0x5b, 0x41]),
         MouseMessage(action: 1, button: 0, modifiers: 4, column: 3, row: 4, pixelX: 30, pixelY: 70),
@@ -82,6 +86,15 @@ struct MessageTests {
                      endLine: 24, viewTop: 0, columns: 80, rows: 24,
                      cursor: WireCursor(line: 0, column: 0, visible: true, blink: false, style: 0),
                      kitty: WireKittyState(generation: 13)),
+        FrameMessage(sequence: 5, snapshotSequence: 6, buffer: .normal, epoch: 0, firstLine: 0,
+                     endLine: 24, viewTop: 0, columns: 80, rows: 24,
+                     cursor: WireCursor(line: 0, column: 0, visible: true, blink: false, style: 0),
+                     progress: WireProgress(state: 1, progress: 40)),
+        FrameMessage(sequence: 6, snapshotSequence: 7, buffer: .normal, epoch: 0, firstLine: 0,
+                     endLine: 24, viewTop: 0, columns: 80, rows: 24,
+                     cursor: WireCursor(line: 0, column: 0, visible: true, blink: false, style: 0),
+                     maximumBidiParagraphRows: 500, progress: WireProgress(state: 3, progress: nil, age: 14_250)),
+        NotificationMessage(title: "Build", body: "Done"),
         FrameMessage(sequence: 1, snapshotSequence: 2, buffer: .normal, epoch: 0, firstLine: 0,
                      endLine: 24, viewTop: 0, columns: 80, rows: 24,
                      cursor: WireCursor(line: 3, column: 2, visible: true, blink: false, style: 4),
@@ -130,6 +143,72 @@ struct MessageTests {
         let decoded = try FrameMessage(from: &frameReader)
         #expect(decoded.kitty == nil)
         #expect(decoded.maximumBidiParagraphRows == nil)
+        #expect(decoded.progress == nil)
+    }
+
+    /// An older decoder reads the extensions it knows and skips the rest.
+    @Test func newFrameExtensionsDoNotDisturbOlderOnes() throws {
+        let frame = FrameMessage(sequence: 1, snapshotSequence: 1, buffer: .normal, epoch: 0, firstLine: 0,
+                                 endLine: 1, viewTop: 0, columns: 10, rows: 1,
+                                 cursor: WireCursor(line: 0, column: 0, visible: true, blink: false, style: 0),
+                                 maximumBidiParagraphRows: 300, kitty: WireKittyState(generation: 2),
+                                 progress: WireProgress(state: 2, progress: 100))
+        var writer = WireWriter()
+        frame.encode(to: &writer)
+        var reader = WireReader(writer.bytes)
+        let decoded = try FrameMessage(from: &reader)
+        #expect(decoded.maximumBidiParagraphRows == 300)
+        #expect(decoded.kitty == WireKittyState(generation: 2))
+        #expect(decoded.progress == WireProgress(state: 2, progress: 100))
+    }
+
+    /// The bytes of a key apply only while the terminal has the modes that
+    /// the client used; other mode bits do not count.
+    @Test func keyBytesFollowTheKeyboardModes() throws {
+        let key = KeyMessage(key: "w", code: "", modifiers: 4, bytes: [0x17], modes: 0x0001 | 0x4 | 1 << 16)
+        #expect(key.modes == 0x0001)
+        #expect(key.bytesApply(to: 0x0001))
+        // Bracketed paste and the bidi bit do not change a key.
+        #expect(key.bytesApply(to: 0x0001 | 0x4 | 1 << 16))
+        // Application keypad or kitty flags do.
+        #expect(!key.bytesApply(to: 0x0003))
+        #expect(!key.bytesApply(to: 0x0101))
+        #expect(!KeyMessage(key: "w", code: "").bytesApply(to: 0))
+
+        // A key from an older client has no options and no bytes.
+        var writer = WireWriter()
+        writer.string("a")
+        writer.string("KeyA")
+        writer.varint(UInt32(0))
+        writer.varint(UInt32(1))
+        writer.optionalString(nil)
+        writer.varint(UInt32(0))
+        writer.varint(UInt32(0))
+        var reader = WireReader(writer.bytes)
+        let older = try KeyMessage(from: &reader)
+        #expect(older.bytes == nil && !older.composing && !older.backspaceSendsControlH)
+    }
+
+    @Test func notificationsComeFromOSC9And777() {
+        func parse(_ code: Int, _ text: String) -> NotificationMessage? {
+            NotificationMessage(oscCode: code, payload: Array(text.utf8))
+        }
+        #expect(parse(9, "Build finished") == NotificationMessage(title: "", body: "Build finished"))
+        #expect(parse(9, "3 tests failed") == NotificationMessage(title: "", body: "3 tests failed"))
+        // ConEmu commands: progress, a working directory, a bare number.
+        #expect(parse(9, "4;1;50") == nil)
+        #expect(parse(9, "9;/tmp") == nil)
+        #expect(parse(9, "12") == nil)
+        #expect(parse(9, "") == nil)
+        #expect(parse(777, "notify;Build;Done; all 3") == NotificationMessage(title: "Build", body: "Done; all 3"))
+        #expect(parse(777, "notify;Only a title") == NotificationMessage(title: "Only a title", body: ""))
+        #expect(parse(777, "preexec;x") == nil)
+        #expect(parse(777, "notify;;") == nil)
+        #expect(parse(99, "hello") == nil)
+        // Control characters go; long texts are cut.
+        #expect(parse(9, "a\u{1b}[31mb\tc\n") == NotificationMessage(title: "", body: "a[31mbc"))
+        let long = parse(9, String(repeating: "x", count: 10_000))
+        #expect(long?.body.count == NotificationMessage.bodyLimit)
     }
 
     @Test func everyMessageRoundTrips() throws {

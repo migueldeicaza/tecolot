@@ -561,6 +561,11 @@ struct ProfileSettingsPage: View {
                         Text(style.displayName).tag(style)
                     }
                 }
+                Toggle("Show notifications from programs", isOn: binding(\.allowsNotifications))
+            } footer: {
+                Text("Programs send notifications with OSC 9 or OSC 777. Tecolot shows them when the pane is not in front.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section {
                 Text("Tecolot inherits the app environment, then applies these changes.")

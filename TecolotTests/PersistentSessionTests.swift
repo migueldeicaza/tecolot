@@ -317,6 +317,39 @@ struct PersistentPaneTests {
         workspace.terminateAll()
     }
 
+    @Test func progressAndNotificationsReachPersistentPanes() async throws {
+        setenv("TECOLOT_RUNTIME_DIR", "/tmp/tecolot-tests-\(getpid())", 1)
+        TestNotifications.install()
+        let profile = AppModel.shared.profiles.defaultProfile
+        var spec = LaunchSpec(profileID: profile.id, workingDirectory: "/tmp")
+        spec.persistent = true
+        AppModel.shared.setPendingLaunch(spec)
+        let workspace = TerminalPaneWorkspace()
+        let controller = try #require(workspace.focusedController)
+        let document = TerminalDocument(content: "")
+        let hostView = TerminalPaneHostView(workspace: workspace, document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = hostView
+        hostView.synchronize(revision: workspace.revision, document: document)
+        hostView.layoutSubtreeIfNeeded()
+        let view = try #require(controller.persistentView)
+        let session = view.session
+        let sessionID = try #require(controller.persistentSessionID)
+        defer { try? PersistentSessions.directory().terminate(sessionID, signal: SIGKILL) }
+        try await wait("attached") { session.state.connected }
+
+        session.send(text: "printf '\\033]9;4;1;40\\a\\033]777;notify;Build;Done\\a'\r")
+        try await wait("progress") { view.progressReport == Terminal.ProgressReport(state: .set, progress: 40) }
+        try await wait("notification") { !TestNotifications.contents(for: controller).isEmpty }
+        let content = try #require(TestNotifications.contents(for: controller).first)
+        #expect(content.title == "Build")
+        #expect(content.body == "Done")
+        session.send(text: "printf '\\033]9;4;0\\a'\r")
+        try await wait("progress removed") { view.progressReport == nil }
+        workspace.terminateAll()
+    }
+
     @Test func persistentPaneTypesResizesAndDetaches() async throws {
         setenv("TECOLOT_RUNTIME_DIR", "/tmp/tecolot-tests-\(getpid())", 1)
         let profile = AppModel.shared.profiles.defaultProfile

@@ -51,12 +51,57 @@ final class LineTable {
         return entry
     }
 
-    /// Removes the least recently used entries when the table is too large.
+    /// Removes the least recently used entries when the table is too large,
+    /// and keeps the three quarters of the limit that were used last.
+    ///
+    /// Each lookup advances `clock` and stamps one entry, so no two entries
+    /// have the same stamp. A selection finds the oldest stamp to keep
+    /// without a sort, and the old entries go in place. (Sorting and copying
+    /// all the entries took about 10 ms at 40,000 rows, and delayed frames.)
     func trim() {
         guard entries.count > maximumEntries else { return }
         let keep = maximumEntries * 3 / 4
-        let sorted = entries.sorted { $0.value.lastUse > $1.value.lastUse }
-        entries = Dictionary(uniqueKeysWithValues: sorted.prefix(keep).map { ($0.key, $0.value) })
+        guard keep > 0 else {
+            entries.removeAll()
+            return
+        }
+        var stamps = entries.values.map(\.lastUse)
+        let oldestKept = Self.select(stamps.count - keep, in: &stamps)
+        let stale = entries.compactMap { $0.value.lastUse < oldestKept ? $0.key : nil }
+        for key in stale {
+            entries.removeValue(forKey: key)
+        }
+    }
+
+    /// The `rank`-th smallest value (from 0) of `values`, in linear time on
+    /// average (quickselect). Changes the order of `values`.
+    static func select(_ rank: Int, in values: inout [UInt64]) -> UInt64 {
+        var low = 0
+        var high = values.count - 1
+        while low < high {
+            // The median of three values is the pivot.
+            let a = values[low], b = values[low + (high - low) / 2], c = values[high]
+            let pivot = max(min(a, b), min(max(a, b), c))
+            var i = low
+            var j = high
+            while i <= j {
+                while values[i] < pivot { i += 1 }
+                while values[j] > pivot { j -= 1 }
+                if i <= j {
+                    values.swapAt(i, j)
+                    i += 1
+                    j -= 1
+                }
+            }
+            if rank <= j {
+                high = j
+            } else if rank >= i {
+                low = i
+            } else {
+                return values[rank]
+            }
+        }
+        return values[rank]
     }
 
     func removeAll() {

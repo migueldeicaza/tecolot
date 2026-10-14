@@ -53,7 +53,14 @@ final class RemoteFrameSource: TerminalExternalFrameSource {
     func withFrame(_ body: (TerminalExternalFrame, TerminalRowStore, (Int) -> BufferLine?) -> Void) {
         var missingImages: [UInt64] = []
         session.withFrameState { state, cache, imageLookup in
-            if store.isNearCapacity {
+            // A frame can add a style and a grapheme for each cell it
+            // converts (the rows and their bidi paragraphs: two screens at
+            // most). A cell that does not fit draws in the default colors.
+            // Capped at a quarter of the table, so that a very large grid
+            // does not get a new store on every frame.
+            let frameCells = min(state.rows * state.columns * 2, 16_384)
+            if store.isNearCapacity || store.remainingStyleCapacity < frameCells
+                || store.remainingGraphemeCapacity < frameCells {
                 store = TerminalRowStore()
                 converted.removeAll()
                 attributes.removeAll()
