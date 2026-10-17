@@ -69,6 +69,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// The remote session of this pane ended. The saved layout leaves the pane out.
     @ObservationIgnored private(set) var remoteSessionEnded = false
     @ObservationIgnored private var remoteOpenFailed = false
+    /// The user did not let Tecolot install its helper on the host.
+    @ObservationIgnored private var remoteInstallDeclined = false
     /// The link generation in which this pane already reopened a closed session connection.
     @ObservationIgnored private var remoteReopenedGeneration: UInt64?
     /// The persistent session that this pane shows, if any.
@@ -718,8 +720,19 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         terminal?.terminate()
     }
 
-    /// Ends the persistent session that this pane shows.
+    /// Ends the persistent session that this pane shows after the user
+    /// confirms.
     func terminateSession() {
+        guard persistentView != nil else { return }
+        let sessions = [SessionRef(id: persistentSessionID ?? "", destination: remoteDestination)]
+        Task { @MainActor [weak self] in
+            guard await SessionTermination.confirm(sessions, in: self?.surface?.window) else { return }
+            self?.terminateSessionNow()
+        }
+    }
+
+    /// Ends the persistent session that this pane shows.
+    func terminateSessionNow() {
         persistentView?.session.terminate(signal: SIGHUP)
     }
 
@@ -1263,7 +1276,8 @@ extension TerminalSessionController {
                     notice: { [weak self, weak link] notice in
                         self?.remoteNotice = notice
                         if let link { self?.updateRemoteBanner(state: link.state) }
-                    }, window: { [weak self] in self?.surface?.window })
+                    }, window: { [weak self] in self?.surface?.window },
+                    install: { [weak self] prompt in self?.showRemoteInstall(prompt) })
                 self.openRemotePane(link: link, sessionID: self.persistentSessionID)
             case .failure(let error):
                 self.showRemoteError(error)
@@ -1338,6 +1352,38 @@ extension TerminalSessionController {
         }
     }
 
+    /// Shows the install question above the terminal, or removes it.
+    @MainActor
+    private func showRemoteInstall(_ prompt: RemoteInstallPrompt?) {
+        guard let container = persistentView?.superview as? TerminalSessionContainerView else { return }
+        if let prompt {
+            if (container.topBanner as? RemoteInstallBanner)?.prompt == prompt { return }
+            let banner = RemoteInstallBanner(prompt: prompt, isActive: { [weak self] in
+                guard let view = self?.persistentView else { return false }
+                return view.window?.firstResponder === view
+            }, answer: { [weak self] accepted in
+                if !accepted { self?.remoteInstallDeclined = true }
+                RemoteHosts.shared.answerInstall(id: prompt.id, accepted: accepted)
+            })
+            container.setTopBanner(banner)
+        } else if container.topBanner is RemoteInstallBanner {
+            container.setTopBanner(nil)
+        }
+        if let hostLink { updateRemoteBanner(state: hostLink.state) }
+    }
+
+    private var isShowingRemoteInstall: Bool {
+        (persistentView?.superview as? TerminalSessionContainerView)?.topBanner is RemoteInstallBanner
+    }
+
+    /// After Not Now, the pane tells that no session started.
+    @MainActor
+    private func showRemoteInstallDeclined() {
+        persistentView?.showBanner("Helper not installed. The session was not started.", actionTitle: "Retry",
+            action: { [weak self] in self?.reconnectPersistentSession() }, secondaryActionTitle: "Close",
+            secondaryAction: { [weak self] in self?.closePaneOrWindow() })
+    }
+
     @MainActor
     private func updateRemoteBanner(state: HostLinkState) {
         guard let view = persistentView, let destination = remoteDestination, !remoteSessionEnded,
@@ -1347,7 +1393,12 @@ extension TerminalSessionController {
             view.remoteInputEnabled = !remoteOpening && view.session.state.connected
         }
         else { view.remoteInputEnabled = false }
-        if let remoteNotice {
+        if isShowingRemoteInstall {
+            // The question above the terminal tells what happens.
+            view.hideBanner()
+        } else if remoteInstallDeclined, case .failed = state {
+            showRemoteInstallDeclined()
+        } else if let remoteNotice {
             view.showBanner(remoteNotice, actionTitle: "Cancel") { [weak self] in self?.closePaneOrWindow() }
         } else if let content = RemoteBannerContent.make(state: state, destination: destination) {
             view.showBanner(content.text, actionTitle: content.primary?.title,
@@ -1374,6 +1425,7 @@ extension TerminalSessionController {
     private func showRemoteError(_ error: Error) {
         remoteOpenFailed = true
         persistentView?.remoteInputEnabled = false
+        if remoteInstallDeclined { showRemoteInstallDeclined(); return }
         persistentView?.showBanner((error as? SSHError)?.message ?? String(describing: error), actionTitle: "Retry",
             action: { [weak self] in self?.reconnectPersistentSession() }, secondaryActionTitle: "Close",
             secondaryAction: { [weak self] in self?.closePaneOrWindow() })
@@ -1395,6 +1447,7 @@ extension TerminalSessionController {
     @MainActor
     func reconnectPersistentSession() {
         if remoteDestination != nil {
+            remoteInstallDeclined = false
             guard let hostLink else { connectRemoteHost(); return }
             if case .connected = hostLink.state { openRemotePane(link: hostLink, sessionID: persistentSessionID) }
             else { hostLink.reconnectNow() }
@@ -1584,6 +1637,11 @@ final class TerminalSessionContainerView: NSView {
     private var isShowingResizeFeedback = false
     private var paddingConstraints: [NSLayoutConstraint] = []
     private var currentPadding = TerminalSessionContainerView.padding
+    private var terminalTopConstraint: NSLayoutConstraint!
+    private var topBannerConstraints: [NSLayoutConstraint] = []
+    /// A bar above the terminal, for example the question before a helper
+    /// install. The terminal moves down below it.
+    private(set) var topBanner: NSView?
 
     init(terminal: NSView & TerminalSurface) {
         self.terminal = terminal
@@ -1606,8 +1664,9 @@ final class TerminalSessionContainerView: NSView {
             rightPaddingView.widthAnchor.constraint(equalToConstant: Self.padding),
             bottomPaddingView.heightAnchor.constraint(equalToConstant: Self.padding)
         ]
+        terminalTopConstraint = terminal.topAnchor.constraint(equalTo: topPaddingView.bottomAnchor)
         NSLayoutConstraint.activate([
-            terminal.topAnchor.constraint(equalTo: topPaddingView.bottomAnchor),
+            terminalTopConstraint,
             terminal.leadingAnchor.constraint(equalTo: leftPaddingView.trailingAnchor),
             terminal.trailingAnchor.constraint(equalTo: rightPaddingView.leadingAnchor),
             terminal.bottomAnchor.constraint(equalTo: bottomPaddingView.topAnchor),
@@ -1668,6 +1727,30 @@ final class TerminalSessionContainerView: NSView {
         super.layout()
         guard isShowingResizeFeedback else { return }
         updateResizeFeedback()
+    }
+
+    func setTopBanner(_ banner: NSView?) {
+        guard banner !== topBanner else { return }
+        NSLayoutConstraint.deactivate(topBannerConstraints)
+        topBannerConstraints.removeAll()
+        topBanner?.removeFromSuperview()
+        topBanner = banner
+        guard let banner else {
+            terminalTopConstraint.isActive = true
+            needsLayout = true
+            return
+        }
+        terminalTopConstraint.isActive = false
+        banner.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(banner)
+        topBannerConstraints = [
+            banner.topAnchor.constraint(equalTo: topPaddingView.bottomAnchor),
+            banner.leadingAnchor.constraint(equalTo: leadingAnchor),
+            banner.trailingAnchor.constraint(equalTo: trailingAnchor),
+            terminal.topAnchor.constraint(equalTo: banner.bottomAnchor),
+        ]
+        NSLayoutConstraint.activate(topBannerConstraints)
+        needsLayout = true
     }
 
     func updatePaddingColor() {

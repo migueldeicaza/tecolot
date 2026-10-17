@@ -23,6 +23,11 @@ struct RemoteBootstrapTests {
         #expect(throws: RemoteBootstrapError.self) { try RemoteLayout(runtimeDirectory: "/tmp/../x") }
     }
 
+    @Test func removeCommandDeletesOnlyTheBaseDirectory() throws {
+        let bootstrap = try RemoteBootstrap(layout: RemoteLayout(baseDirectory: "apps/tecolot"), metadata: [])
+        #expect(try bootstrap.removeCommand() == ["rm", "-rf", "--", "./apps/tecolot"])
+    }
+
     @Test(arguments: ["/bin/sh", "/bin/dash"])
     func installsFromSeparateInputAndSecondProbeReusesHelper(shell: String) throws {
         guard FileManager.default.isExecutableFile(atPath: shell) else { return }

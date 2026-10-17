@@ -20,8 +20,6 @@ final class RemoteSessionBanner: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 6
-        layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.92).cgColor
-        layer?.borderColor = NSColor.separatorColor.cgColor
         layer?.borderWidth = 1
         label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         label.lineBreakMode = .byTruncatingTail
@@ -50,6 +48,22 @@ final class RemoteSessionBanner: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    /// A CGColor does not follow the appearance, so the colors are set again
+    /// with the appearance of the view: the window of a dark theme is dark.
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.92).cgColor
+            layer?.borderColor = NSColor.separatorColor.cgColor
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 
     var text: String { label.stringValue }

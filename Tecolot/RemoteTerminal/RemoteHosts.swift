@@ -4,6 +4,21 @@ import Synchronization
 import TecolotSessionClient
 import TecolotTransport
 
+/// The question before the first helper install on a host. The panes and
+/// the Sessions window show it in place of a sheet.
+struct RemoteInstallPrompt: Hashable {
+    let id: UUID
+    /// The destination as the user entered it.
+    let destination: String
+    let bytes: Int64
+
+    var title: String { "Install the Tecolot helper on \(destination)?" }
+    var text: String {
+        let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        return "The helper (\(size)) goes in \(RemoteHosts.helperDirectory) and runs your shell, so that the session continues when you disconnect."
+    }
+}
+
 /// Shares a connection between the panes that use the same remote account.
 @MainActor
 final class RemoteHosts {
@@ -18,6 +33,8 @@ final class RemoteHosts {
         let state: (HostLinkState) -> Void
         let notice: (String?) -> Void
         let window: () -> NSWindow?
+        /// Shows the install question, or removes it when the value is nil.
+        let install: ((RemoteInstallPrompt?) -> Void)?
         var retained: Bool
     }
 
@@ -51,8 +68,17 @@ final class RemoteHosts {
     private var prompts: [PendingPrompt] = []
     private var currentPrompt: PendingPrompt?
     private var currentAlert: NSAlert?
+    private var currentInstall: RemoteInstallPrompt?
+    private var hostKeys: [ObjectIdentifier: String] = [:]
     private var stopped = false
     private let approvalKey = "RemoteHelperApprovedHosts"
+
+    /// The helper directory on remote hosts, for text that the user reads.
+    static var helperDirectory: String {
+        let base = ProcessInfo.processInfo.environment["TECOLOT_REMOTE_BASE_DIRECTORY"]
+            .flatMap { $0.isEmpty ? nil : $0 } ?? ".tecolot"
+        return "~/" + base
+    }
 
     private init() {
         active.set(NSApp.isActive)
@@ -110,6 +136,7 @@ final class RemoteHosts {
                 let link = registry.link(configuration: resolved, hostConfiguration: configuration,
                                          askpassServer: prepared.askpass)
                 installCallbacks(on: link)
+                hostKeys[ObjectIdentifier(link)] = resolved.hostKey
                 links[key] = link
                 completion(.success(link))
             } catch { completion(.failure(error)) }
@@ -120,15 +147,17 @@ final class RemoteHosts {
     func observe(link: HostLink, observer id: UUID,
                  state: @escaping (HostLinkState) -> Void,
                  notice: @escaping (String?) -> Void,
-                 window: @escaping () -> NSWindow? = { nil }) {
+                 window: @escaping () -> NSWindow? = { nil },
+                 install: ((RemoteInstallPrompt?) -> Void)? = nil) {
         guard !stopped else { return }
         let key = ObjectIdentifier(link)
         let retained = observers[key]?[id]?.retained ?? true
         let isNew = observers[key]?[id] == nil
         observers[key, default: [:]][id] = Observer(state: state, notice: notice, window: window,
-                                                   retained: retained)
+                                                   install: install, retained: retained)
         state(displayState(for: link))
         notice(notices[key]?.values.first)
+        if let currentInstall, currentPrompt?.link === link { install?(currentInstall) }
         if isNew && retained { link.retain() }
         showNextPrompt()
     }
@@ -139,7 +168,29 @@ final class RemoteHosts {
         if observers[key]?.isEmpty == true {
             observers.removeValue(forKey: key)
             cancelPrompts(for: link)
+        } else if currentInstall != nil, currentPrompt?.link === link,
+                  observers[key]?.values.contains(where: { $0.install != nil }) != true {
+            // No view that is left can show the install question.
+            dismissCurrentPrompt(cancel: true)
         }
+    }
+
+    /// Answers the install question that the panes show.
+    func answerInstall(id: UUID, accepted: Bool) {
+        guard let pending = currentPrompt, pending.prompt.id == id, currentInstall != nil else { return }
+        currentPrompt = nil
+        currentInstall = nil
+        publishInstall(nil, link: pending.link)
+        answer(pending, accepted: accepted, text: nil)
+        showNextPrompt()
+    }
+
+    /// The next connection to the host asks again before it installs the helper.
+    func forgetInstallApproval(for link: HostLink) {
+        guard let host = hostKeys[ObjectIdentifier(link)] else { return }
+        var approved = approvedHosts
+        approved.remove(host)
+        UserDefaults.standard.set(approved.sorted(), forKey: approvalKey)
     }
 
     func checkLiveness() {
@@ -265,6 +316,11 @@ final class RemoteHosts {
         for callback in callbacks { callback(state) }
     }
 
+    private func publishInstall(_ prompt: RemoteInstallPrompt?, link: HostLink) {
+        let callbacks = observers[ObjectIdentifier(link)]?.values.compactMap(\.install) ?? []
+        for callback in callbacks { callback(prompt) }
+    }
+
     private func publishNotice(link: HostLink) {
         let key = ObjectIdentifier(link)
         let text = notices[key]?.values.first
@@ -286,12 +342,25 @@ final class RemoteHosts {
         guard !stopped, currentPrompt == nil else { return }
         guard !prompts.isEmpty else { return }
         let pending = prompts.removeFirst()
+        let destination = pending.link.destination
+        if case .install(let id, _, let bytes, _) = pending.prompt {
+            // The panes and the Sessions window show this question in place of a sheet.
+            let install = RemoteInstallPrompt(id: id, destination: destination, bytes: bytes)
+            guard observers[ObjectIdentifier(pending.link)]?.values.contains(where: { $0.install != nil }) == true else {
+                answer(pending, accepted: false, text: nil)
+                showNextPrompt()
+                return
+            }
+            currentPrompt = pending
+            currentInstall = install
+            publishInstall(install, link: pending.link)
+            return
+        }
         let window = window(for: pending.link)
         let alert = NSAlert()
         var field: NSTextField?
-        switch pending.prompt {
-        case .askpass(let request, _):
-            alert.messageText = "Sign in to \(request.host)"
+        if case .askpass(let request, _) = pending.prompt {
+            alert.messageText = "Sign in to \(destination)"
             alert.informativeText = [request.stderr, request.prompt].filter { !$0.isEmpty }.joined(separator: "\n\n")
             switch request.style {
             case .secret:
@@ -299,17 +368,12 @@ final class RemoteHosts {
             case .text:
                 field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
             case .hostKey:
-                alert.messageText = "Confirm the host key for \(request.host)"
+                alert.messageText = "Confirm the host key for \(destination)"
+                // Without a fingerprint in the SSH text, the alert shows the text.
+                _ = HostKeyConfirmation.configure(alert, sshText: alert.informativeText)
             case .notice: break
             }
             alert.addButton(withTitle: request.style == .hostKey ? "Connect" : "Enter")
-        case .install(_, let host, let bytes, _):
-            alert.messageText = "Install the Tecolot helper on \(host)?"
-            let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-            let path = ProcessInfo.processInfo.environment["TECOLOT_REMOTE_BASE_DIRECTORY"]
-                .flatMap { $0.isEmpty ? nil : $0 } ?? ".tecolot"
-            alert.informativeText = "Tecolot will install its helper (\(size)) in ~/\(path) on \(host). The helper runs your shell, so that the session continues when you disconnect."
-            alert.addButton(withTitle: "Install")
         }
         alert.addButton(withTitle: "Cancel")
         if let field {
@@ -357,6 +421,10 @@ final class RemoteHosts {
         let alert = currentAlert
         currentPrompt = nil
         currentAlert = nil
+        if currentInstall != nil, let pending {
+            currentInstall = nil
+            publishInstall(nil, link: pending.link)
+        }
         if let alert {
             if let parent = alert.window.sheetParent { parent.endSheet(alert.window) }
             else if NSApp.modalWindow === alert.window { NSApp.abortModal() }

@@ -96,6 +96,12 @@ public struct RemoteBootstrap: Sendable {
         return "/bin/sh ./\(layout.baseDirectory)/tmp/\(nonce)/receive"
     }
 
+    /// Deletes the helper directory. The command runs in the home directory.
+    public func removeCommand() throws -> [String] {
+        try Self.validatePath(layout.baseDirectory, absolute: false)
+        return ["rm", "-rf", "--", "./\(layout.baseDirectory)"]
+    }
+
     public func bridgeCommand(probe: RemoteProbeResult, nonce: String) throws -> String {
         try Self.validateComponent(nonce)
         guard let binary = probe.binaryID else { throw RemoteBootstrapError.unsupportedBinary("\(probe.os), \(probe.arch)") }

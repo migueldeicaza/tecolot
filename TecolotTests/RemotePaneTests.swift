@@ -113,7 +113,7 @@ struct RemotePaneTests {
             return session.state.connected && rows(session).contains("remote-42")
         }
         #expect(second.persistentSessionID == id)
-        second.terminateSession()
+        second.terminateSessionNow()
         try await wait("remote session exit") { second.persistentView?.session.state.exitStatus != nil }
     }
     @Test func disconnectedPaneIgnoresTextFromInputAndCommands() async throws {

@@ -261,6 +261,21 @@ public final class HostLink: @unchecked Sendable {
         }, fail: { completion(.failure($0)) }))
     }
 
+    /// Deletes the helper from the host. Terminate the sessions first, and
+    /// stop the link after: the bridge runs the deleted helper.
+    public func removeHelper(_ completion: @escaping @Sendable (Result<Void, Error>) -> Void) {
+        enqueue(Waiting(run: { [self] _ in
+            do {
+                let words = try RemoteBootstrap(layout: configuration.remoteLayout, metadata: []).removeCommand()
+                let process = try runClient(arguments: clientArguments(words), ticket: epoch) { child, status, _ in
+                    if status == 0 { completion(.success(())) }
+                    else { completion(.failure(SSHErrorClassifier.classify(stderr: child.stderr))) }
+                }
+                process.write(Data())
+            } catch { completion(.failure(error)) }
+        }, fail: { completion(.failure($0)) }))
+    }
+
     private func enqueue(_ action: Waiting) {
         queue.async { [self] in
             if case .connected = state, let link { action.run(link) }

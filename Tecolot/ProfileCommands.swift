@@ -234,7 +234,9 @@ struct ProfileCommands: Commands {
                 openWindow(id: SessionBrowserWindowID.value)
             }
             Button("Attach to Remote Session…") {
-                RemoteSessionAttachPanel.run()
+                openWindow(id: SessionBrowserWindowID.value)
+                // The window opens first, so that the host section shows in it.
+                DispatchQueue.main.async { SessionBrowserModel.shared.connectToHost() }
             }
             Button("New Remote Session…") {
                 guard let destination = RemoteDestinationPanel.run() else { return }

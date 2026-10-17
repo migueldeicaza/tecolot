@@ -23,9 +23,9 @@ enum RemoteBannerContent {
             return content("Connecting to \(destination)…")
         case .authenticating:
             return content("Waiting for sign-in to \(destination)…")
-        case .confirmInstall(let bytes):
-            let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-            return content("Tecolot will install its helper (\(size)) in ~/.tecolot on \(destination).")
+        case .confirmInstall:
+            // The install question shows above the terminal when its turn comes.
+            return content("Connecting to \(destination)…")
         case .installing(let progress):
             let percent = Int((min(1, max(0, progress.isFinite ? progress : 0)) * 100).rounded())
             return content("Installing the Tecolot helper on \(destination) (\(percent) %)…")

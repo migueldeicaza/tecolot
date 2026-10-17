@@ -566,6 +566,6 @@ struct TecolotApp: App {
         Window("Sessions", id: SessionBrowserWindowID.value) {
             SessionBrowserView()
         }
-        .defaultSize(width: 860, height: 320)
+        .defaultSize(width: 860, height: 400)
     }
 }
