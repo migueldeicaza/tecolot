@@ -40,7 +40,8 @@ struct PanePresentation: Equatable {
 
 @Observable
 final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegate {
-    let id = UUID()
+    /// Stays the same when the pane is restored after a relaunch.
+    let id: UUID
     @ObservationIgnored private let startsProcess: Bool
     @ObservationIgnored private var didStartProcess = false
     @ObservationIgnored private var pendingFocus = false
@@ -91,8 +92,28 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     var showThemePicker = false
     private(set) var displayedWindowTitle = "Tecolot"
     private(set) var panePresentation = PanePresentation()
-    @ObservationIgnored private var launchDirectory: String?
+    @ObservationIgnored var launchDirectory: String?
     @ObservationIgnored private var didResolveLaunch = false
+    /// The directory reports of the shell, for restoration and new tabs.
+    @ObservationIgnored var directoryTracker = PaneDirectoryTracker()
+    /// The shell of a persistent pane, from the helper's session information.
+    @ObservationIgnored var persistentShellPID: Int32 = 0
+    /// A restored local pane waits for its saved text and directory before
+    /// its shell starts.
+    @ObservationIgnored var awaitingRestore = false
+    /// The text that a restored pane shows before its shell starts: the saved
+    /// scrollback and the separator line.
+    @ObservationIgnored var replayText: String?
+    /// A restored persistent pane whose session ended starts a new session
+    /// from this.
+    @ObservationIgnored var pendingSessionRestore: PaneRestoration?
+    /// The session of a restored remote pane. When it ended, the bridge
+    /// starts a new session from its saved state.
+    @ObservationIgnored var remoteRestoreSessionID: String?
+    /// The ended session that the next new remote session starts from. It
+    /// stays until the bridge creates that session, so that a retry after a
+    /// failure also restores.
+    @ObservationIgnored private(set) var remotePendingRestore: String?
     @ObservationIgnored private var restoredContent: String?
     @ObservationIgnored var bufferSnapshotHandler: ((String) -> Void)?
     @ObservationIgnored private weak var observedWindow: NSWindow?
@@ -112,8 +133,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         persistentView != nil || wantsPersistentSession
     }
 
-    init(startsProcess: Bool = true) {
+    init(startsProcess: Bool = true, id: UUID = UUID()) {
         self.startsProcess = startsProcess
+        self.id = id
         super.init()
     }
 
@@ -158,20 +180,32 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         spec?.remoteDestination != nil || spec?.persistent == true || spec?.attachSessionID != nil || profile.sessionPersistence == .persistent
     }
 
-    /// Sets up a pane of a restored layout.
+    /// Sets up a pane of a restored layout. The pane keeps its kind: a local
+    /// shell, a persistent session, or a remote session.
     @MainActor
-    func presetLaunch(_ pane: SavedPane) {
+    func presetRestore(_ restoration: PaneRestoration) {
         guard !didResolveLaunch else { return }
         didResolveLaunch = true
+        let pane = restoration.pane
         profile = pane.profileID.flatMap { AppModel.shared.profiles.profile(withID: $0) }
             ?? AppModel.shared.profiles.defaultProfile
         themeOverride = pane.themeOverride
-        remoteDestination = pane.remoteDestination
-        wantsPersistentSession = remoteDestination != nil
-        launchDirectory = remoteDestination == nil ? pane.workingDirectory : nil
-        if let sessionID = pane.sessionID {
+        directoryTracker = PaneDirectoryTracker(launch: pane.directory?.path)
+        switch pane.kind {
+        case .remote:
+            remoteDestination = pane.remoteDestination
             wantsPersistentSession = true
-            attachSessionID = sessionID
+            attachSessionID = pane.sessionID
+            remoteRestoreSessionID = pane.sessionID
+        case .persistent:
+            wantsPersistentSession = true
+            if restoration.sessionRunning, let sessionID = pane.sessionID {
+                attachSessionID = sessionID
+            } else {
+                pendingSessionRestore = restoration
+            }
+        case .local:
+            beginLocalRestore(restoration)
         }
     }
 
@@ -186,12 +220,15 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         wantsPersistentSession = source.isPersistent
     }
 
-    /// The directory the shell reported via OSC 7, as a filesystem path
+    /// The last directory that the shell reported on the pane's host. A
+    /// report from another host (the shell runs `ssh`) does not change it.
     var currentWorkingDirectory: String? {
-        guard let posted = postedDirectory, let url = URL(string: posted) else {
-            return nil
-        }
-        return url.path
+        directoryTracker.restore?.path
+    }
+
+    /// The last directory report from any host, for the title.
+    var displayedDirectory: String? {
+        directoryTracker.latest?.path
     }
 
     /// A local OSC 7 directory that the titlebar can open in Finder.
@@ -399,6 +436,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
         postedDirectory = directory
+        noteDirectoryReport(directory)
         updateWindowTitle()
     }
 
@@ -957,11 +995,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     private func registerWindowIfAvailable() {
         guard let window = surface?.window else { return }
         TerminalSessionRegistry.shared.register(controller: self, workspace: workspace, for: window)
-        if isPersistent {
-            // The persistent layout store brings this window back; window
-            // restoration would bring it back a second time, as a local shell.
-            window.isRestorable = false
-        }
+        // RestoreStore brings the terminal windows back. AppKit restoration
+        // would bring them back a second time, without their panes. AppKit
+        // restores the windows of saved documents: it knows their files.
+        window.isRestorable = RestoreStore.isFileDocumentWindow(window)
         observeWindowKeyState(for: window)
         updateWindowTransparency()
     }
@@ -1011,8 +1048,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         updateWindowTitle()
     }
 
-    private func scheduleStartIfNeeded() {
-        guard startsProcess, !didStartProcess, !pendingStart else { return }
+    func scheduleStartIfNeeded() {
+        guard startsProcess, !didStartProcess, !pendingStart, !awaitingRestore else { return }
         pendingStart = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -1022,7 +1059,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     private func startShellIfReady() {
-        guard !didStartProcess, let terminal else { return }
+        guard !didStartProcess, !awaitingRestore, let terminal else { return }
         guard terminal.window != nil else {
             scheduleStartIfNeeded()
             return
@@ -1038,6 +1075,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         restoreBufferIfNeeded(on: terminal)
 
         let params = ProfileApplier.launchParameters(for: profile, initialDirectory: launchDirectory)
+        directoryTracker.launch = params.currentDirectory
         terminal.startProcess(executable: params.executable,
                               args: params.args,
                               environment: params.environment,
@@ -1049,6 +1087,13 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     private func restoreBufferIfNeeded(on terminal: LocalProcessTerminalView) {
+        // A restored pane: the saved text, then the separator, then the shell.
+        if let replayText {
+            self.replayText = nil
+            if (try? ScrollbackFile.validate(replayText)) != nil {
+                terminal.feed(text: ScrollbackFile.terminalBytes(replayText))
+            }
+        }
         guard let restoredContent, !restoredContent.isEmpty else { return }
         self.restoredContent = nil
         let limit = UserDefaults.standard.object(forKey: "restoredRowsLimit") as? Int ?? 1_000
@@ -1115,7 +1160,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if profile.titleComponents.contains (.dimensions) {
             appendIfPresent ("\(dimensions.cols) x \(dimensions.rows)")
         }
-        if let directory = currentWorkingDirectory {
+        if let directory = displayedDirectory {
             if profile.titleComponents.contains (.fullPath) {
                 appendIfPresent (directory)
             } else if profile.titleComponents.contains (.workingDirectory) {
@@ -1129,7 +1174,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         let newTitle = components.joined (separator: " — ")
         var presentation = panePresentation
         presentation.title = newTitle.isEmpty ? "Terminal" : newTitle
-        presentation.directory = currentWorkingDirectory ?? launchDirectory
+        presentation.directory = displayedDirectory ?? launchDirectory
         presentation.hasActivity = hasActivity
         if presentation != panePresentation {
             panePresentation = presentation
@@ -1206,6 +1251,18 @@ extension TerminalSessionController {
     func makePersistentView() -> RemoteTerminalView? {
         if let remoteDestination { return makeHostPersistentView(destination: remoteDestination) }
         let font = ProfileApplier.font(for: profile)
+        if let restoration = pendingSessionRestore {
+            // The session ended (the Mac restarted). The pane shows at once;
+            // the new session starts when its directory and text are ready.
+            pendingSessionRestore = nil
+            let view = RemoteTerminalView(session: makeRemoteSession(socket: -1), font: font)
+            view.sessionController = self
+            view.glyphFallbackProvider = NerdFontFallbackProvider.shared
+            persistentView = view
+            attachPersistentView()
+            startReplacementSession(for: restoration)
+            return view
+        }
         do {
             let directory = try PersistentSessions.directory()
             let sessionID: String
@@ -1229,7 +1286,6 @@ extension TerminalSessionController {
                           focused: false,
                           scale: Int(((NSScreen.main?.backingScaleFactor ?? 2) * 100).rounded()))
             attachPersistentView()
-            PersistentLayoutStore.shared.scheduleSave()
             return view
         } catch {
             wantsPersistentSession = false
@@ -1255,8 +1311,32 @@ extension TerminalSessionController {
         attachPersistentView()
         updateRemoteBanner(state: .resolving)
         connectRemoteHost()
-        PersistentLayoutStore.shared.scheduleSave()
         return view
+    }
+
+    /// Shows the new session that replaces an ended one in this pane.
+    @MainActor
+    func attachReplacementSession(_ id: String) {
+        guard let view = persistentView, !persistentDetached else { return }
+        do {
+            let socket = try PersistentSessions.directory().connect(id)
+            let session = makeRemoteSession(socket: socket)
+            view.replaceSession(session)
+            persistentSessionID = id
+            session.start(size: view.wireGridSize, focused: view.hasFocus, scale: view.displayScale)
+            applyPersistentAppearance(to: view)
+        } catch {
+            showReplacementError(error)
+        }
+    }
+
+    @MainActor
+    func showReplacementError(_ error: Error) {
+        guard !persistentDetached else { return }
+        persistentView?.showBanner("Could not start a persistent session: \(error.localizedDescription)",
+                                   actionTitle: "Close") { [weak self] in
+            self?.closePaneOrWindow()
+        }
     }
 
     @MainActor
@@ -1285,19 +1365,24 @@ extension TerminalSessionController {
         }
     }
 
+    /// `restoring` names the ended session that a restored pane showed: the
+    /// bridge starts the new session from its saved state.
     @MainActor
-    private func openRemotePane(link: HostLink, sessionID: String?) {
+    private func openRemotePane(link: HostLink, sessionID: String?, restoring: String? = nil) {
         guard let view = persistentView, !persistentDetached, !remoteOpening, !remoteSessionEnded else { return }
         remoteOpening = true
         remoteOpenFailed = false
-        let launch = PersistentSessions.makeRemoteLaunch(profile: profile, destination: remoteDestination ?? link.destination)
+        let restoring = restoring ?? (sessionID == nil ? remotePendingRestore : nil)
+        var launch = PersistentSessions.makeRemoteLaunch(profile: profile, destination: remoteDestination ?? link.destination)
+        launch.restoreSessionID = restoring
+        if restoring != nil { launch.workingDirectory = directoryTracker.launch }
         let socket = link.openPane(sessionID: sessionID, launch: sessionID == nil ? launch : nil, created: { [weak self] id in
             // Keep the ID also when the attach fails, so that a retry does not create another session.
             DispatchQueue.main.async { [weak self] in
                 guard let self, !self.persistentDetached else { return }
                 self.persistentSessionID = id
                 self.attachSessionID = nil
-                PersistentLayoutStore.shared.scheduleSave()
+                self.remotePendingRestore = nil
             }
         }) { [weak self, weak link] result in
             let generation = link?.connectionGeneration ?? 0
@@ -1308,9 +1393,9 @@ extension TerminalSessionController {
                 case .success(let id):
                     self.persistentSessionID = id
                     self.attachSessionID = nil
+                    self.remoteRestoreSessionID = nil
                     self.remoteGeneration = generation
                     self.remoteLinkChanged(link.state)
-                    PersistentLayoutStore.shared.scheduleSave()
                 case .failure(let error):
                     if case .unsupported = link.state {
                         // The state banner tells why. A retry cannot help.
@@ -1319,10 +1404,17 @@ extension TerminalSessionController {
                         link.listSessions { [weak self] records in
                             DispatchQueue.main.async { [weak self] in
                                 guard let self, !self.persistentDetached else { return }
-                                if case .success(let records) = records, !records.contains(where: { $0.id == sessionID }) {
+                                if case .success(let records) = records, !records.contains(where: { $0.id == sessionID }),
+                                   self.remoteRestoreSessionID == sessionID {
+                                    // A restored pane whose session ended (the host
+                                    // restarted): start a new session in its place.
+                                    self.remoteRestoreSessionID = nil
+                                    self.remotePendingRestore = sessionID
+                                    self.persistentSessionID = nil
+                                    self.openRemotePane(link: link, sessionID: nil)
+                                } else if case .success(let records) = records, !records.contains(where: { $0.id == sessionID }) {
                                     self.remoteSessionEnded = true
                                     self.persistentView?.remoteInputEnabled = false
-                                    PersistentLayoutStore.shared.scheduleSave()
                                     self.persistentView?.showBanner("The session ended.", actionTitle: "Close") { [weak self] in
                                         self?.closePaneOrWindow()
                                     }
@@ -1431,7 +1523,7 @@ extension TerminalSessionController {
             secondaryAction: { [weak self] in self?.closePaneOrWindow() })
     }
 
-    private func makeRemoteSession(socket: Int32) -> RemoteSession {
+    func makeRemoteSession(socket: Int32) -> RemoteSession {
         let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
         let session = RemoteSession(socket: socket, clientName: "Tecolot", build: version, clientInstance: clientInstance)
         session.onEvent = { [weak self, weak session] event in
@@ -1541,6 +1633,7 @@ extension TerminalSessionController {
             break
         case .directory(let directory):
             postedDirectory = directory.isEmpty ? nil : directory
+            noteDirectoryReport(postedDirectory)
             updateWindowTitle()
         case .bell:
             if profile.bellStyle != .none {
@@ -1560,10 +1653,10 @@ extension TerminalSessionController {
             if remoteDestination != nil {
                 remoteSessionEnded = true
                 persistentView?.remoteInputEnabled = false
-                PersistentLayoutStore.shared.scheduleSave()
             }
             processTerminated(source: nil, exitCode: code)
         case .info(let info):
+            persistentShellPID = info.shellPID
             updatePaneExecutablePath(info.foreground?.path)
         case .progress(let progress):
             let state = Terminal.ProgressReportState(rawValue: Int(progress.state)) ?? .remove

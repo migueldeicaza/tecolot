@@ -12,7 +12,7 @@ import Observation
 import SwiftTerm
 import SwiftUI
 
-enum TerminalPaneSplit: String, Codable, Sendable {
+nonisolated enum TerminalPaneSplit: String, Codable, Sendable {
     /// A vertical divider puts panes next to each other.
     case vertical
     /// A horizontal divider stacks panes.
@@ -65,22 +65,23 @@ final class TerminalPaneWorkspace {
 
     @ObservationIgnored private var didConsiderPaneTree = false
 
-    /// Rebuilds the pane tree from a pending launch that carries a saved
-    /// layout (restore on relaunch). Call before any pane view exists.
+    /// Rebuilds the pane tree from a pending launch that carries a restored
+    /// tab (restore on relaunch). Call before any pane view exists.
     /// Returns the saved divider fractions by split node.
     func adoptPendingPaneTree() -> [UUID: CGFloat]? {
         guard !didConsiderPaneTree else { return nil }
         didConsiderPaneTree = true
-        guard let tree = AppModel.shared.pendingPaneTree() else { return nil }
+        guard let restored = AppModel.shared.pendingRestoredTab() else { return nil }
         _ = AppModel.shared.takePendingLaunch()
         var fractions: [UUID: CGFloat] = [:]
         var first: TerminalSessionController?
-        func build(_ saved: SavedPaneNode) -> TerminalPaneNode {
+        func build(_ saved: RestorePaneNode) -> TerminalPaneNode {
             switch saved {
             case .pane(let pane):
-                let controller = TerminalSessionController(startsProcess: startsProcesses)
+                let controller = TerminalSessionController(startsProcess: startsProcesses, id: pane.id)
                 controller.workspace = self
-                controller.presetLaunch(pane)
+                controller.presetRestore(restored.panes[pane.id] ?? PaneRestoration(
+                    pane: pane, savedAt: Date(), macRestarted: false, textURL: nil, sessionRunning: false))
                 if first == nil { first = controller }
                 return TerminalPaneNode(content: .terminal(controller))
             case .split(let orientation, let fraction, let firstChild, let secondChild):
@@ -89,8 +90,16 @@ final class TerminalPaneWorkspace {
                 return node
             }
         }
-        root = build(tree.root)
-        if let first { focusedControllerID = first.id }
+        root = build(restored.tab.root)
+        let ids = Set(controllers.map(\.id))
+        if let focused = restored.tab.focusedPaneID, ids.contains(focused) {
+            focusedControllerID = focused
+        } else if let first {
+            focusedControllerID = first.id
+        }
+        if let zoomed = restored.tab.zoomedPaneID, ids.contains(zoomed), ids.count > 1 {
+            zoomedControllerID = zoomed
+        }
         return fractions
     }
 
@@ -443,9 +452,6 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
             // Rebuild first. The new card metrics then apply only to the new
             // tree, and each terminal gets one resize.
             rebuild()
-            if workspace.controllers.contains(where: \.isPersistent) {
-                PersistentLayoutStore.shared.scheduleSave()
-            }
         } else if settingsChanged {
             refreshAppearance()
         }

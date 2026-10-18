@@ -23,8 +23,8 @@ struct LaunchSpec {
     var persistent = false
     /// Attach to this running persistent session instead of starting a shell.
     var attachSessionID: String?
-    /// A saved split layout to rebuild (restore on relaunch).
-    var paneTree: SavedPaneTree?
+    /// A saved tab to rebuild, with its splits (restore on relaunch).
+    var restoredTab: RestoredTab?
 }
 
 @MainActor
@@ -208,9 +208,9 @@ final class AppModel {
         pendingLaunch = nil
     }
 
-    /// The pane tree of the pending launch, without consuming it.
-    func pendingPaneTree() -> SavedPaneTree? {
-        pendingLaunch?.paneTree
+    /// The restored tab of the pending launch, without consuming it.
+    func pendingRestoredTab() -> RestoredTab? {
+        pendingLaunch?.restoredTab
     }
 
     /// Returns and clears the pending launch parameters

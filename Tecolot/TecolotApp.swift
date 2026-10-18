@@ -36,10 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let hasTerminalWindow = NSApp.windows.contains { window in
                 !TerminalSessionRegistry.shared.controllers(for: window).isEmpty
             }
-            // Windows with persistent sessions come back as they were, next to
-            // the windows that macOS restored (those never hold persistent
-            // panes; see TerminalSessionController.registerWindowIfAvailable).
-            let restored = PersistentLayoutStore.shared.restore()
+            // The windows of the last quit come back as they were. AppKit
+            // restores no terminal window (see registerWindowIfAvailable).
+            let restored = RestoreStore.shared.restore()
             if restored {
                 NSApp.activate(ignoringOtherApps: true)
             }
@@ -66,10 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             TerminalSessionRegistry.shared.controllers(for: window)
                 .contains(where: TerminalClosePolicy.requiresConfirmation)
         }
-        guard hasLiveProcess else {
-            PersistentLayoutStore.shared.saveForTermination()
-            return .terminateNow
-        }
+        guard hasLiveProcess else { return saveForTermination(sender) }
 
         let alert = NSAlert()
         alert.messageText = "Quit and terminate running processes?"
@@ -78,8 +74,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
         guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
-        PersistentLayoutStore.shared.saveForTermination()
-        return .terminateNow
+        return saveForTermination(sender)
+    }
+
+    /// Saves the windows for the next launch, then quits. The writes run on
+    /// a background queue; the quit waits for them for at most 3 seconds.
+    private func saveForTermination(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard RestoreStore.shared.isEnabled, RestoreStore.shared.isReady else { return .terminateNow }
+        RestoreStore.shared.saveForTermination {
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {

@@ -11,6 +11,7 @@ public enum PersistenceDomain: String, Codable, CaseIterable, Sendable {
     case preferences
     case terminalDocument
     case legacyApplicationSupport
+    case windowRestoration
 
     public var displayName: String {
         switch self {
@@ -22,6 +23,7 @@ public enum PersistenceDomain: String, Codable, CaseIterable, Sendable {
         case .preferences: return "Preferences"
         case .terminalDocument: return "Terminal Documents"
         case .legacyApplicationSupport: return "Legacy Application Data"
+        case .windowRestoration: return "Window Restoration"
         }
     }
 }

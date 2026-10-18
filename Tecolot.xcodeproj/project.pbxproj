@@ -19,6 +19,7 @@
 		7EC05E550000000000000008 /* TecolotSessionDirectory in Frameworks */ = {isa = PBXBuildFile; productRef = 7EC05E550000000000000004 /* TecolotSessionDirectory */; };
 		7EC05E550000000000000009 /* TecolotWire in Frameworks */ = {isa = PBXBuildFile; productRef = 7EC05E550000000000000005 /* TecolotWire */; };
 		7EC05E55000000000000000A /* TecolotTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 7EC05E550000000000000006 /* TecolotTransport */; };
+		7EC05E550000000000000021 /* TecolotSessionHost in Frameworks */ = {isa = PBXBuildFile; productRef = 7EC05E550000000000000020 /* TecolotSessionHost */; };
 		7EC05E55000000000000000C /* TecolotSessionDaemon in Frameworks */ = {isa = PBXBuildFile; productRef = 7EC05E55000000000000000B /* TecolotSessionDaemon */; };
 		7EC05E550000000000000018 /* tecolot-sessiond in Embed Session Helper */ = {isa = PBXBuildFile; fileRef = 7EC05E55000000000000000E /* tecolot-sessiond */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -110,6 +111,7 @@
 				7EC05E550000000000000008 /* TecolotSessionDirectory in Frameworks */,
 				7EC05E550000000000000009 /* TecolotWire in Frameworks */,
 				7EC05E55000000000000000A /* TecolotTransport in Frameworks */,
+				7EC05E550000000000000021 /* TecolotSessionHost in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -201,6 +203,7 @@
 				7EC05E550000000000000004 /* TecolotSessionDirectory */,
 				7EC05E550000000000000005 /* TecolotWire */,
 				7EC05E550000000000000006 /* TecolotTransport */,
+				7EC05E550000000000000020 /* TecolotSessionHost */,
 			);
 			productName = Tecolot;
 			productReference = 497C9E172E426320008DBCC0 /* Tecolot.app */;
@@ -684,7 +687,7 @@
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
 			requirement = {
 				kind = revision;
-				revision = eaf5a8255d8e107f0b5e6709560608b897cadeaa;
+				revision = 515bb95e520e9c70d2872dd58ac520831ee02a1c;
 			};
 		};
 		5A81CE0000000001AAAA0003 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
@@ -732,6 +735,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 7EC05E550000000000000001 /* XCLocalSwiftPackageReference "Packages/TecolotSession" */;
 			productName = TecolotSessionDaemon;
+		};
+		7EC05E550000000000000020 /* TecolotSessionHost */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7EC05E550000000000000001 /* XCLocalSwiftPackageReference "Packages/TecolotSession" */;
+			productName = TecolotSessionHost;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

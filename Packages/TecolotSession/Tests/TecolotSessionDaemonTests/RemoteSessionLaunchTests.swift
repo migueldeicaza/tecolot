@@ -62,6 +62,24 @@ struct RemoteSessionLaunchTests {
         #expect(resolved.workingDirectory == "/home/user")
     }
 
+    /// A gone directory in the home becomes its nearest parent. A path of
+    /// another host (a nested ssh) becomes the home, not its parent here.
+    @Test func goneDirectoryFallsBackOnlyInsideTheHome() {
+        let existing: Set<String> = ["/", "/Users", "/home", "/home/user", "/home/user/src"]
+        let user = RemoteUserInfo(name: "user", home: "/home/user", shell: "/bin/sh")
+        let inHome = RemoteSessionLaunch(workingDirectory: "/home/user/src/gone")
+        #expect(inHome.resolve(passwd: user, bridgeEnvironment: [:], directoryExists: existing.contains)
+            .workingDirectory == "/home/user/src")
+        #expect(inHome.startDirectory(home: user.home, directoryExists: existing.contains).notFound)
+        let otherHost = RemoteSessionLaunch(workingDirectory: "/Users/me/src")
+        #expect(otherHost.resolve(passwd: user, bridgeEnvironment: [:], directoryExists: existing.contains)
+            .workingDirectory == "/home/user")
+        #expect(otherHost.startDirectory(home: user.home, directoryExists: existing.contains).notFound)
+        let found = RemoteSessionLaunch(workingDirectory: "/home/user/src")
+        #expect(!found.startDirectory(home: user.home, directoryExists: existing.contains).notFound)
+        #expect(!RemoteSessionLaunch().startDirectory(home: user.home).notFound)
+    }
+
     @Test func launchCodableAndAppearanceArePreserved() throws {
         let theme = SessionTheme(palette: [], foreground: WireRGBCodable(r: 1, g: 2, b: 3),
                                  background: WireRGBCodable(r: 4, g: 5, b: 6))

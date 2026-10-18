@@ -107,8 +107,19 @@ final class BridgeServer: @unchecked Sendable {
                 let launch = try JSONDecoder().decode(RemoteSessionLaunch.self, from: Data(message.json))
                 workQueue.async { [self] in
                     reply(envelope) {
-                        let local = launch.resolve(passwd: user, bridgeEnvironment: environment)
+                        var local = launch.resolve(passwd: user, bridgeEnvironment: environment)
+                        // A restored pane whose session ended: start the new
+                        // session from the session's durable state.
+                        let states = DurableStateDirectory.remoteDefault(home: user.home)
+                        var used: DurableSessionState?
+                        if let id = launch.restoreSessionID, SessionDirectory.isValidIdentifier(id) {
+                            let notFound = launch.startDirectory(home: user.home).notFound
+                            used = states.prepareRestore(&local, sessionID: id, rowLimit: launch.restoreRows ?? 1_000,
+                                                         remote: true, directoryNotFound: notFound)
+                        }
                         let record = try directory.create(local, helperPath: helperPath)
+                        if let used { states.remove(used.id) }
+                        if launch.restoreSessionID != nil { states.prune() }
                         let json = Array(try Self.recordEncoder().encode(record))
                         endpoint.sendControl(SessionCreatedMessage(json: json), requestID: requestID)
                     }

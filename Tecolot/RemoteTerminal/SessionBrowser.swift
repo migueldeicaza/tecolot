@@ -3,7 +3,9 @@
 //  Tecolot
 //
 //  The Sessions window: the persistent sessions on this Mac and on remote
-//  hosts, with actions to show, attach to and terminate them.
+//  hosts, with actions to show, attach to and terminate them. The Ended
+//  filter lists the sessions of this Mac that the system ended (log out,
+//  restart) and that no window restored; Restore starts each one again.
 //
 
 import AppKit
@@ -24,6 +26,8 @@ struct SessionBrowserRow: Identifiable, Hashable {
         case attachedElsewhere
         case detached
         case exited(Int32?)
+        /// The system ended the session; its saved state can start it again.
+        case ended
 
         var label: String {
             switch self {
@@ -31,6 +35,7 @@ struct SessionBrowserRow: Identifiable, Hashable {
             case .attachedElsewhere: return "Attached elsewhere"
             case .detached: return "Detached"
             case .exited(let code): return code.map { "Exited (\($0))" } ?? "Exited"
+            case .ended: return "Ended"
             }
         }
     }
@@ -41,6 +46,8 @@ struct SessionBrowserRow: Identifiable, Hashable {
     let shownHere: Bool
     /// The SSH destination of the host. Nil for this Mac.
     var destination: String? = nil
+    /// The saved state of an ended session.
+    var endedState: DurableSessionState? = nil
 
     var id: String { destination.map { "\($0)/\(record.id)" } ?? record.id }
 
@@ -68,8 +75,25 @@ struct SessionBrowserRow: Identifiable, Hashable {
     var size: String { "\(record.columns)×\(record.rows)" }
 
     var canAttach: Bool {
-        if case .exited = status { return false }
-        return true
+        switch status {
+        case .exited, .ended: return false
+        default: return true
+        }
+    }
+
+    var isEnded: Bool { endedState != nil }
+
+    /// A row for a session that the system ended.
+    static func ended(_ state: DurableSessionState) -> SessionBrowserRow {
+        var record = SessionRecord(id: state.id, pid: 0, shellPID: 0, protocolVersion: 0, build: "",
+                                   createdAt: state.savedAt, executable: state.launch.executable,
+                                   workingDirectory: state.launch.workingDirectory, labels: state.launch.labels,
+                                   columns: state.launch.columns, rows: state.launch.rows)
+        record.title = state.title
+        record.directory = state.directory.map { URL(fileURLWithPath: $0.path).absoluteString } ?? ""
+        record.foreground = state.alternateScreenProgram
+        record.exited = true
+        return SessionBrowserRow(record: record, status: .ended, shownHere: false, endedState: state)
     }
 
     /// Show brings the pane to the front, or attaches in a new tab.
@@ -165,6 +189,11 @@ enum SessionBrowserItem: Identifiable, Hashable {
     }
 }
 
+enum SessionBrowserFilter: Hashable {
+    case running
+    case ended
+}
+
 @MainActor
 @Observable
 final class SessionBrowserModel {
@@ -175,13 +204,31 @@ final class SessionBrowserModel {
 
     private(set) var hosts: [SessionHost] = [.local()]
     var selection: Set<String> = []
+    private(set) var filter = SessionBrowserFilter.running
+    /// The ended sessions of this Mac, newest first.
+    private(set) var endedRows: [SessionBrowserRow] = []
 
-    /// The sessions of all hosts.
-    var rows: [SessionBrowserRow] { hosts.flatMap(\.sessions) }
+    /// The sessions of all hosts, or the ended sessions.
+    var rows: [SessionBrowserRow] { filter == .ended ? endedRows : hosts.flatMap(\.sessions) }
+
+    /// The host rows that the table shows. The Ended filter shows this Mac only.
+    var visibleHosts: [SessionHost] {
+        guard filter == .ended else { return hosts }
+        var local = SessionHost.local(sessions: endedRows)
+        local.isExpanded = host(SessionHost.localID)?.isExpanded ?? true
+        return [local]
+    }
 
     /// The Sessions window, for sheets.
     @ObservationIgnored weak var window: NSWindow?
     @ObservationIgnored private let list: () -> [SessionRecord]
+    @ObservationIgnored private let ended: () -> [DurableSessionState]
+    /// Changes when a state is added or removed. The timer reads the states
+    /// again only then: each state holds the full launch environment.
+    @ObservationIgnored private let endedSignature: () -> [String]
+    @ObservationIgnored private var endedStates: [DurableSessionState] = []
+    @ObservationIgnored private var loadedSignature: [String]?
+    @ObservationIgnored private let removeEnded: (String) -> Void
     @ObservationIgnored private let shown: () -> Set<String>
     @ObservationIgnored private let defaults: UserDefaults?
     @ObservationIgnored private var timer: Timer?
@@ -201,9 +248,17 @@ final class SessionBrowserModel {
 
     /// `defaults` keeps the remote hosts between launches; nil keeps no hosts.
     init(list: @escaping () -> [SessionRecord] = PersistentSessions.list,
+         ended: @escaping () -> [DurableSessionState] = { RestoreStore.localSessionStates.list() },
+         endedSignature: @escaping () -> [String] = {
+             (try? FileManager.default.contentsOfDirectory(atPath: RestoreStore.localSessionStates.url.path))?.sorted() ?? []
+         },
+         removeEnded: @escaping (String) -> Void = { RestoreStore.localSessionStates.remove($0) },
          shown: @escaping () -> Set<String> = { TerminalSessionRegistry.shared.shownPersistentSessionIDs() },
          defaults: UserDefaults? = nil) {
         self.list = list
+        self.ended = ended
+        self.endedSignature = endedSignature
+        self.removeEnded = removeEnded
         self.shown = shown
         self.defaults = defaults
         for destination in defaults?.stringArray(forKey: Self.hostsKey) ?? []
@@ -226,6 +281,7 @@ final class SessionBrowserModel {
 
     /// The rows under a host row.
     func children(of host: SessionHost) -> [SessionBrowserItem] {
+        if filter == .ended { return endedRows.isEmpty ? [.status(host)] : endedRows.map { .session($0) } }
         if host.state == .loaded && !host.sessions.isEmpty { return host.sessions.map { .session($0) } }
         if host.state == .notConnected { return [] }
         return [.status(host)]
@@ -240,7 +296,29 @@ final class SessionBrowserModel {
 
     /// Reads the sessions on this Mac again. Newest first. The table draws
     /// again only when a row changed.
-    func refresh() {
+    func setFilter(_ filter: SessionBrowserFilter) {
+        guard filter != self.filter else { return }
+        self.filter = filter
+        selection = []
+        refresh()
+    }
+
+    /// `reloadEnded` reads the ended states again also when no state was
+    /// added or removed (it also deletes the old states).
+    func refresh(reloadEnded: Bool = true) {
+        if filter == .ended {
+            let signature = endedSignature()
+            if reloadEnded || signature != loadedSignature {
+                endedStates = ended()
+                loadedSignature = signature
+            }
+            // A state that a running session has is not ended: a pane uses it now.
+            let running = Set(list().map(\.id))
+            let rows = endedStates.filter { !running.contains($0.id) }.map(SessionBrowserRow.ended)
+            if rows != endedRows { endedRows = rows }
+            select(selection)
+            return
+        }
         let shown = shown()
         let local = list()
             .sorted { $0.createdAt > $1.createdAt }
@@ -261,7 +339,7 @@ final class SessionBrowserModel {
         refresh()
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+            MainActor.assumeIsolated { self?.refresh(reloadEnded: false) }
         }
         remoteTimer?.invalidate()
         remoteTimer = Timer.scheduledTimer(withTimeInterval: Self.remoteRefreshInterval, repeats: true) { [weak self] _ in
@@ -277,6 +355,8 @@ final class SessionBrowserModel {
     }
 
     private func refreshRemoteHosts() {
+        // The Ended filter shows only this Mac.
+        guard filter != .ended else { return }
         for host in hosts where host.destination != nil && host.state == .loaded && host.isExpanded {
             listSessions(host.id)
         }
@@ -564,6 +644,21 @@ final class SessionBrowserModel {
         if let failure { Self.showError(failure, action: "Cannot terminate the session", in: window) }
     }
 
+    /// Starts each ended session again in a new tab, in its directory and
+    /// under its text. The tab deletes the state when the new session starts.
+    func restoreEnded(_ rows: [SessionBrowserRow]) {
+        for row in rows {
+            guard let state = row.endedState else { continue }
+            WindowOpener.openTab(spec: RestoreStore.launchSpec(restoring: state))
+        }
+    }
+
+    /// Deletes the saved state of ended sessions.
+    func deleteEnded(_ rows: [SessionBrowserRow]) {
+        for row in rows where row.isEnded { removeEnded(row.record.id) }
+        refresh()
+    }
+
     func copyIDs(_ rows: [SessionBrowserRow]) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(rows.map(\.record.id).joined(separator: "\n"), forType: .string)
@@ -598,6 +693,28 @@ struct SessionBrowserView: View {
             .frame(minWidth: 760, minHeight: 240)
             .background(WindowReader { model.window = $0 })
             .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    Picker("Sessions", selection: Binding(get: { model.filter }, set: { model.setFilter($0) })) {
+                        Text("Running").tag(SessionBrowserFilter.running)
+                        Text("Ended").tag(SessionBrowserFilter.ended)
+                    }
+                    .pickerStyle(.segmented)
+                    .help("Ended lists the sessions that the system ended at log out or restart")
+                }
+                if model.filter == .ended {
+                    ToolbarItemGroup {
+                        Button("Restore", systemImage: "arrow.counterclockwise") {
+                            model.restoreEnded(selectedRows)
+                        }
+                        .help("Start the session again in a new tab, with its directory and text")
+                        .disabled(selectedRows.isEmpty)
+                        Button("Delete", systemImage: "trash") {
+                            model.deleteEnded(selectedRows)
+                        }
+                        .help("Delete the saved state of the session")
+                        .disabled(selectedRows.isEmpty)
+                    }
+                } else {
                 ToolbarItemGroup {
                     Button("Connect to Host…", systemImage: "plus") {
                         model.connectToHost()
@@ -613,6 +730,7 @@ struct SessionBrowserView: View {
                     }
                     .help("End the session and its programs")
                     .disabled(selectedRows.allSatisfy { !$0.canAttach })
+                }
                 }
             }
             .onAppear { model.startRefreshing() }
@@ -678,7 +796,7 @@ struct SessionBrowserView: View {
             }
             .width(min: 130, ideal: 140)
         } rows: {
-            ForEach(model.hosts) { host in
+            ForEach(model.visibleHosts) { host in
                 DisclosureTableRow(SessionBrowserItem.host(host), isExpanded: expanded(host.id)) {
                     ForEach(model.children(of: host)) { item in
                         TableRow(item)
@@ -688,7 +806,13 @@ struct SessionBrowserView: View {
         }
         .contextMenu(forSelectionType: String.self) { ids in
             let rows = model.rows(for: ids)
-            if !rows.isEmpty {
+            if !rows.isEmpty, rows.allSatisfy(\.isEnded) {
+                Button("Restore in New Tab") { model.restoreEnded(rows) }
+                Divider()
+                Button("Copy Session ID") { model.copyIDs(rows) }
+                Divider()
+                Button("Delete") { model.deleteEnded(rows) }
+            } else if !rows.isEmpty {
                 Button(rows.contains(where: \.shownHere) ? "Show" : "Attach in New Tab") {
                     rows.forEach(model.open)
                 }
@@ -702,7 +826,8 @@ struct SessionBrowserView: View {
                     .disabled(rows.allSatisfy { !$0.canAttach })
             }
         } primaryAction: { ids in
-            model.rows(for: ids).forEach(model.open)
+            let rows = model.rows(for: ids)
+            if rows.allSatisfy(\.isEnded) { model.restoreEnded(rows) } else { rows.forEach(model.open) }
         }
     }
 
@@ -764,7 +889,8 @@ struct SessionBrowserView: View {
 
     private func statusText(_ host: SessionHost) -> String {
         switch host.state {
-        case .loaded: return "No persistent sessions are running."
+        case .loaded:
+            return model.filter == .ended ? "No ended sessions." : "No persistent sessions are running."
         case .connecting: return "Connecting to \(host.displayName)…"
         case .signingIn: return "Signing in…"
         case .gettingSessions: return "Getting sessions…"

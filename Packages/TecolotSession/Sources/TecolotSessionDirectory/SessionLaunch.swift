@@ -67,6 +67,14 @@ public struct SessionLaunch: Codable, Hashable, Sendable {
     public var kittyGraphicsStorageLimit: UInt32?
     /// Kitty graphics: `KittyGraphicsConfiguration.LocalMediaPolicy` bits.
     public var kittyGraphicsLocalMedia: UInt8?
+    /// The durable state directory (DurableStateDirectory). The helper saves
+    /// the session there when the system ends it. Nil saves nothing.
+    public var stateDirectory: String?
+    /// The most rows of scrollback that the helper saves; 0 saves no text.
+    public var restoreRows: Int?
+    /// Text to show before the shell starts: the scrollback of the session
+    /// that this one replaces, and the separator. Only SGR sequences.
+    public var replay: String?
 
     public init(executable: String, arguments: [String] = [], argv0: String? = nil,
                 environment: [String], workingDirectory: String? = nil,
@@ -74,7 +82,8 @@ public struct SessionLaunch: Codable, Hashable, Sendable {
                 scrollback: Int = 100_000, termName: String = "xterm-256color",
                 cursorStyle: UInt8 = 0, featureReport: String? = nil,
                 theme: SessionTheme? = nil, labels: [String: String] = [:],
-                kittyGraphicsStorageLimit: UInt32? = nil, kittyGraphicsLocalMedia: UInt8? = nil) {
+                kittyGraphicsStorageLimit: UInt32? = nil, kittyGraphicsLocalMedia: UInt8? = nil,
+                stateDirectory: String? = nil, restoreRows: Int? = nil, replay: String? = nil) {
         self.executable = executable
         self.arguments = arguments
         self.argv0 = argv0
@@ -92,5 +101,8 @@ public struct SessionLaunch: Codable, Hashable, Sendable {
         self.labels = labels
         self.kittyGraphicsStorageLimit = kittyGraphicsStorageLimit
         self.kittyGraphicsLocalMedia = kittyGraphicsLocalMedia
+        self.stateDirectory = stateDirectory
+        self.restoreRows = restoreRows
+        self.replay = replay
     }
 }

@@ -197,14 +197,15 @@ public struct SessionDirectory: Sendable {
     }
 
     /// The sessions whose helper is still running. Records of helpers that
-    /// no longer run are removed.
+    /// no longer run are removed. After a restart, another process can have
+    /// the PID of a record; its start time tells that it is not the helper.
     public func list() -> [SessionRecord] {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: url.path) else { return [] }
         var records: [SessionRecord] = []
         for name in names where name.hasSuffix(".json") && !name.hasPrefix(".") {
             let id = String(name.dropLast(5))
             guard Self.isValidIdentifier(id), let record = readRecord(id) else { continue }
-            if kill(record.pid, 0) != 0 && errno == ESRCH {
+            if !Self.isHelperRunning(record) {
                 removeFiles(for: id)
                 unlink(logURL(for: id).path)
                 continue
@@ -362,7 +363,8 @@ public struct SessionDirectory: Sendable {
     }
 
     /// Asks a session to end: the helper sends `signal` to the shell. When
-    /// the helper does not answer, its process gets SIGTERM.
+    /// the helper does not answer, its process gets SIGINT, which ends it
+    /// without a durable state (SIGTERM saves one).
     public func terminate(_ id: String, signal: Int32 = SIGHUP) throws {
         guard let record = readRecord(id) else { throw SessionDirectoryError.noSuchSession(id) }
         if let fd = try? connect(id) {
@@ -374,7 +376,7 @@ public struct SessionDirectory: Sendable {
             close(fd)
             if written == bytes.count { return }
         }
-        if Self.isHelperRunning(record) { kill(record.pid, SIGTERM) }
+        if Self.isHelperRunning(record) { kill(record.pid, SIGINT) }
     }
 
     static let encoder: JSONEncoder = {

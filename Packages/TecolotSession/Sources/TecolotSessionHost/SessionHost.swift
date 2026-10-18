@@ -109,7 +109,10 @@ public final class SessionHost: @unchecked Sendable {
 
     public let id: String
     public let build: String
+    /// The launch without its replay text, which can be large.
     public let launch: SessionLaunch
+    /// `launch.replay`, until it is fed to the terminal.
+    let pendingReplay: Mutex<String?>
     public let queue: DispatchQueue
     let ptyQueue: DispatchQueue
     let rasterImages = RasterImageTable()
@@ -150,6 +153,9 @@ public final class SessionHost: @unchecked Sendable {
     private var notifiedTitleVersion: UInt64 = 0
     private var oscObservation: TerminalOscObservation?
     private var notifiedDirectoryVersion: UInt64 = 0
+    /// The directory reports of the shell, for restoration.
+    let directoryTracker: Mutex<PaneDirectoryTracker>
+    let hostNames = HostNames.current()
 
     /// The exit status once the child process ended.
     public private(set) var exitStatus: Int32??
@@ -172,8 +178,12 @@ public final class SessionHost: @unchecked Sendable {
 
     public init(id: String, launch: SessionLaunch, build: String = "dev") {
         self.id = id
-        self.launch = launch
+        var stored = launch
+        stored.replay = nil
+        self.launch = stored
+        pendingReplay = Mutex(launch.replay)
         self.build = build
+        directoryTracker = Mutex(PaneDirectoryTracker(launch: launch.workingDirectory))
         queue = DispatchQueue(label: "tecolot.session.\(id)", qos: .userInitiated)
         ptyQueue = DispatchQueue(label: "tecolot.session.\(id).pty", qos: .userInitiated)
 
@@ -197,8 +207,17 @@ public final class SessionHost: @unchecked Sendable {
         process = LocalProcess(delegate: self, dispatchQueue: ptyQueue, directDelivery: false)
         // Notifications: SwiftTerm does not report OSC 9, so read both
         // forms here.
-        oscObservation = terminal.observeOscEvents(codes: [9, 777]) { [weak self] event in
-            guard let self, let message = NotificationMessage(oscCode: event.code, payload: event.payload) else { return }
+        // OSC 1337 CurrentDir and OSC 633 P;Cwd are directory reports.
+        oscObservation = terminal.observeOscEvents(codes: [9, 777, 633, 1337]) { [weak self] event in
+            guard let self else { return }
+            if event.code == 633 || event.code == 1337 {
+                // OSC 1337 also carries inline images of many megabytes: decode only directory reports.
+                if PaneDirectory.isOtherReport(code: event.code, payload: event.payload) {
+                    noteOtherDirectoryReport(code: event.code, payload: String(decoding: event.payload, as: UTF8.self))
+                }
+                return
+            }
+            guard let message = NotificationMessage(oscCode: event.code, payload: event.payload) else { return }
             let admitted = events.withLock { state in
                 guard state.admitNotification(at: .now, limit: Self.notificationLimit,
                                               window: Self.notificationWindow) else { return false }
@@ -247,6 +266,7 @@ public final class SessionHost: @unchecked Sendable {
                 terminal.updatePixelGeometry(cellWidth: launch.cellWidth, cellHeight: launch.cellHeight)
             }
         }
+        feedReplayIfNeeded()
         let result = process.startProcessChecked(executable: launch.executable, args: launch.arguments,
                                                  environment: launch.environment, execName: launch.argv0,
                                                  currentDirectory: launch.workingDirectory)
@@ -1402,6 +1422,7 @@ extension SessionHost: TerminalDelegate {
 
     public func hostCurrentDirectoryUpdated(source: Terminal) {
         let directory = source.hostCurrentDirectory ?? ""
+        noteDirectoryReport(directory)
         events.withLock {
             $0.directory = directory
             $0.directoryVersion &+= 1

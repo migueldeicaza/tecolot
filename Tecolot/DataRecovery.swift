@@ -391,6 +391,9 @@ final class DataRecoveryCoordinator {
             break
         case .legacyApplicationSupport:
             break
+        case .windowRestoration:
+            // The file was deleted; the next quit writes a new one.
+            break
         }
     }
 

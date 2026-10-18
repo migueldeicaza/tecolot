@@ -69,7 +69,10 @@ enum PersistentSessions {
                              featureReport: TerminalFeatureReporting.featureString,
                              labels: ["profile": profile.name, "profileID": profile.id.uuidString],
                              kittyGraphicsStorageLimit: kitty.storageLimitBytesPerScreen,
-                             kittyGraphicsLocalMedia: kitty.localMediaPolicy.rawValue)
+                             kittyGraphicsLocalMedia: kitty.localMediaPolicy.rawValue,
+                             // The helper saves the session here when the system ends it.
+                             stateDirectory: RestoreStore.localSessionStates.url.path,
+                             restoreRows: RestoreStore.restoredRowsLimit)
     }
 
     static func cursorStyleIndex(_ style: CursorStyle) -> UInt8 {
@@ -143,6 +146,7 @@ extension PersistentSessions {
             featureReport: TerminalFeatureReporting.featureString,
             labels: ["profile": profile.name, "profileID": profile.id.uuidString, "destination": destination],
             kittyGraphicsStorageLimit: kitty.storageLimitBytesPerScreen,
-            kittyGraphicsLocalMedia: kitty.localMediaPolicy.rawValue)
+            kittyGraphicsLocalMedia: kitty.localMediaPolicy.rawValue,
+            restoreRows: RestoreStore.restoredRowsLimit)
     }
 }

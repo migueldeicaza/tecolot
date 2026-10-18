@@ -32,6 +32,7 @@ public final class SessionServer: @unchecked Sendable {
     private var upkeepTimer: DispatchSourceTimer?
     private var restoringListener = false
     private var finished = false
+    private var savedDurableState = false
 
     /// How long a session whose exit no client saw stays available.
     public var unseenExitLinger: TimeInterval = 24 * 60 * 60
@@ -164,7 +165,13 @@ public final class SessionServer: @unchecked Sendable {
         for number in [SIGTERM, SIGINT, SIGHUP] {
             signal(number, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: number, queue: host.queue)
-            source.setEventHandler { [weak self] in self?.shutdown() }
+            // The system sends SIGTERM (or SIGHUP) at log out, restart and
+            // shut down: keep the session for the next launch.
+            let saves = number != SIGINT
+            source.setEventHandler { [weak self] in
+                if saves { self?.saveDurableState() }
+                self?.shutdown()
+            }
             source.resume()
             signalSources.append(source)
         }
@@ -204,6 +211,22 @@ public final class SessionServer: @unchecked Sendable {
             } catch {
                 fputs("cannot restore session socket: \(error)\n", stderr)
             }
+        }
+    }
+
+    /// Writes the durable state and the scrollback of the session, once.
+    /// Only a termination signal saves; a session that the user terminated,
+    /// or whose shell exited, saves nothing.
+    func saveDurableState() {
+        guard !finished, !savedDurableState, !record.exited, !host.wasTerminationRequested,
+              let path = host.launch.stateDirectory else { return }
+        savedDurableState = true
+        let (state, scrollback) = host.durableState(title: record.title)
+        do {
+            try DurableStateDirectory(url: URL(fileURLWithPath: path, isDirectory: true))
+                .write(state, scrollback: scrollback)
+        } catch {
+            fputs("cannot save the session state: \(error)\n", stderr)
         }
     }
 
