@@ -673,7 +673,8 @@ final class LaunchParametersTests {
         #expect (params.execName?.hasPrefix ("-") == true)
         #expect (params.environment.contains ("TERM=xterm-256color"))
         #expect (params.environment.contains ("TERM_FEATURES=\(TerminalFeatureReporting.featureString)"))
-        #expect (!params.environment.contains { $0.hasPrefix("TERM_PROGRAM=") })
+        #expect (params.environment.contains ("TERM_PROGRAM=tecolot"))
+        #expect (params.environment.contains ("TERM_PROGRAM_VERSION=\(TecolotShellIntegration.terminalProgramVersion)"))
         #expect (params.environment.contains { $0.hasPrefix("TECOLOT_RESOURCES_DIR=") })
     }
 
@@ -708,7 +709,7 @@ final class LaunchParametersTests {
         #expect(environment["TERM_VERSION"] == "2.0")
     }
 
-    @Test func otherTermNamesDoNotAddGhosttyProgramIdentity() {
+    @Test func otherTermNamesKeepTecolotProgramIdentity() {
         var profile = TerminalProfile(name: "Test")
         profile.termName = "vt100"
         profile.termProgram = "hidden-program"
@@ -716,8 +717,8 @@ final class LaunchParametersTests {
         let params = ProfileApplier.launchParameters(for: profile)
         let environment = environmentValues(params.environment)
 
-        #expect(environment["TERM_PROGRAM"] == nil)
-        #expect(environment["TERM_PROGRAM_VERSION"] == nil)
+        #expect(environment["TERM_PROGRAM"] == "tecolot")
+        #expect(environment["TERM_PROGRAM_VERSION"] == TecolotShellIntegration.terminalProgramVersion)
         #expect(environment["TERM_VERSION"] == nil)
     }
 
@@ -749,7 +750,7 @@ final class LaunchParametersTests {
             .appendingPathComponent("terminfo", isDirectory: true).path)
         #expect(environment["COLORTERM"] == "truecolor")
         #expect(environment["TERM_FEATURES"] == TerminalFeatureReporting.featureString)
-        #expect(environment["TERM_PROGRAM"] == nil)
+        #expect(environment["TERM_PROGRAM"] == "tecolot")
         #expect(environment["VTE_VERSION"] == nil)
         #expect(environment["PWD"] == nil)
         #expect(environment["SHLVL"] == nil)

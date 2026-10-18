@@ -128,22 +128,22 @@ public enum TerminalEnvironment {
     }
 
     /// Applies the terminal identity values for the selected TERM name.
+    ///
+    /// Only a profile that emulates Ghostty changes the identity; any other
+    /// TERM keeps Tecolot's own TERM_PROGRAM and TERM_PROGRAM_VERSION.
+    /// Inherited values are already gone, since `base` strips them.
     public static func applyingTerminalIdentity(
         termName: String,
         termProgram: String,
         termVersion: String,
         to environment: [String]
     ) -> [String] {
-        var identity = [
+        guard termName == "xterm-ghostty" else { return environment }
+        return applying([
             TerminalEnvironmentVariable(name: "TERM_PROGRAM_VERSION", value: nil),
-            TerminalEnvironmentVariable(name: "TERM_PROGRAM", value: nil),
-            TerminalEnvironmentVariable(name: "TERM_VERSION", value: nil)
-        ]
-        if termName == "xterm-ghostty" {
-            identity[1].value = termProgram
-            identity[2].value = termVersion
-        }
-        return applying(identity, to: environment)
+            TerminalEnvironmentVariable(name: "TERM_PROGRAM", value: termProgram),
+            TerminalEnvironmentVariable(name: "TERM_VERSION", value: termVersion)
+        ], to: environment)
     }
 
     private static func decoded(_ environment: [String]) -> [String: String] {
