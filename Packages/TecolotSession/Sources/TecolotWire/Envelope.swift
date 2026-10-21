@@ -51,11 +51,14 @@ public struct MessageKind: RawRepresentable, Hashable, Sendable, CustomStringCon
     public static let closeChannel = MessageKind(rawValue: 133)
     public static let channelWindow = MessageKind(rawValue: 134)
     public static let linkAck = MessageKind(rawValue: 135)
+    public static let listEndedSessions = MessageKind(rawValue: 136)
+    public static let deleteEndedSession = MessageKind(rawValue: 137)
     public static let helperInfo = MessageKind(rawValue: 192)
     public static let sessionList = MessageKind(rawValue: 193)
     public static let sessionCreated = MessageKind(rawValue: 194)
     public static let channelOpened = MessageKind(rawValue: 195)
     public static let directoryDone = MessageKind(rawValue: 196)
+    public static let endedSessionList = MessageKind(rawValue: 197)
 
     // Helper to client.
     public static let helloReply = MessageKind(rawValue: 64)

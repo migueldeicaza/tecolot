@@ -322,6 +322,7 @@ struct GeneralSettingsView: View {
     @AppStorage("newTabsUseCurrentProfile") private var newTabsUseCurrentProfile = true
     @AppStorage("useCommandDigitsForTabs") private var useCommandDigitsForTabs = true
     @AppStorage("restoredRowsLimit") private var restoredRowsLimit = 1_000
+    @AppStorage(WindowRestorationPolicy.key) private var windowRestoration = WindowRestorationPolicy.system.rawValue
     @AppStorage("startupMode") private var startupMode = "default"
     @AppStorage("startupProfileID") private var startupProfileID = ""
     @AppStorage("startupWindowGroupID") private var startupWindowGroupID = ""
@@ -401,6 +402,14 @@ struct GeneralSettingsView: View {
                 }
             }
             Section("Resume") {
+                Picker("Restore windows:", selection: $windowRestoration) {
+                    Text("As in System Settings").tag(WindowRestorationPolicy.system.rawValue)
+                    Text("Always").tag(WindowRestorationPolicy.always.rawValue)
+                    Text("Never").tag(WindowRestorationPolicy.never.rawValue)
+                }
+                Text("“As in System Settings” follows “Close windows when quitting an application” in Desktop & Dock. Hold Option when you quit to do the opposite. A log out or restart restores the windows.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Stepper(
                     "Restore up to \(restoredRowsLimit) rows when a saved session opens",
                     value: $restoredRowsLimit,

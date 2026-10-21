@@ -11,7 +11,7 @@ struct TerminalPaneCardTests {
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .down)
         let second = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         host.frame = NSRect(x: 0, y: 0, width: 1500, height: 800)
         let settings = GlobalAppearanceSettings(paneCardsEnabled: true, paneCardsBackdrop: .gradient)
@@ -66,7 +66,7 @@ struct TerminalPaneCardTests {
     @Test func focusedTabIconUpdatesWhenCommandIdentityIsCleared() throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let controller = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -94,7 +94,7 @@ struct TerminalPaneCardTests {
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .right)
         let second = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -140,7 +140,7 @@ struct TerminalPaneCardTests {
         workspace.split(first, direction: .down)
         let third = try #require(workspace.focusedController)
         workspace.markFocused(first)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 660),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
@@ -186,7 +186,7 @@ struct TerminalPaneCardTests {
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .right)
         let second = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
@@ -232,7 +232,7 @@ struct TerminalPaneCardTests {
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .right)
         let second = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         host.frame = NSRect(x: 0, y: 0, width: 800, height: 500)
         host.synchronize(revision: workspace.revision, document: document)
@@ -256,7 +256,7 @@ struct TerminalPaneCardTests {
     @Test func paneControlsSelectTheirPaneBeforeSplitAndZoom() throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         host.frame = NSRect(x: 0, y: 0, width: 800, height: 500)
         host.synchronize(revision: workspace.revision, document: document)
@@ -273,7 +273,7 @@ struct TerminalPaneCardTests {
 
     @Test func tabIconsFollowTheWindowSettings() throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -290,7 +290,7 @@ struct TerminalPaneCardTests {
     @Test func splitAppliesCardMetricsOnlyToTheNewTree() throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         host.frame = NSRect(x: 0, y: 0, width: 800, height: 500)
         host.synchronize(revision: workspace.revision, document: document)
@@ -313,7 +313,7 @@ struct TerminalPaneCardTests {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .down)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
@@ -348,7 +348,7 @@ struct TerminalPaneCardTests {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .right)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)

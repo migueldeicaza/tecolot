@@ -77,6 +77,48 @@ extension TerminalSessionController {
         return ScrollbackSnapshot.Pending(paneID: id, snapshot: snapshot, alternateScreenProgram: program, limit: limit)
     }
 
+    /// Copies the rows of a remote pane: its screen and up to `limit` rows
+    /// above it. A pane that did not attach yet keeps the file from the last
+    /// save, also when the file is not read yet. A limit of 0 saves no text.
+    @MainActor
+    func copyRemoteRows(limit: Int) -> RemoteRowCopy? {
+        guard limit > 0, remoteDestination != nil, let view = persistentView else { return nil }
+        if let restoredRowsURL { return RemoteRowCopy(paneID: id, rows: .saved(restoredRowsURL)) }
+        guard let rows = RemoteRowSnapshot.capture(view.session, sessionID: persistentSessionID ?? "", limit: limit)
+        else { return nil }
+        return RemoteRowCopy(paneID: id, rows: .captured(rows))
+    }
+
+    /// Shows the saved rows of a restored remote pane until the pane
+    /// attaches. The rows come from the cache that the app saved at quit
+    /// (spec-restoration.md section 6.2). Each session that the pane opens
+    /// before it attaches gets them too (`preloadRestoredRows`).
+    @MainActor
+    func showRestoredRows() {
+        guard let url = restoredRowsURL else { return }
+        Task { [weak self] in
+            let snapshot = await Task.detached(priority: .userInitiated) { RestoreStore.readRows(at: url) }.value
+            guard let self, let snapshot, self.restoredRowsURL == url else { return }
+            self.restoredRows = snapshot
+            self.persistentView?.session.preload(snapshot)
+        }
+    }
+
+    /// Shows the saved rows in a new session of a pane that did not attach yet.
+    @MainActor
+    func preloadRestoredRows(in session: RemoteSession) {
+        if let restoredRows { session.preload(restoredRows) }
+    }
+
+    /// Deletes the saved rows after the pane attached.
+    @MainActor
+    func removeRestoredRows() {
+        guard let url = restoredRowsURL else { return }
+        restoredRowsURL = nil
+        restoredRows = nil
+        RestoreStore.shared.removeRows(at: url)
+    }
+
     /// Reads the saved text and checks the saved directory on background
     /// tasks. The shell starts when both are ready, under the text and the
     /// separator line.

@@ -34,7 +34,7 @@ struct TerminalNotifierTests {
     @Test func localPanesPostNotificationsFromPrograms() async throws {
         TestNotifications.install()
         let controller = TerminalSessionController(startsProcess: false)
-        let terminal = try #require(controller.makeTerminalView(document: TerminalDocument(content: "")) as? AppTerminalView)
+        let terminal = try #require(controller.makeTerminalView(document: TerminalDocument()) as? AppTerminalView)
         terminal.feed(text: "\u{1b}]777;notify;Build;Done\u{07}\u{1b}]9;Tests passed\u{07}\u{1b}]9;4;1;50\u{07}")
         try await wait("notifications") { TestNotifications.contents(for: controller).count == 2 }
         let contents = TestNotifications.contents(for: controller)

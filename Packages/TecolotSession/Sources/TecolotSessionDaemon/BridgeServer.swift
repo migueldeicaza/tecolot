@@ -19,6 +19,9 @@ final class BridgeServer: @unchecked Sendable {
     private let build: String
     private let user: RemoteUserInfo
     private let environment: [String: String]
+    /// Where the sessions save their state when the system ends them:
+    /// `~/.tecolot/state`, or TECOLOT_STATE_DIR (for tests).
+    private let states: DurableStateDirectory
     private let endpoint: LinkEndpoint
     private let workQueue = DispatchQueue(label: "tecolot.bridge.directory")
     private let idleTimeout: TimeInterval
@@ -38,6 +41,11 @@ final class BridgeServer: @unchecked Sendable {
         var environment = ProcessInfo.processInfo.environment
         if let agent = Self.linkAgent(environment["SSH_AUTH_SOCK"], in: directory.url) {
             environment["SSH_AUTH_SOCK"] = agent
+        }
+        if let path = environment["TECOLOT_STATE_DIR"], !path.isEmpty {
+            states = DurableStateDirectory(url: URL(fileURLWithPath: path, isDirectory: true))
+        } else {
+            states = DurableStateDirectory.remoteDefault(home: user.home)
         }
         self.environment = environment
         // A marker with an empty nonce also precedes the first frame.
@@ -108,9 +116,9 @@ final class BridgeServer: @unchecked Sendable {
                 workQueue.async { [self] in
                     reply(envelope) {
                         var local = launch.resolve(passwd: user, bridgeEnvironment: environment)
+                        local.stateDirectory = states.url.path
                         // A restored pane whose session ended: start the new
                         // session from the session's durable state.
-                        let states = DurableStateDirectory.remoteDefault(home: user.home)
                         var used: DurableSessionState?
                         if let id = launch.restoreSessionID, SessionDirectory.isValidIdentifier(id) {
                             let notFound = launch.startDirectory(home: user.home).notFound
@@ -122,6 +130,23 @@ final class BridgeServer: @unchecked Sendable {
                         if launch.restoreSessionID != nil { states.prune() }
                         let json = Array(try Self.recordEncoder().encode(record))
                         endpoint.sendControl(SessionCreatedMessage(json: json), requestID: requestID)
+                    }
+                }
+            case .listEndedSessions:
+                _ = try envelope.decode(ListEndedSessionsMessage.self)
+                workQueue.async { [self] in
+                    reply(envelope) {
+                        let json = Array(try Self.recordEncoder().encode(endedStates()))
+                        endpoint.sendControl(EndedSessionListMessage(json: json), requestID: requestID)
+                    }
+                }
+            case .deleteEndedSession:
+                let message = try envelope.decode(DeleteEndedSessionMessage.self)
+                guard SessionDirectory.isValidIdentifier(message.id) else { throw WireError.invalidValue("session ID") }
+                workQueue.async { [self] in
+                    reply(envelope) {
+                        states.remove(message.id)
+                        endpoint.sendControl(DirectoryDoneMessage(), requestID: requestID)
                     }
                 }
             case .terminateSession:
@@ -158,6 +183,20 @@ final class BridgeServer: @unchecked Sendable {
                                                    message: "unsupported directory request"), requestID: requestID)
             }
         } catch { fail(envelope, error: error) }
+    }
+
+    /// The durable states that no running session uses, newest first. The
+    /// launch environment stays on the host: the app does not need it to
+    /// list or restore a state.
+    func endedStates() -> [DurableSessionState] {
+        let running = Set(directory.list().filter { !$0.exited }.map(\.id))
+        return states.list()
+            .filter { !running.contains($0.id) }
+            .map { state in
+                var state = state
+                state.launch.environment = []
+                return state
+            }
     }
 
     private func reply(_ envelope: Envelope, body: () throws -> Void) {

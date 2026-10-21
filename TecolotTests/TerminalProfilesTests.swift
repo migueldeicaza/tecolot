@@ -672,11 +672,11 @@ final class ProfileStoreTests {
 }
 
 final class TerminalSessionDocumentCodecTests {
+    /// The text of an old file is not shown: RestoreStore keeps the text of the panes.
     @Test func plainTextMigratesInMemoryAndSavesAsV1() throws {
         let original = Data("prompt output\n".utf8)
         let value = try TerminalSessionDocumentCodec.decode(original)
-        #expect(value.content == "prompt output\n")
-        #expect(value.profileID == nil)
+        #expect(value == TerminalSessionDocumentValue())
 
         let saved = try TerminalSessionDocumentCodec.encode(value)
         let object = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
@@ -693,7 +693,17 @@ final class TerminalSessionDocumentCodecTests {
 
     @Test func jsonWithoutVersionRemainsLegacyTerminalText() throws {
         let data = Data("{\"ordinary\":\"terminal output\"}".utf8)
-        #expect(try TerminalSessionDocumentCodec.decode(data).content == String(data: data, encoding: .utf8))
+        #expect(try TerminalSessionDocumentCodec.decode(data) == TerminalSessionDocumentValue())
+    }
+
+    @Test func savedTextOfAnOlderFileIsDropped() throws {
+        let profileID = UUID()
+        let data = Data("{\"version\":1,\"profileID\":\"\(profileID.uuidString)\",\"content\":\"old text\"}".utf8)
+        let value = try TerminalSessionDocumentCodec.decode(data)
+        #expect(value == TerminalSessionDocumentValue(profileID: profileID))
+        let saved = try TerminalSessionDocumentCodec.encode(value)
+        let object = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
+        #expect(object["content"] == nil)
     }
 }
 

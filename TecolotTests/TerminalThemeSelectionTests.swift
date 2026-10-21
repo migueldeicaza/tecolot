@@ -10,7 +10,7 @@ struct TerminalThemeSelectionTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let profiles = try ProfileStore(directory: directory)
         let controller = TerminalSessionController(startsProcess: false)
-        let terminal = controller.makeTerminalView(document: TerminalDocument(content: ""))
+        let terminal = controller.makeTerminalView(document: TerminalDocument())
         controller.applyProfile(profiles.defaultProfile)
         let theme = try #require(AppModel.shared.themes.themes.first {
             $0.background != controller.effectiveTheme.background
@@ -34,7 +34,7 @@ struct TerminalThemeSelectionTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let profiles = try ProfileStore(directory: directory)
         let controller = TerminalSessionController(startsProcess: false)
-        let terminal = controller.makeTerminalView(document: TerminalDocument(content: ""))
+        let terminal = controller.makeTerminalView(document: TerminalDocument())
         // The store does not contain this profile. The update must fail.
         let profile = TerminalProfile(name: "Unsaved")
         controller.applyProfile(profile)

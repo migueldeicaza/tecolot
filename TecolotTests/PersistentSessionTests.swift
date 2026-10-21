@@ -177,7 +177,7 @@ struct PersistentPaneTests {
         AppModel.shared.setPendingLaunch(spec)
         let workspace = TerminalPaneWorkspace()
         let controller = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let hostView = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 300),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -234,7 +234,7 @@ struct PersistentPaneTests {
         AppModel.shared.setPendingLaunch(spec)
         let workspace = TerminalPaneWorkspace()
         let controller = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let hostView = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 300),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -272,7 +272,7 @@ struct PersistentPaneTests {
         AppModel.shared.setPendingLaunch(spec)
         let workspace = TerminalPaneWorkspace()
         let controller = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let hostView = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -326,7 +326,7 @@ struct PersistentPaneTests {
         AppModel.shared.setPendingLaunch(spec)
         let workspace = TerminalPaneWorkspace()
         let controller = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let hostView = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 300),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -359,7 +359,7 @@ struct PersistentPaneTests {
 
         let workspace = TerminalPaneWorkspace()
         let controller = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let hostView = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)

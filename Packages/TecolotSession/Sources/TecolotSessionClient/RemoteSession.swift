@@ -139,6 +139,8 @@ public final class RemoteSession: @unchecked Sendable {
         var state = RemoteSessionState()
         var cache = RowCache()
         var images = RemoteImageStore()
+        /// The cache holds rows from `preload`, not from the helper.
+        var preloaded = false
     }
 
     /// A session over a connected socket (or any read/write descriptor pair).
@@ -187,6 +189,16 @@ public final class RemoteSession: @unchecked Sendable {
     }
 
     public var state: RemoteSessionState { inner.withLock { $0.state } }
+
+    /// Changes the state and the cache under the lock, for `preload`.
+    /// The cache is marked as preloaded when `body` returns true.
+    func withPreloadLock(_ body: (inout RemoteSessionState, inout RowCache) -> Bool) -> Bool {
+        inner.withLock { inner in
+            let stored = body(&inner.state, &inner.cache)
+            if stored { inner.preloaded = true }
+            return stored
+        }
+    }
 
     // MARK: Input
 
@@ -348,16 +360,21 @@ public final class RemoteSession: @unchecked Sendable {
     /// Shows `line` at the top; reaching the live screen follows it again.
     @discardableResult
     public func scroll(toTop line: Int64) -> Int64 {
-        let (top, follow, buffer, known) = inner.withLock { inner -> (Int64, Bool, WireBuffer, [WireKnownVersion]) in
+        let (top, follow, buffer, known, preloaded) = inner.withLock {
+            inner -> (Int64, Bool, WireBuffer, [WireKnownVersion], Bool) in
             let liveTop = inner.state.liveTop
             let top = max(inner.state.firstLine, min(line, liveTop))
             let follow = top >= liveTop || inner.state.buffer == .alternate
             inner.state.follow = follow
             inner.state.anchor = top
             let known = inner.cache.knownVersions(in: top ..< top + Int64(inner.state.rows))
-            return (top, follow, inner.state.buffer, known)
+            return (top, follow, inner.state.buffer, known, inner.preloaded)
         }
-        channel.send(SetViewportMessage(buffer: buffer, follow: follow, top: UInt64(max(0, top)), known: known))
+        // Preloaded rows scroll only here: their lines and versions can be
+        // different from the lines and versions of the helper.
+        if !preloaded {
+            channel.send(SetViewportMessage(buffer: buffer, follow: follow, top: UInt64(max(0, top)), known: known))
+        }
         queue.async { [self] in
             prefetch()
             onChange?(.viewport)
@@ -463,6 +480,14 @@ public final class RemoteSession: @unchecked Sendable {
         var events: [RemoteSessionEvent] = []
         var neededImages: [UInt64] = []
         try inner.withLock { inner in
+            if inner.preloaded {
+                // The first frame of the helper replaces the preloaded rows.
+                inner.cache = RowCache()
+                inner.preloaded = false
+                // The helper's viewport follows the live screen.
+                inner.state.follow = true
+                change.insert(.rows)
+            }
             var state = inner.state
             if frame.buffer != state.buffer {
                 change.insert(.buffer)
@@ -567,7 +592,9 @@ public final class RemoteSession: @unchecked Sendable {
         dispatchPrecondition(condition: .onQueue(queue))
         let plan = inner.withLock { inner -> (WireBuffer, UInt64, [Int64: [WireKnownVersion]]) in
             let state = inner.state
-            guard state.buffer == .normal, state.endLine > state.firstLine else { return (state.buffer, 0, [:]) }
+            guard !inner.preloaded, state.buffer == .normal, state.endLine > state.firstLine else {
+                return (state.buffer, 0, [:])
+            }
             let rows = Int64(state.rows)
             let top = state.displayTop
             let low = max(state.firstLine, top - rows * Int64(prefetchScreens))

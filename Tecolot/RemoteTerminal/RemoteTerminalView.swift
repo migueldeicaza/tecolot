@@ -120,6 +120,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         super.viewDidMoveToWindow()
         source.displayScale = CGFloat(displayScale) / 100
         registerForDraggedTypes([.fileURL])
+        sessionController?.connectIfWindowVisible()
     }
 
     override func viewDidChangeBackingProperties() {

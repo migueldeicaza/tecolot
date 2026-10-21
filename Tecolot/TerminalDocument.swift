@@ -13,12 +13,10 @@ struct TerminalDocument: FileDocument {
 
     var profileID: UUID?
     var themeOverride: String?
-    var content: String?
 
-    init(profileID: UUID? = nil, themeOverride: String? = nil, content: String? = "") {
+    init(profileID: UUID? = nil, themeOverride: String? = nil) {
         self.profileID = profileID
         self.themeOverride = themeOverride
-        self.content = content
     }
 
     init(configuration: ReadConfiguration) throws {
@@ -28,14 +26,12 @@ struct TerminalDocument: FileDocument {
         let value = try TerminalSessionDocumentCodec.decode(data)
         profileID = value.profileID
         themeOverride = value.themeOverride
-        content = value.content
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         let data = try TerminalSessionDocumentCodec.encode(TerminalSessionDocumentValue(
             profileID: profileID,
-            themeOverride: themeOverride,
-            content: content
+            themeOverride: themeOverride
         ))
         return .init(regularFileWithContents: data)
     }

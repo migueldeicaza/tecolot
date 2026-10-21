@@ -62,6 +62,41 @@ final class EventLog: @unchecked Sendable {
 }
 
 struct RemoteSessionTests {
+    /// A restored pane preloads its saved rows into the session that it
+    /// opens. The rows can have the versions of the helper's rows, so the
+    /// first frame must replace all of them, also the rows above the screen.
+    @Test func firstFrameReplacesPreloadedRows() async throws {
+        let host = makeHost()
+        host.inject((0 ..< 30).map { "line \($0)\r\n" }.joined())
+        // The versions of the helper's rows, as a new session restored from an ended one can have.
+        let probe = try connect(host)
+        try await eventually("probe frame") { probe.state.lastFrameSequence > 0 }
+        probe.scroll(toTop: 0)
+        try await eventually("probe scrollback") { screen(probe).first == "line 0" }
+        let versions = probe.withState { _, cache in (0 ..< 31).map { cache[Int64($0)]?.version ?? 0 } }
+        probe.close()
+
+        var fds: [Int32] = [0, 0]
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else { throw POSIXError(.EIO) }
+        let session = RemoteSession(socket: fds[0], clientName: "test", build: "test")
+        defer { session.close() }
+        let saved = (0 ..< 31).map { line -> RemoteRowSnapshot.Row in
+            var encoder = RowEncoder()
+            encoder.begin(WireRowHeader(columns: 40))
+            for byte in "stale".utf8 { encoder.append(.ascii(byte), style: .plain) }
+            return RemoteRowSnapshot.Row(line: Int64(line), version: versions[line], payload: encoder.finish())
+        }
+        session.preload(RemoteRowSnapshot(sessionID: "old", savedAt: Date(), columns: 40, rows: 10, firstLine: 0,
+                                          endLine: 31, savedRows: saved))
+        try await eventually("preloaded") { screen(session).first == "stale" }
+        host.accept(socket: fds[1])
+        session.start(size: WireGridSize(columns: 40, rows: 10), focused: true)
+        try await eventually("first frame") { session.state.lastFrameSequence > 0 }
+        session.scroll(toTop: 0)
+        try await eventually("scrollback from the helper") { screen(session).first == "line 0" }
+        #expect(!screen(session).contains("stale"))
+    }
+
     @Test func newerClientInstanceClosesTheOlderConnection() async throws {
         let host = makeHost()
         let first = try connect(host, clientInstance: "same-pane")

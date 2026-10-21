@@ -47,7 +47,7 @@ struct RestoreStoreTests {
     }
 
     private func host(_ workspace: TerminalPaneWorkspace) -> (TerminalPaneHostView, NSWindow) {
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let hostView = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -64,6 +64,71 @@ struct RestoreStoreTests {
             .rows.map(\.text) ?? []
     }
 
+    // MARK: The Restore windows setting
+
+    @Test func restoreWindowsSettingDecidesTheSaveAtQuit() {
+        // Always and Never do not look at the system.
+        for ends in [false, true] {
+            for option in [false, true] {
+                for keeps in [false, true] {
+                    #expect(WindowRestorationPolicy.always.savesWindows(endsUserSession: ends, optionKey: option,
+                                                                        systemKeepsWindows: keeps))
+                    #expect(!WindowRestorationPolicy.never.savesWindows(endsUserSession: ends, optionKey: option,
+                                                                        systemKeepsWindows: keeps))
+                }
+            }
+        }
+        let system = WindowRestorationPolicy.system
+        // "Close windows when quitting an application" is on: ⌥⌘Q keeps them.
+        #expect(!system.savesWindows(endsUserSession: false, optionKey: false, systemKeepsWindows: false))
+        #expect(system.savesWindows(endsUserSession: false, optionKey: true, systemKeepsWindows: false))
+        // It is off: ⌥⌘Q closes them.
+        #expect(system.savesWindows(endsUserSession: false, optionKey: false, systemKeepsWindows: true))
+        #expect(!system.savesWindows(endsUserSession: false, optionKey: true, systemKeepsWindows: true))
+        // A log out or restart saves; the system asks if it reopens the windows.
+        #expect(system.savesWindows(endsUserSession: true, optionKey: false, systemKeepsWindows: false))
+    }
+
+    @Test func quitReasonTellsALogOutOrRestart() {
+        func quitEvent(_ reason: Int?) -> NSAppleEventDescriptor {
+            let event = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass),
+                                               eventID: AEEventID(kAEQuitApplication),
+                                               targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID),
+                                               transactionID: AETransactionID(kAnyTransactionID))
+            if let reason {
+                event.setAttribute(NSAppleEventDescriptor(typeCode: OSType(reason)), forKeyword: AEKeyword(kAEQuitReason))
+            }
+            return event
+        }
+        #expect(!WindowRestorationPolicy.endsUserSession(nil))
+        #expect(!WindowRestorationPolicy.endsUserSession(quitEvent(nil)))
+        #expect(WindowRestorationPolicy.endsUserSession(quitEvent(Int(kAEReallyLogOut))))
+        #expect(WindowRestorationPolicy.endsUserSession(quitEvent(Int(kAERestart))))
+        #expect(WindowRestorationPolicy.endsUserSession(quitEvent(Int(kAEShutDown))))
+    }
+
+    /// A quit that does not save the windows deletes the files of the last
+    /// save: the next launch opens no saved window.
+    @Test func quitWithoutSavingDeletesTheSavedWindows() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = RestoreStore(directory: directory)
+        #expect(!store.restore())
+        let paneID = UUID()
+        let state = RestoreState(bootID: nil, savedAt: Date(), windows: [
+            RestoreWindow(frame: "{{0, 0}, {800, 600}}", selectedTabIndex: 0, tabs: [RestoreTab(root: .pane(pane(.local)))])])
+        RestoreStore.write(state, texts: [], directory: directory, windowsURL: store.windowsURL, panesURL: store.panesURL)
+        try DurableStateDirectory.makePrivateDirectory(store.panesURL)
+        try DurableStateDirectory.writePrivate(Data("text".utf8), to: RestoreStore.textURL(in: store.panesURL, for: paneID))
+        #expect(FileManager.default.fileExists(atPath: store.windowsURL.path))
+
+        await withCheckedContinuation { continuation in
+            store.saveForTermination(savesWindows: false) { continuation.resume() }
+        }
+        #expect(!FileManager.default.fileExists(atPath: store.windowsURL.path))
+        #expect(!FileManager.default.fileExists(atPath: store.panesURL.path))
+    }
+
     // MARK: The file
 
     @Test func stateRoundTripsWithTheMigrator() throws {
@@ -73,13 +138,17 @@ struct RestoreStoreTests {
                                                           second: .pane(pane(.remote, session: "def"))))
         let state = RestoreState(bootID: "boot", savedAt: Date(timeIntervalSince1970: 1_000_000), windows: [
             RestoreWindow(frame: "{{10, 20}, {800, 600}}", screen: "Built-in", isFullScreen: true,
-                          selectedTabIndex: 7, tabs: [RestoreTab(name: "build", root: tree)])])
+                          selectedTabIndex: 7, tabs: [RestoreTab(name: "build", root: tree),
+                                                      RestoreTab(root: .pane(pane(.local)),
+                                                                 fileURL: URL(fileURLWithPath: "/tmp/work.terminalSession"))])])
         let migrator = RestoreStateMigrator()
         let data = try migrator.encodeCurrent(state)
         let decoded = try migrator.decode(data, from: try migrator.sourceVersion(in: data))
         #expect(decoded.windows.first?.tabs == state.windows.first?.tabs)
+        // A tab of a .terminalSession window keeps its file.
+        #expect(decoded.windows.first?.tabs.map(\.fileURL?.path) == [nil, "/tmp/work.terminalSession"])
         // The selected tab is clamped to the tabs that exist.
-        #expect(decoded.windows.first?.selectedTabIndex == 0)
+        #expect(decoded.windows.first?.selectedTabIndex == 1)
         #expect(decoded.windows.first?.isFullScreen == true)
         #expect(throws: (any Error).self) {
             try migrator.decode(Data(#"{"version":9,"windows":[]}"#.utf8), from: 9)
@@ -266,7 +335,7 @@ struct RestoreStoreTests {
         defer { window.close() }
         let first = try #require(workspace.focusedController)
         workspace.split(first, orientation: .vertical)
-        hostView.synchronize(revision: workspace.revision, document: TerminalDocument(content: ""))
+        hostView.synchronize(revision: workspace.revision, document: TerminalDocument())
         hostView.layoutSubtreeIfNeeded()
         let ids = workspace.controllers.compactMap(\.persistentSessionID)
         #expect(ids.count == 2)
@@ -276,7 +345,9 @@ struct RestoreStoreTests {
         }
 
         var texts: [ScrollbackSnapshot.Pending] = []
-        let root = try #require(RestoreStore.capture(workspace.root, hostView: hostView, limit: 1_000, texts: &texts))
+        var caches: [RemoteRowCopy] = []
+        let root = try #require(RestoreStore.capture(workspace.root, hostView: hostView, limit: 1_000,
+                                                     texts: &texts, caches: &caches))
         guard case .split(.vertical, let fraction, _, _) = root else {
             Issue.record("expected a vertical split, got \(root)")
             return
@@ -376,8 +447,76 @@ struct RestoreStoreTests {
         #expect(row.directory == "/tmp/x")
         #expect(row.profile == "Work")
         #expect(model.visibleHosts.map(\.id) == [SessionHost.localID])
+        #expect(model.visibleHosts[0].sessions.map(\.record.id) == ["0abc"])
         model.deleteEnded([row])
         #expect(removed == ["0abc"])
+    }
+
+    /// The Ended filter shows the remote hosts too; a host that is not
+    /// connected shows no rows until it is opened.
+    @Test func endedFilterShowsRemoteHosts() throws {
+        let defaults = try #require(UserDefaults(suiteName: "restore-tests-\(UUID().uuidString)"))
+        defaults.set(["user@example.com"], forKey: SessionBrowserModel.hostsKey)
+        let model = SessionBrowserModel(list: { [] }, ended: { [] }, removeEnded: { _ in }, shown: { [] },
+                                        defaults: defaults)
+        model.setFilter(.ended)
+        #expect(model.visibleHosts.map(\.id) == [SessionHost.localID, "user@example.com"])
+        let remote = model.visibleHosts[1]
+        #expect(model.children(of: remote).isEmpty)
+        #expect(model.children(of: model.visibleHosts[0]).count == 1)
+    }
+
+    /// Restore in the Sessions window: a remote pane asks its bridge for a
+    /// new session from the saved state, without an attach first.
+    @Test func endedRemoteSessionRestoresThroughTheBridge() throws {
+        let state = DurableSessionState(id: "0abc", launch: SessionLaunch(executable: "/bin/sh", environment: []),
+                                        directory: PaneDirectory(path: "/home/me", source: .osc7))
+        let spec = RestoreStore.launchSpec(restoring: state, destination: "user@example.com")
+        let tab = try #require(spec.restoredTab)
+        let pane = try #require(tab.tab.root.panes.first)
+        #expect(pane.kind == .remote)
+        #expect(pane.remoteDestination == "user@example.com")
+        #expect(pane.sessionID == "0abc")
+        #expect(tab.panes[pane.id]?.restoresEndedSession == true)
+        #expect(RestoreStore.launchSpec(restoring: state).restoredTab?.tab.root.panes.first?.kind == .persistent)
+    }
+
+    /// A remote pane saves the rows that it shows (section 6.2). The file
+    /// stays until the pane attaches; a damaged file is deleted.
+    @Test func remotePaneRowsAreSavedAndReadBack() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = RestoreStore(directory: directory)
+        var encoder = RowEncoder()
+        encoder.begin(WireRowHeader(columns: 20))
+        for byte in "remote row".utf8 { encoder.append(.ascii(byte), style: .plain) }
+        let session = RemoteSession(socket: -1, clientName: "test", build: "test")
+        session.preload(RemoteRowSnapshot(sessionID: "0abc", savedAt: Date(), columns: 20, rows: 2, firstLine: 0,
+                                          endLine: 2, savedRows: [.init(line: 1, version: 5, payload: encoder.finish())]))
+        let deadline = Date().addingTimeInterval(5)
+        while session.state.endLine != 2 && Date() < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        let rows = try #require(RemoteRowSnapshot.capture(session, sessionID: "0abc", limit: 100))
+        let paneID = UUID()
+        let state = RestoreState(bootID: nil, savedAt: Date(), windows: [
+            RestoreWindow(frame: "{{0, 0}, {800, 600}}", selectedTabIndex: 0, tabs: [RestoreTab(root: .pane(pane(.remote)))])])
+        RestoreStore.write(state, texts: [], caches: [RemoteRowCopy(paneID: paneID, rows: .captured(rows))], directory: directory,
+                           windowsURL: store.windowsURL, panesURL: store.panesURL)
+        let cacheURL = RestoreStore.cacheURL(in: store.panesURL, for: paneID)
+        #expect(try FileManager.default.attributesOfItem(atPath: cacheURL.path)[.posixPermissions] as? Int == 0o600)
+        let read = try #require(RestoreStore.readRows(at: cacheURL))
+        #expect(read.sessionID == "0abc")
+        #expect(read.savedRows.map(\.line) == [1])
+        #expect(FileManager.default.fileExists(atPath: cacheURL.path))
+
+        // A pane that did not attach keeps the file of the last save.
+        let later = RestoreState(bootID: nil, savedAt: Date().addingTimeInterval(60), windows: state.windows)
+        RestoreStore.write(later, texts: [], caches: [RemoteRowCopy(paneID: paneID, rows: .saved(cacheURL))],
+                           directory: directory, windowsURL: store.windowsURL, panesURL: store.panesURL)
+        #expect(RestoreStore.readRows(at: cacheURL) == read)
+
+        try Data("damaged".utf8).write(to: cacheURL)
+        #expect(RestoreStore.readRows(at: cacheURL) == nil)
+        #expect(!FileManager.default.fileExists(atPath: cacheURL.path))
     }
 }
 

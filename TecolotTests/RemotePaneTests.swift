@@ -79,7 +79,7 @@ struct RemotePaneTests {
             let workspace = TerminalPaneWorkspace()
             workspaces.append(workspace)
             let controller = try #require(workspace.focusedController)
-            let document = TerminalDocument(content: "")
+            let document = TerminalDocument()
             let host = TerminalPaneHostView(workspace: workspace, document: document)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
                                   styleMask: [.titled], backing: .buffered, defer: false)
@@ -122,7 +122,7 @@ struct RemotePaneTests {
         spec.persistent = true
         AppModel.shared.setPendingLaunch(spec)
         let controller = TerminalSessionController()
-        controller.resolveLaunchIfNeeded(document: TerminalDocument(content: ""))
+        controller.resolveLaunchIfNeeded(document: TerminalDocument())
         let view = try #require(controller.makePersistentView())
         let id = try #require(controller.persistentSessionID)
         defer {

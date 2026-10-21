@@ -76,7 +76,7 @@ struct TerminalContextMenuTests {
         let first = try #require(workspace.focusedController)
         workspace.split(first, orientation: .vertical)
         let second = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         let window = makeWindow(content: host)
         host.synchronize(revision: workspace.revision, document: document)
@@ -163,7 +163,7 @@ struct TerminalPaneSplitDirectionTests {
     func newPaneAppearsOnTheRequestedSide(direction: TerminalPaneDirection) throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let existing = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         host.synchronize(revision: workspace.revision, document: document)

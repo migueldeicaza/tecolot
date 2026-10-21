@@ -18,6 +18,9 @@ struct LinkTests {
         SessionCreatedMessage(json: Array("{}".utf8)),
         ChannelOpenedMessage(channel: 2, receiveWindow: 262_144),
         DirectoryDoneMessage(),
+        ListEndedSessionsMessage(),
+        EndedSessionListMessage(json: Array("[]".utf8)),
+        DeleteEndedSessionMessage(id: "0123abcd"),
     ]
 
     @Test func messagesRoundTripAndRejectTruncatedFields() throws {
@@ -151,7 +154,7 @@ struct LinkTests {
 
     @Test func messageKindValuesAreStable() {
         #expect(Self.samples.map { type(of: $0).kind.rawValue } ==
-                [128, 129, 130, 131, 132, 133, 134, 135, 192, 193, 194, 195, 196])
+                [128, 129, 130, 131, 132, 133, 134, 135, 192, 193, 194, 195, 196, 136, 197, 137])
         #expect(LinkProtocol.version == 1)
         #expect(LinkProtocol.minimumVersion == 1)
     }

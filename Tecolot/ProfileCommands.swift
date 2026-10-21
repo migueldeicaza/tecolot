@@ -153,7 +153,8 @@ enum WindowOpener {
         spec: LaunchSpec
     ) -> (NSDocument, NSWindowController, NSWindow)? {
         AppModel.shared.setPendingLaunch(spec)
-        guard let document = try? NSDocumentController.shared.openUntitledDocumentAndDisplay(false) else {
+        guard let document = openRestoredDocument(spec.restoredTab?.tab.fileURL)
+                ?? (try? NSDocumentController.shared.openUntitledDocumentAndDisplay(false)) else {
             AppModel.shared.discardPendingLaunch()
             logger.error("Could not create an untitled terminal document")
             return nil
@@ -167,6 +168,25 @@ enum WindowOpener {
             return nil
         }
         return (document, windowController, window)
+    }
+
+    /// The document of a restored tab's file, read at once so that the tabs
+    /// open in their order. Nil when the file cannot be read, or when a
+    /// window shows it already: the tab then comes back untitled.
+    private static func openRestoredDocument(_ url: URL?) -> NSDocument? {
+        guard let url else { return nil }
+        let controller = NSDocumentController.shared
+        guard controller.document(for: url) == nil else { return nil }
+        do {
+            let type = try controller.typeForContents(of: url)
+            let document = try controller.makeDocument(withContentsOf: url, ofType: type)
+            controller.addDocument(document)
+            controller.noteNewRecentDocument(document)
+            return document
+        } catch {
+            logger.error("Could not open the restored file \(url.path, privacy: .private): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     private static func logFrame(_ window: NSWindow, stage: String, policy: String) {

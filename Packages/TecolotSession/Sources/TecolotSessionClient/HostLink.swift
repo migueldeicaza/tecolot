@@ -254,6 +254,16 @@ public final class HostLink: @unchecked Sendable {
             client.listSessions { result in self.queue.async { completion(result) } }
         }, fail: { completion(.failure($0)) }))
     }
+    public func listEndedSessions(_ completion: @escaping @Sendable (Result<[DurableSessionState], Error>) -> Void) {
+        enqueue(Waiting(run: { [self] client in
+            client.listEndedSessions { result in self.queue.async { completion(result) } }
+        }, fail: { completion(.failure($0)) }))
+    }
+    public func deleteEndedSession(id: String, completion: @escaping @Sendable (Result<Void, Error>) -> Void) {
+        enqueue(Waiting(run: { [self] client in
+            client.deleteEndedSession(id: id) { result in self.queue.async { completion(result) } }
+        }, fail: { completion(.failure($0)) }))
+    }
     public func terminateSession(id: String, signal: Int32 = SIGHUP,
                                  completion: @escaping @Sendable (Result<Void, Error>) -> Void) {
         enqueue(Waiting(run: { [self] client in

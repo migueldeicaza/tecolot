@@ -101,10 +101,6 @@ final class WindowCloseInterceptor: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        for controller in TerminalSessionRegistry.shared.controllers(for: sender) {
-            controller.flushBufferSnapshot()
-        }
-
         if bypassClose {
             return forwardedWindowShouldClose(sender)
         }

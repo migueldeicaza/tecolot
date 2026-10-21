@@ -61,11 +61,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Before the dialog: it changes the current event and the keys.
+        let savesWindows = WindowRestorationPolicy.savesWindowsForCurrentQuit()
         let hasLiveProcess = sender.windows.contains { window in
             TerminalSessionRegistry.shared.controllers(for: window)
                 .contains(where: TerminalClosePolicy.requiresConfirmation)
         }
-        guard hasLiveProcess else { return saveForTermination(sender) }
+        guard hasLiveProcess else { return saveForTermination(sender, savesWindows: savesWindows) }
 
         let alert = NSAlert()
         alert.messageText = "Quit and terminate running processes?"
@@ -74,14 +76,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
         guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
-        return saveForTermination(sender)
+        return saveForTermination(sender, savesWindows: savesWindows)
     }
 
     /// Saves the windows for the next launch, then quits. The writes run on
     /// a background queue; the quit waits for them for at most 3 seconds.
-    private func saveForTermination(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    private func saveForTermination(_ sender: NSApplication, savesWindows: Bool) -> NSApplication.TerminateReply {
         guard RestoreStore.shared.isEnabled, RestoreStore.shared.isReady else { return .terminateNow }
-        RestoreStore.shared.saveForTermination {
+        RestoreStore.shared.saveForTermination(savesWindows: savesWindows) {
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater

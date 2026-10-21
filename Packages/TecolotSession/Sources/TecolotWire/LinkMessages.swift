@@ -292,5 +292,58 @@ public struct DirectoryDoneMessage: WireMessage, Hashable {
     }
 }
 
+/// Asks for the durable states of the sessions that the system ended on
+/// the host (spec-restoration.md section 6.4). An older bridge answers
+/// with an `unsupported` error.
+public struct ListEndedSessionsMessage: WireMessage, Hashable {
+    public static let kind = MessageKind.listEndedSessions
+
+    public init() {
+    }
+
+    public init(from reader: inout WireReader) throws(WireError) {
+    }
+
+    public func encode(to writer: inout WireWriter) {
+    }
+}
+
+/// The reply to ListEndedSessions: a JSON array of durable states, without
+/// their launch environment.
+public struct EndedSessionListMessage: WireMessage, Hashable {
+    public static let kind = MessageKind.endedSessionList
+    public var json: [UInt8]
+
+    public init(json: [UInt8]) {
+        self.json = json
+    }
+
+    public init(from reader: inout WireReader) throws(WireError) {
+        json = try reader.blob()
+    }
+
+    public func encode(to writer: inout WireWriter) {
+        writer.blob(json)
+    }
+}
+
+/// Deletes the durable state of an ended session. The reply is DirectoryDone.
+public struct DeleteEndedSessionMessage: WireMessage, Hashable {
+    public static let kind = MessageKind.deleteEndedSession
+    public var id: String
+
+    public init(id: String) {
+        self.id = id
+    }
+
+    public init(from reader: inout WireReader) throws(WireError) {
+        id = try reader.string()
+    }
+
+    public func encode(to writer: inout WireWriter) {
+        writer.string(id)
+    }
+}
+
 /// The bridge handshake values.
 public typealias HelperInfo = HelperInfoMessage

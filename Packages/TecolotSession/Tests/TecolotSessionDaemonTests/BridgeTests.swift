@@ -218,6 +218,49 @@ struct BridgeTests {
         try await bridge.stop()
     }
 
+    /// The Sessions window lists, restores and deletes the sessions that the
+    /// system ended on a remote host.
+    @Test func endedSessionsAreListedRestoredAndDeleted() async throws {
+        let directory = try makeDirectory()
+        let states = DurableStateDirectory(url: directory.url.appendingPathComponent("states", isDirectory: true))
+        defer {
+            // SIGKILL: SIGTERM makes a helper save its state into the folder that this removes.
+            for record in directory.list() { kill(record.pid, SIGKILL) }
+            try? FileManager.default.removeItem(at: directory.url)
+        }
+        let saved = SessionLaunch(executable: "/bin/sh", environment: ["SECRET=value"], workingDirectory: "/tmp")
+        try states.write(DurableSessionState(id: "e0d1", launch: saved, directory: PaneDirectory(path: "/usr", source: .osc7),
+                                             title: "first"), scrollback: nil)
+        try states.write(DurableSessionState(id: "e0d2", launch: saved, title: "second"), scrollback: nil)
+        let bridge = try RunningBridge(directory: directory, environment: ["TECOLOT_STATE_DIR": states.url.path])
+        _ = try await bridge.waitReady()
+
+        let ended: [DurableSessionState] = try await bridgeResult("listEndedSessions") {
+            bridge.client.listEndedSessions($0)
+        }
+        #expect(Set(ended.map(\.id)) == ["e0d1", "e0d2"])
+        // The launch environment stays on the host.
+        #expect(ended.allSatisfy { $0.launch.environment.isEmpty })
+
+        let _: Void = try await bridgeResult("deleteEndedSession") { bridge.client.deleteEndedSession(id: "e0d2", completion: $0) }
+        #expect(states.read("e0d2") == nil)
+
+        var launch = RemoteSessionLaunch(command: "exec /bin/sh -i", environment: ["PS1=", "ENV="], columns: 60, rows: 12)
+        launch.restoreSessionID = "e0d1"
+        let record: SessionRecord = try await bridgeResult("createSession") { bridge.client.createSession(launch, completion: $0) }
+        let session = try await attach(bridge, id: record.id)
+        defer { session.close() }
+        try await bridgeWait("restore separator") { bridgeScreen(session).contains { $0.contains("Restored") } }
+        session.send(text: "pwd\n")
+        try await bridgeWait("saved directory") { bridgeScreen(session).contains("/usr") }
+        #expect(states.read("e0d1") == nil)
+        let left: [DurableSessionState] = try await bridgeResult("listEndedSessions after restore") {
+            bridge.client.listEndedSessions($0)
+        }
+        #expect(left.isEmpty)
+        try await bridge.stop()
+    }
+
     @Test func bridgeIdleTimeoutExits() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory.url) }

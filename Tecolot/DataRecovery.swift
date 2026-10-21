@@ -6,6 +6,7 @@ private struct PreferencesV0 {
     var newTabsUseCurrentProfile: Bool?
     var useCommandDigitsForTabs: Bool?
     var restoredRowsLimit: Int?
+    var windowRestoration: String?
     var startupMode: String?
     var startupProfileID: String?
     var startupWindowGroupID: String?
@@ -19,6 +20,7 @@ private struct PreferencesV1 {
     var newTabsUseCurrentProfile: Bool
     var useCommandDigitsForTabs: Bool
     var restoredRowsLimit: Int
+    var windowRestoration: String
     var startupMode: String
     var startupProfileID: String?
     var startupWindowGroupID: String?
@@ -43,6 +45,7 @@ final class PreferenceMigrator {
         "newTabsUseCurrentProfile",
         "useCommandDigitsForTabs",
         "restoredRowsLimit",
+        WindowRestorationPolicy.key,
         "startupMode",
         "startupProfileID",
         "startupWindowGroupID",
@@ -185,6 +188,7 @@ final class PreferenceMigrator {
             newTabsUseCurrentProfile: boolean(forKey: "newTabsUseCurrentProfile"),
             useCommandDigitsForTabs: boolean(forKey: "useCommandDigitsForTabs"),
             restoredRowsLimit: defaults.object(forKey: "restoredRowsLimit") as? Int,
+            windowRestoration: defaults.string(forKey: WindowRestorationPolicy.key),
             startupMode: defaults.string(forKey: "startupMode"),
             startupProfileID: defaults.string(forKey: "startupProfileID"),
             startupWindowGroupID: defaults.string(forKey: "startupWindowGroupID"),
@@ -239,6 +243,8 @@ final class PreferenceMigrator {
             newTabsUseCurrentProfile: source.newTabsUseCurrentProfile ?? true,
             useCommandDigitsForTabs: source.useCommandDigitsForTabs ?? true,
             restoredRowsLimit: min(max(source.restoredRowsLimit ?? 1_000, 0), 100_000),
+            windowRestoration: source.windowRestoration.flatMap(WindowRestorationPolicy.init(rawValue:))?.rawValue
+                ?? WindowRestorationPolicy.system.rawValue,
             startupMode: startupMode,
             startupProfileID: startupProfileID,
             startupWindowGroupID: startupWindowGroupID,
@@ -253,6 +259,7 @@ final class PreferenceMigrator {
         defaults.set(preferences.newTabsUseCurrentProfile, forKey: "newTabsUseCurrentProfile")
         defaults.set(preferences.useCommandDigitsForTabs, forKey: "useCommandDigitsForTabs")
         defaults.set(preferences.restoredRowsLimit, forKey: "restoredRowsLimit")
+        defaults.set(preferences.windowRestoration, forKey: WindowRestorationPolicy.key)
         defaults.set(preferences.startupMode, forKey: "startupMode")
         setOptional(preferences.startupProfileID, forKey: "startupProfileID")
         setOptional(preferences.startupWindowGroupID, forKey: "startupWindowGroupID")

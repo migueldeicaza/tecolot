@@ -148,6 +148,37 @@ public final class LinkClient: @unchecked Sendable {
         }
     }
 
+    /// The sessions that the system ended on the host. An older bridge
+    /// does not know the request: the list is empty.
+    public func listEndedSessions(_ completion: @escaping @Sendable (Result<[DurableSessionState], Error>) -> Void) {
+        whenReady { [self] in
+            request(ListEndedSessionsMessage()) { result in
+                if case .failure(LinkClientError.remote(let error)) = result, error.code == .unsupported {
+                    completion(.success([]))
+                    return
+                }
+                completion(Result {
+                    let envelope = try result.get()
+                    guard envelope.kind == .endedSessionList else { throw LinkClientError.invalidReply }
+                    return try Self.recordDecoder().decode([DurableSessionState].self,
+                                                          from: Data(envelope.decode(EndedSessionListMessage.self).json))
+                })
+            }
+        }
+    }
+
+    public func deleteEndedSession(id: String, completion: @escaping @Sendable (Result<Void, Error>) -> Void) {
+        whenReady { [self] in
+            request(DeleteEndedSessionMessage(id: id)) { result in
+                completion(Result {
+                    let envelope = try result.get()
+                    guard envelope.kind == .directoryDone else { throw LinkClientError.invalidReply }
+                    _ = try envelope.decode(DirectoryDoneMessage.self)
+                })
+            }
+        }
+    }
+
     public func createSession(_ launch: RemoteSessionLaunch,
                               completion: @escaping @Sendable (Result<SessionRecord, Error>) -> Void) {
         whenReady { [self] in

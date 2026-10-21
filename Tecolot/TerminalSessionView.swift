@@ -52,7 +52,6 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     private var postedDirectory: String?
     @ObservationIgnored private var zoomGesture: NSMagnificationGestureRecognizer?
     @ObservationIgnored private var keyEventMonitor: Any?
-    @ObservationIgnored private var snapshotWorkItem: DispatchWorkItem?
     private var logging = false
 
     @ObservationIgnored private(set) var terminal: LocalProcessTerminalView?
@@ -66,6 +65,14 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored private var remoteGeneration: UInt64 = 0
     @ObservationIgnored private var remoteOpening = false
     @ObservationIgnored private var remoteLinking = false
+    /// A restored remote pane connects when its window shows, so that the
+    /// tabs that are not selected do not sign in at launch.
+    @ObservationIgnored private var connectsWhenVisible = false
+    @ObservationIgnored private var visibilityObserver: NSObjectProtocol?
+    /// The window that `visibilityObserver` observes.
+    @ObservationIgnored private weak var visibilityWindow: NSWindow?
+    /// The pane connects when its window shows.
+    @ObservationIgnored private var waitsForVisibleWindow = false
     @ObservationIgnored private var remoteNotice: String?
     /// The remote session of this pane ended. The saved layout leaves the pane out.
     @ObservationIgnored private(set) var remoteSessionEnded = false
@@ -110,12 +117,15 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// The session of a restored remote pane. When it ended, the bridge
     /// starts a new session from its saved state.
     @ObservationIgnored var remoteRestoreSessionID: String?
+    /// The rows that a restored remote pane shows until it attaches. The
+    /// pane deletes the file when it attaches.
+    @ObservationIgnored var restoredRowsURL: URL?
+    /// The rows of `restoredRowsURL`, after the read.
+    @ObservationIgnored var restoredRows: RemoteRowSnapshot?
     /// The ended session that the next new remote session starts from. It
     /// stays until the bridge creates that session, so that a retry after a
     /// failure also restores.
     @ObservationIgnored private(set) var remotePendingRestore: String?
-    @ObservationIgnored private var restoredContent: String?
-    @ObservationIgnored var bufferSnapshotHandler: ((String) -> Void)?
     @ObservationIgnored private weak var observedWindow: NSWindow?
     @ObservationIgnored private var windowKeyObserver: NSObjectProtocol?
     @ObservationIgnored private var windowUpdateObserver: NSObjectProtocol?
@@ -146,11 +156,13 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if let windowUpdateObserver {
             NotificationCenter.default.removeObserver(windowUpdateObserver)
         }
+        if let visibilityObserver {
+            NotificationCenter.default.removeObserver(visibilityObserver)
+        }
         if let keyEventMonitor {
             NSEvent.removeMonitor(keyEventMonitor)
         }
         titleUpdateTask?.cancel()
-        snapshotWorkItem?.cancel()
     }
 
     /// Consumes the pending LaunchSpec exactly once, from the first view
@@ -168,7 +180,6 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
         themeOverride = spec?.themeOverride ?? document.themeOverride
         launchDirectory = spec?.workingDirectory
-        restoredContent = document.content
         wantsPersistentSession = Self.startsPersistentSession(spec: spec, profile: profile)
         attachSessionID = spec?.attachSessionID
         remoteDestination = spec?.remoteDestination
@@ -195,8 +206,14 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         case .remote:
             remoteDestination = pane.remoteDestination
             wantsPersistentSession = true
-            attachSessionID = pane.sessionID
-            remoteRestoreSessionID = pane.sessionID
+            if restoration.restoresEndedSession {
+                remotePendingRestore = pane.sessionID
+            } else {
+                attachSessionID = pane.sessionID
+                remoteRestoreSessionID = pane.sessionID
+                restoredRowsURL = restoration.cacheURL
+                connectsWhenVisible = true
+            }
         case .persistent:
             wantsPersistentSession = true
             if restoration.sessionRunning, let sessionID = pane.sessionID {
@@ -486,7 +503,6 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     func noteOutputActivity() {
-        scheduleBufferSnapshot()
         guard surface?.window?.isKeyWindow == false else { return }
         setHasActivity(true)
     }
@@ -745,9 +761,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// Ends a local shell. A persistent pane detaches instead: closing a pane
     /// or a window never ends a persistent session.
     func terminate() {
-        flushBufferSnapshot()
         if let persistentView {
             persistentDetached = true
+            stopWaitingForVisibleWindow()
             persistentView.session.detach()
             if let hostLink {
                 Task { @MainActor in RemoteHosts.shared.removeObserver(link: hostLink, observer: self.id) }
@@ -996,9 +1012,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         guard let window = surface?.window else { return }
         TerminalSessionRegistry.shared.register(controller: self, workspace: workspace, for: window)
         // RestoreStore brings the terminal windows back. AppKit restoration
-        // would bring them back a second time, without their panes. AppKit
-        // restores the windows of saved documents: it knows their files.
-        window.isRestorable = RestoreStore.isFileDocumentWindow(window)
+        // would bring them back a second time, without their panes.
+        window.isRestorable = false
         observeWindowKeyState(for: window)
         updateWindowTransparency()
     }
@@ -1094,38 +1109,6 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
                 terminal.feed(text: ScrollbackFile.terminalBytes(replayText))
             }
         }
-        guard let restoredContent, !restoredContent.isEmpty else { return }
-        self.restoredContent = nil
-        let limit = UserDefaults.standard.object(forKey: "restoredRowsLimit") as? Int ?? 1_000
-        guard limit > 0 else { return }
-
-        var lines = restoredContent.split(separator: "\n", omittingEmptySubsequences: false)
-        if lines.last?.isEmpty == true {
-            lines.removeLast()
-        }
-        let visibleLines = lines.suffix(limit)
-        guard !visibleLines.isEmpty else { return }
-        terminal.feed(text: visibleLines.joined(separator: "\n") + "\n")
-    }
-
-    private func scheduleBufferSnapshot() {
-        guard bufferSnapshotHandler != nil else { return }
-        guard snapshotWorkItem == nil else { return }
-        let item = DispatchWorkItem { [weak self] in
-            self?.flushBufferSnapshot()
-        }
-        snapshotWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
-    }
-
-    func flushBufferSnapshot() {
-        guard snapshotWorkItem != nil else { return }
-        snapshotWorkItem?.cancel()
-        snapshotWorkItem = nil
-        guard let bufferSnapshotHandler,
-              let data = terminal?.getBufferAsData(),
-              let content = String(data: data, encoding: .utf8) else { return }
-        bufferSnapshotHandler(content)
     }
 
     private func scheduleTerminalTitleUpdate() {
@@ -1310,8 +1293,53 @@ extension TerminalSessionController {
         persistentSessionID = attachSessionID
         attachPersistentView()
         updateRemoteBanner(state: .resolving)
-        connectRemoteHost()
+        showRestoredRows()
+        if connectsWhenVisible { connectRemoteHostWhenVisible() } else { connectRemoteHost() }
         return view
+    }
+
+    /// Connects when the pane's window shows (spec-restoration.md section 9).
+    @MainActor
+    private func connectRemoteHostWhenVisible() {
+        connectsWhenVisible = false
+        waitsForVisibleWindow = true
+        connectIfWindowVisible()
+    }
+
+    /// Connects a pane that waits for its window, when the window shows.
+    /// The view calls it also when it moves to another window. Only the
+    /// pane's window is observed.
+    @MainActor
+    func connectIfWindowVisible() {
+        guard waitsForVisibleWindow else { return }
+        let window = persistentView?.window
+        if let window, window.occlusionState.contains(.visible) {
+            stopWaitingForVisibleWindow()
+            connectRemoteHost()
+            return
+        }
+        guard window !== visibilityWindow || visibilityObserver == nil else { return }
+        removeVisibilityObserver()
+        guard let window else { return }
+        visibilityWindow = window
+        visibilityObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.connectIfWindowVisible() }
+        }
+    }
+
+    @MainActor
+    private func stopWaitingForVisibleWindow() {
+        waitsForVisibleWindow = false
+        removeVisibilityObserver()
+    }
+
+    @MainActor
+    private func removeVisibilityObserver() {
+        if let visibilityObserver { NotificationCenter.default.removeObserver(visibilityObserver) }
+        visibilityObserver = nil
+        visibilityWindow = nil
     }
 
     /// Shows the new session that replaces an ended one in this pane.
@@ -1394,6 +1422,7 @@ extension TerminalSessionController {
                     self.persistentSessionID = id
                     self.attachSessionID = nil
                     self.remoteRestoreSessionID = nil
+                    self.removeRestoredRows()
                     self.remoteGeneration = generation
                     self.remoteLinkChanged(link.state)
                 case .failure(let error):
@@ -1427,6 +1456,8 @@ extension TerminalSessionController {
         }
         guard socket >= 0 else { remoteOpening = false; return }
         let session = makeRemoteSession(socket: socket)
+        // Before the start: the preload must come before the first frame.
+        preloadRestoredRows(in: session)
         view.replaceSession(session)
         view.remoteInputEnabled = false
         updateRemoteBanner(state: link.state)
@@ -1977,9 +2008,7 @@ struct TerminalSessionView: NSViewRepresentable {
 
     TerminalSessionView(
         controller: controller,
-        document: TerminalDocument(
-            content: "miguel@mac tecolot % swift test\nBuild complete! (2.4s)\nAll tests passed.\n"
-        )
+        document: TerminalDocument()
     )
     .frame(width: 720, height: 420)
 }
@@ -2121,6 +2150,15 @@ final class TerminalSessionRegistry {
     func shownPersistentSessionIDs(destination: String? = nil) -> Set<String> {
         Set(NSApp.windows.flatMap { controllers(for: $0) }
             .filter { $0.remoteDestination == destination }.compactMap(\.persistentSessionID))
+    }
+
+    /// The sessions that panes show, and the sessions that restored panes
+    /// will use: a pane that waits for its window has not attached yet, and
+    /// a pane whose session ended starts again from its saved state.
+    func persistentSessionIDsInUse(destination: String? = nil) -> Set<String> {
+        Set(NSApp.windows.flatMap { controllers(for: $0) }
+            .filter { $0.remoteDestination == destination }
+            .flatMap { [$0.persistentSessionID, $0.remoteRestoreSessionID, $0.remotePendingRestore].compactMap { $0 } })
     }
 
     /// The pane that shows the persistent session `id`, if any.

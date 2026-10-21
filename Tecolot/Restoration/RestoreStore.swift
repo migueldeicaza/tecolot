@@ -11,19 +11,80 @@
 //      ~/Library/Application Support/<bundle>/Restore/
 //          windows.json            the layout (RestoreState)
 //          panes/<pane-id>.text    the scrollback of a local pane
+//          panes/<pane-id>.cache   the rows of a remote pane (RemoteRowSnapshot)
 //
 //  A persistent session keeps its own text: the helper saves it when the
 //  system ends it (DurableSessionState, in Application Support/<bundle>/Sessions/).
+//  A remote pane shows its saved rows only until it attaches; the pane
+//  deletes its .cache file then.
 //
-//  Tecolot does not use AppKit state restoration for terminal windows, so
-//  the system settings "Close windows when quitting an application" and
-//  "Reopen windows when logging back in" do not apply.
+//  Tecolot does not use AppKit state restoration for terminal windows: the
+//  store owns all of them. The "Restore windows" setting
+//  (WindowRestorationPolicy) tells if a quit saves the windows. Its System
+//  value follows "Close windows when quitting an application" and the
+//  Option key, as AppKit does. A tab whose window shows a .terminalSession
+//  file keeps the file: the restore opens the tab with that document.
 //
 
 import AppKit
 import Foundation
 import SwiftTerm
+import TecolotSessionClient
 import TecolotSessionDirectory
+
+/// The "Restore windows" setting: when a quit saves the windows for the
+/// next launch.
+nonisolated enum WindowRestorationPolicy: String, CaseIterable, Sendable {
+    /// As the system setting "Close windows when quitting an application".
+    case system
+    case always
+    case never
+
+    static let key = "windowRestoration"
+
+    static var current: Self {
+        UserDefaults.standard.string(forKey: key).flatMap(Self.init(rawValue:)) ?? .system
+    }
+
+    /// True when a quit saves the windows. `endsUserSession` is a quit for a
+    /// log out, a restart or a shut down. `optionKey` is ⌥⌘Q, "Quit and
+    /// Keep Windows", which does the opposite of the system setting.
+    /// `systemKeepsWindows` is false when "Close windows when quitting an
+    /// application" is on.
+    func savesWindows(endsUserSession: Bool, optionKey: Bool, systemKeepsWindows: Bool) -> Bool {
+        switch self {
+        case .always: return true
+        case .never: return false
+        case .system:
+            // The system asks "Reopen windows when logging back in" and
+            // relaunches the app only when it is on.
+            if endsUserSession { return true }
+            return systemKeepsWindows != optionKey
+        }
+    }
+
+    /// The system setting. With no value, the system closes the windows.
+    static var systemKeepsWindows: Bool {
+        UserDefaults.standard.bool(forKey: "NSQuitAlwaysKeepsWindows")
+    }
+
+    /// True when the quit Apple event is for a log out, a restart or a shut down.
+    static func endsUserSession(_ event: NSAppleEventDescriptor?) -> Bool {
+        guard let reason = event?.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason))?.typeCodeValue
+        else { return false }
+        let reasons = [kAELogOut, kAEReallyLogOut, kAEShowRestartDialog, kAERestart, kAEShowShutdownDialog, kAEShutDown]
+        return reasons.map { OSType($0) }.contains(reason)
+    }
+
+    /// The decision for the quit that runs now. Call it before a dialog:
+    /// the dialog changes the current event and the keys.
+    @MainActor
+    static func savesWindowsForCurrentQuit() -> Bool {
+        current.savesWindows(endsUserSession: endsUserSession(NSAppleEventManager.shared().currentAppleEvent),
+                             optionKey: NSEvent.modifierFlags.contains(.option),
+                             systemKeepsWindows: systemKeepsWindows)
+    }
+}
 
 nonisolated enum RestorePaneKind: String, Codable, Hashable, Sendable {
     /// A shell of the app. It ends when the app quits.
@@ -104,6 +165,8 @@ nonisolated struct RestoreTab: Codable, Hashable, Sendable {
     var focusedPaneID: UUID?
     var zoomedPaneID: UUID?
     var root: RestorePaneNode
+    /// The .terminalSession file of the tab's window. Nil for an untitled window.
+    var fileURL: URL?
 }
 
 nonisolated struct RestoreWindow: Codable, Hashable, Sendable {
@@ -168,6 +231,19 @@ nonisolated struct RestoreStateMigrator: VersionedDocumentMigrator {
     }()
 }
 
+/// The rows of a remote pane, for its cache file.
+nonisolated struct RemoteRowCopy: Sendable {
+    enum Rows: Sendable {
+        /// The rows that the pane shows.
+        case captured(RemoteRowSnapshot.Pending)
+        /// The file from the last save, for a pane that did not attach.
+        case saved(URL)
+    }
+
+    let paneID: UUID
+    let rows: Rows
+}
+
 /// What one pane gets from the restore.
 struct PaneRestoration {
     var pane: RestorePane
@@ -178,6 +254,12 @@ struct PaneRestoration {
     var textURL: URL?
     /// The helper of a persistent pane still runs: attach to it.
     var sessionRunning: Bool
+    /// The saved rows of a remote pane; the file can be missing.
+    var cacheURL: URL? = nil
+    /// The pane's session ended, and the user restores it from the Sessions
+    /// window: a remote pane starts a new session from the saved state at
+    /// once, without trying to attach first.
+    var restoresEndedSession = false
 
     var reason: RestoreSeparator.Reason { macRestarted ? .macRestarted : .appQuit }
 }
@@ -247,6 +329,9 @@ final class RestoreStore {
     nonisolated static func textURL(in panes: URL, for id: UUID) -> URL {
         panes.appendingPathComponent("\(id.uuidString).text")
     }
+    nonisolated static func cacheURL(in panes: URL, for id: UUID) -> URL {
+        panes.appendingPathComponent("\(id.uuidString).cache")
+    }
 
     /// The old layout store's file (persistent panes only).
     var legacyLayoutURL: URL {
@@ -255,20 +340,32 @@ final class RestoreStore {
 
     // MARK: Saving
 
+    /// Deletes the saved rows of a remote pane that attached. It runs on the
+    /// queue of the save at quit, so that it cannot delete a newer file.
+    func removeRows(at url: URL) {
+        queue.async { try? FileManager.default.removeItem(at: url) }
+    }
+
     /// Saves all windows: the layout on the main thread, the scrollback
     /// copies in one terminal lock transaction for each pane. The files are
     /// encoded and written on a background queue; `completion` runs on the
     /// main thread when they are written, or after `saveTimeLimit`.
-    func saveForTermination(completion: @escaping @MainActor () -> Void) {
+    /// When `savesWindows` is false, the quit deletes the saved files: the
+    /// next launch opens no saved window. Persistent sessions continue to
+    /// run, and the Sessions window lists them.
+    func saveForTermination(savesWindows: Bool = true, completion: @escaping @MainActor () -> Void) {
         guard isEnabled, isReady else { completion(); return }
-        let (state, texts) = capture(limit: Self.restoredRowsLimit)
+        let (state, texts, caches) = savesWindows
+            ? capture(limit: Self.restoredRowsLimit)
+            : (RestoreState(bootID: nil, savedAt: Date(), windows: []), [], [])
         let directory = directory
         let windowsURL = windowsURL
         let panesURL = panesURL
         let done = DispatchGroup()
         done.enter()
         queue.async {
-            Self.write(state, texts: texts, directory: directory, windowsURL: windowsURL, panesURL: panesURL)
+            Self.write(state, texts: texts, caches: caches, directory: directory, windowsURL: windowsURL,
+                       panesURL: panesURL)
             done.leave()
         }
         var finished = false
@@ -281,25 +378,20 @@ final class RestoreStore {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.saveTimeLimit) { MainActor.assumeIsolated { finish() } }
     }
 
-    /// A window of a saved terminal-session file. AppKit restores it as a
-    /// document; this store leaves it out.
-    static func isFileDocumentWindow(_ window: NSWindow) -> Bool {
-        NSDocumentController.shared.document(for: window)?.fileURL != nil
-    }
-
-    /// The layout of the open windows, and the text of their local panes.
-    /// Leaves out the windows of saved documents.
-    func capture(limit: Int) -> (RestoreState, [ScrollbackSnapshot.Pending]) {
+    /// The layout of the open windows, the text of their local panes, and
+    /// the rows of their remote panes. The windows of saved
+    /// `.terminalSession` files are terminal windows too: their tabs keep
+    /// the file URL, and the panes come from the store, not from the file.
+    func capture(limit: Int) -> (RestoreState, [ScrollbackSnapshot.Pending], [RemoteRowCopy]) {
         var state = RestoreState(bootID: BootIdentifier.current(), savedAt: Date(), windows: [])
         var texts: [ScrollbackSnapshot.Pending] = []
+        var caches: [RemoteRowCopy] = []
         var visitedTabGroups = Set<ObjectIdentifier>()
         let registry = TerminalSessionRegistry.shared
         let isTerminalWindow = { (window: NSWindow) -> Bool in
             guard registry.workspace(for: window) != nil else { return false }
-            // A document can get its file after the window registered (Save As).
-            let isDocument = Self.isFileDocumentWindow(window)
-            window.isRestorable = isDocument
-            return !isDocument
+            window.isRestorable = false
+            return true
         }
         // Back to front: the restore opens them in this order.
         for window in NSApp.orderedWindows.reversed() + NSApp.windows where isTerminalWindow(window) {
@@ -318,13 +410,15 @@ final class RestoreStore {
             var selected = 0
             for tabWindow in tabWindows {
                 guard let workspace = registry.workspace(for: tabWindow),
-                      let root = Self.capture(workspace.root, hostView: workspace.hostView, limit: limit, texts: &texts)
+                      let root = Self.capture(workspace.root, hostView: workspace.hostView, limit: limit,
+                                              texts: &texts, caches: &caches)
                 else { continue }
                 let ids = Set(root.panes.map(\.id))
                 if tabWindow === selectedWindow { selected = tabs.count }
                 tabs.append(RestoreTab(focusedPaneID: workspace.focusedController.map(\.id).flatMap { ids.contains($0) ? $0 : nil },
                                        zoomedPaneID: workspace.zoomedControllerID.flatMap { ids.contains($0) ? $0 : nil },
-                                       root: root))
+                                       root: root,
+                                       fileURL: NSDocumentController.shared.document(for: tabWindow)?.fileURL))
             }
             guard !tabs.isEmpty else { continue }
             state.windows.append(RestoreWindow(frame: NSStringFromRect(selectedWindow.frame),
@@ -332,38 +426,57 @@ final class RestoreStore {
                                                isFullScreen: selectedWindow.styleMask.contains(.fullScreen),
                                                selectedTabIndex: selected, tabs: tabs))
         }
-        return (state, texts)
+        return (state, texts, caches)
     }
 
     /// The tree of a tab. Leaves out the panes whose session ended.
     static func capture(_ node: TerminalPaneNode, hostView: TerminalPaneHostView?, limit: Int,
-                        texts: inout [ScrollbackSnapshot.Pending]) -> RestorePaneNode? {
+                        texts: inout [ScrollbackSnapshot.Pending], caches: inout [RemoteRowCopy]) -> RestorePaneNode? {
         switch node.content {
         case .terminal(let controller):
             guard let pane = controller.restorePane() else { return nil }
-            if pane.kind == .local, let text = controller.copyScrollback(limit: limit) { texts.append(text) }
+            switch pane.kind {
+            case .local:
+                if let text = controller.copyScrollback(limit: limit) { texts.append(text) }
+            case .remote:
+                if let rows = controller.copyRemoteRows(limit: limit) { caches.append(rows) }
+            case .persistent:
+                break
+            }
             return .pane(pane)
         case .split(let orientation, let first, let second):
             let fraction = hostView?.dividerFraction(for: node.id).map(Double.init)
             return RestorePaneNode.split(orientation, fraction: fraction,
-                                         capture(first, hostView: hostView, limit: limit, texts: &texts),
-                                         capture(second, hostView: hostView, limit: limit, texts: &texts))
+                                         capture(first, hostView: hostView, limit: limit, texts: &texts, caches: &caches),
+                                         capture(second, hostView: hostView, limit: limit, texts: &texts, caches: &caches))
         }
     }
 
-    nonisolated static func write(_ state: RestoreState, texts: [ScrollbackSnapshot.Pending], directory: URL,
-                                  windowsURL: URL, panesURL: URL) {
+    nonisolated static func write(_ state: RestoreState, texts: [ScrollbackSnapshot.Pending],
+                                  caches: [RemoteRowCopy] = [], directory: URL, windowsURL: URL, panesURL: URL) {
         do {
+            // Read the files of panes that did not attach before the folder goes away.
+            let savedRows = caches.reduce(into: [UUID: Data]()) { saved, cache in
+                if case .saved(let url) = cache.rows { saved[cache.paneID] = try? Data(contentsOf: url) }
+            }
             try? FileManager.default.removeItem(at: panesURL)
             try DurableStateDirectory.makePrivateDirectory(directory)
             guard !state.windows.isEmpty else {
                 try? FileManager.default.removeItem(at: windowsURL)
                 return
             }
-            if !texts.isEmpty { try DurableStateDirectory.makePrivateDirectory(panesURL) }
+            if !texts.isEmpty || !caches.isEmpty { try DurableStateDirectory.makePrivateDirectory(panesURL) }
             for text in texts {
                 guard let data = text.encode(savedAt: state.savedAt) else { continue }
                 try DurableStateDirectory.writePrivate(data, to: textURL(in: panesURL, for: text.paneID))
+            }
+            for cache in caches {
+                let data: Data
+                switch cache.rows {
+                case .captured(let rows): data = rows.encode(savedAt: state.savedAt)
+                case .saved: guard let saved = savedRows[cache.paneID] else { continue }; data = saved
+                }
+                try DurableStateDirectory.writePrivate(data, to: cacheURL(in: panesURL, for: cache.paneID))
             }
             // The layout goes last: without it, a launch restores nothing.
             try DurableStateDirectory.writePrivate(try RestoreStateMigrator().encodeCurrent(state), to: windowsURL)
@@ -431,7 +544,8 @@ final class RestoreStore {
                     return (pane.id, PaneRestoration(
                         pane: pane, savedAt: state.savedAt, macRestarted: macRestarted,
                         textURL: pane.kind == .local ? Self.textURL(in: panesURL, for: pane.id) : nil,
-                        sessionRunning: pane.sessionID.map(running.contains) ?? false))
+                        sessionRunning: pane.sessionID.map(running.contains) ?? false,
+                        cacheURL: pane.kind == .remote ? Self.cacheURL(in: panesURL, for: pane.id) : nil))
                 }, uniquingKeysWith: { first, _ in first }))
             }
             if open(window, tabs: tabs) { opened = true }
@@ -475,7 +589,8 @@ final class RestoreStore {
     /// delete their own file after the replay.
     private func removeUnusedPaneFiles(keeping used: Set<UUID>) {
         let panesURL = panesURL
-        let kept = Set(used.map { Self.textURL(in: panesURL, for: $0).lastPathComponent })
+        let kept = Set(used.flatMap { [Self.textURL(in: panesURL, for: $0).lastPathComponent,
+                                       Self.cacheURL(in: panesURL, for: $0).lastPathComponent] })
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: panesURL.path) else { return }
         for name in names where !kept.contains(name) {
             try? FileManager.default.removeItem(at: panesURL.appendingPathComponent(name))
@@ -490,13 +605,32 @@ final class RestoreStore {
         do {
             return try ScrollbackFile.decode(data)
         } catch {
-            let message = "\(error)"
-            Task { @MainActor in
-                AppModel.shared.issueCenter.report(PersistenceIssue(
-                    domain: .windowRestoration, sourceURL: url, kind: .invalidFormat, message: message,
-                    supportedVersion: ScrollbackHeader.currentVersion))
-            }
+            reportInvalidFile(url, error: error, supportedVersion: ScrollbackHeader.currentVersion)
             return nil
+        }
+    }
+
+    /// Reads the saved rows of a remote pane. Runs on a background task.
+    /// The pane deletes the file when it attaches. A file that does not
+    /// decode is deleted and reported.
+    nonisolated static func readRows(at url: URL) -> RemoteRowSnapshot? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        do {
+            return try RemoteRowSnapshot.decode(data)
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            reportInvalidFile(url, error: error, supportedVersion: RemoteRowSnapshot.currentVersion)
+            return nil
+        }
+    }
+
+    /// Reports a pane file that does not decode. The caller deleted it.
+    private nonisolated static func reportInvalidFile(_ url: URL, error: Error, supportedVersion: Int) {
+        let message = "\(error)"
+        Task { @MainActor in
+            AppModel.shared.issueCenter.report(PersistenceIssue(
+                domain: .windowRestoration, sourceURL: url, kind: .invalidFormat, message: message,
+                supportedVersion: supportedVersion))
         }
     }
 
@@ -504,13 +638,15 @@ final class RestoreStore {
 
     /// A tab that starts a new persistent session from an ended one, with
     /// its directory and text (the Restore action of the Sessions window).
-    static func launchSpec(restoring state: DurableSessionState) -> LaunchSpec {
+    /// `destination` is the host of a remote session; its bridge reads the
+    /// saved state.
+    static func launchSpec(restoring state: DurableSessionState, destination: String? = nil) -> LaunchSpec {
         let profileID = state.launch.labels["profileID"].flatMap(UUID.init(uuidString:))
-        let pane = RestorePane(id: UUID(), kind: .persistent, profileID: profileID, directory: state.directory,
-                               sessionID: state.id, title: state.title,
-                               alternateScreenProgram: state.alternateScreenProgram)
+        let pane = RestorePane(id: UUID(), kind: destination == nil ? .persistent : .remote, profileID: profileID,
+                               directory: state.directory, sessionID: state.id, remoteDestination: destination,
+                               title: state.title, alternateScreenProgram: state.alternateScreenProgram)
         let restoration = PaneRestoration(pane: pane, savedAt: state.savedAt, macRestarted: false,
-                                          textURL: nil, sessionRunning: false)
+                                          textURL: nil, sessionRunning: false, restoresEndedSession: true)
         return launchSpec(for: RestoredTab(tab: RestoreTab(focusedPaneID: pane.id, root: .pane(pane)),
                                            panes: [pane.id: restoration]))
     }

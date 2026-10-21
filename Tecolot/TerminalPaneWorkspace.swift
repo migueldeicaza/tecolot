@@ -387,9 +387,7 @@ struct TerminalPaneContainer: NSViewRepresentable {
 
     TerminalPaneContainer(
         workspace: workspace,
-        document: TerminalDocument(
-            content: "miguel@mac tecolot % ls\nREADME.md  Tecolot  TecolotTests\n"
-        ),
+        document: TerminalDocument(),
         revision: workspace.revision
     )
     .frame(width: 720, height: 420)
