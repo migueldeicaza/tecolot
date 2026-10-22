@@ -7,13 +7,16 @@
 // than the helper's first line; it is never wrong for its number.
 //
 
+import Synchronization
 import TecolotWire
 
 public struct CachedRow: Sendable {
     public let version: UInt64
     public let header: WireRowHeader
     public let cells: [WireCell]
-    /// A counter that increases on every store, for consumers that convert rows.
+    /// A counter that increases on every store, for consumers that convert
+    /// rows. It is unique in the process: a cache that replaces another
+    /// cache (a preload, then the first frame) never repeats a stamp.
     public let stamp: UInt64
 }
 
@@ -23,7 +26,7 @@ public struct RowCache: Sendable {
     public private(set) var epoch: UInt64 = 0
     /// The most rows kept outside the pinned window.
     public var capacity = 20_000
-    private var stamp: UInt64 = 0
+    private static let stamps = Atomic<UInt64>(0)
 
     public init() {}
 
@@ -51,7 +54,7 @@ public struct RowCache: Sendable {
             let line = Int64(clamping: record.line)
             if rows[line]?.version == record.version { continue }
             let (header, cells) = try RowDecoder.decodeCells(record.payload)
-            stamp &+= 1
+            let stamp = Self.stamps.wrappingAdd(1, ordering: .relaxed).newValue
             rows[line] = CachedRow(version: record.version, header: header, cells: cells, stamp: stamp)
             changed.append(line)
         }

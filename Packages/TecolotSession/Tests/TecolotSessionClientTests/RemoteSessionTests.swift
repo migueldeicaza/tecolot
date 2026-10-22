@@ -97,6 +97,39 @@ struct RemoteSessionTests {
         #expect(!screen(session).contains("stale"))
     }
 
+    /// The app saves the rows at quit, the helper writes while no client is
+    /// attached, and the next launch preloads the saved rows. The view keeps
+    /// converted rows by line and stamp: the first frame stores the rows in
+    /// a new cache, and a stamp of that cache must not be a stamp of a
+    /// preloaded row, or the view shows the saved row.
+    @Test func outputWhileDetachedReplacesPreloadedRows() async throws {
+        let host = makeHost()
+        host.inject("one\r\ntwo\r\n")
+        let first = try connect(host)
+        try await eventually("first attach") { screen(first).prefix(2) == ["one", "two"] }
+        let pending = try #require(RemoteRowSnapshot.capture(first, sessionID: "s", limit: 100))
+        let saved = try RemoteRowSnapshot.decode(pending.encode(savedAt: Date()))
+        first.close()
+        host.inject("detached\r\n")
+
+        var fds: [Int32] = [0, 0]
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else { throw POSIXError(.EIO) }
+        let session = RemoteSession(socket: fds[0], clientName: "test", build: "test")
+        defer { session.close() }
+        session.preload(saved)
+        try await eventually("preloaded") { screen(session).prefix(2) == ["one", "two"] }
+        let preloaded = session.withState { state, cache in
+            Set((state.firstLine ..< state.endLine).compactMap { cache[$0]?.stamp })
+        }
+        host.accept(socket: fds[1])
+        session.start(size: WireGridSize(columns: 40, rows: 10), focused: true)
+        try await eventually("detached output") { screen(session).prefix(3) == ["one", "two", "detached"] }
+        let attached = session.withState { state, cache in
+            Set((state.firstLine ..< state.endLine).compactMap { cache[$0]?.stamp })
+        }
+        #expect(preloaded.isDisjoint(with: attached))
+    }
+
     @Test func newerClientInstanceClosesTheOlderConnection() async throws {
         let host = makeHost()
         let first = try connect(host, clientInstance: "same-pane")

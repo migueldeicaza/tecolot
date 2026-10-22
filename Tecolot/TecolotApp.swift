@@ -20,9 +20,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
             DetachedSessionNotifications.shared.start()
         }
+        // Do not wait for the activation: an app that starts in the
+        // background (after a log in, or opened by another app) must restore
+        // its windows, and a quit before the first activation must save them.
+        DispatchQueue.main.async { [weak self] in self?.ensureStartupWindow() }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        ensureStartupWindow()
+    }
+
+    private func ensureStartupWindow() {
         guard !didEnsureStartupWindow else { return }
         didEnsureStartupWindow = true
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
