@@ -80,7 +80,8 @@ public enum TerminalEnvironment {
     /// Returns the inherited environment with Tecolot's terminal values.
     public static func base(
         parentEnvironment: [String: String] = ProcessInfo.processInfo.environment,
-        termName: String
+        termName: String,
+        linkOsc8: Bool = true
     ) -> [String] {
         var environment = parentEnvironment
 
@@ -107,7 +108,7 @@ public enum TerminalEnvironment {
                 .path
         }
         environment["COLORTERM"] = "truecolor"
-        environment["TERM_FEATURES"] = TerminalFeatureReporting.featureString
+        environment["TERM_FEATURES"] = TerminalFeatureReporting.featureString(linkOsc8: linkOsc8)
         return encoded(environment)
     }
 

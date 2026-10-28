@@ -546,6 +546,8 @@ struct ProfileSettingsPage: View {
                     TextField("TERM_PROGRAM:", text: binding(\.termProgram))
                     TextField("TERM_VERSION:", text: binding(\.termVersion))
                 }
+                Toggle("Enable OSC 8 links", isOn: binding(\.linkOsc8))
+                    .help("Allow terminal programs to set links on text. Turn this off to ignore these links. Tecolot can still detect web addresses in text.")
                 Picker("Bell:", selection: binding(\.bellStyle)) {
                     ForEach(BellStyle.allCases, id: \.tagName) { style in
                         Text(style.displayName).tag(style)

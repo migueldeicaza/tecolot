@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import SwiftTerm
 @testable import Tecolot
 
 final class ProfileColorTests {
@@ -1087,5 +1088,45 @@ final class TecolotShellIntegrationTests {
             terminalProgramVersion: "1"
         )
         #expect(nushellResult.args == nushell.args)
+    }
+}
+
+@Suite("OSC 8 profile setting")
+@MainActor
+struct Osc8ProfileTests {
+    @Test func missingSettingUsesDefault() throws {
+        let profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(#"{"name":"Old profile"}"#.utf8))
+        #expect(profile.linkOsc8)
+    }
+
+    @Test func disabledSettingSurvivesEncoding() throws {
+        var profile = TerminalProfile(name: "Test")
+        profile.linkOsc8 = false
+        let data = try JSONEncoder().encode(profile)
+        #expect(try JSONDecoder().decode(TerminalProfile.self, from: data) == profile)
+    }
+
+    @Test(arguments: [true, false]) func optionsAndEnvironmentMatchSetting(enabled: Bool) {
+        var profile = TerminalProfile(name: "Test")
+        profile.linkOsc8 = enabled
+        let options = ProfileApplier.terminalOptions(for: profile)
+        #expect(options.enableOsc8Hyperlinks == enabled)
+        #expect(options.featureReport?.contains("H") == enabled)
+        let launch = ProfileApplier.launchParameters(for: profile)
+        let features = launch.environment.first { $0.hasPrefix("TERM_FEATURES=") }
+        #expect(features?.contains("H") == enabled)
+    }
+
+    @Test func changesApplyToOpenTerminal() {
+        let view = TerminalView(frame: .zero)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let themes = ThemeStore(directory: directory)
+        var profile = TerminalProfile(name: "Test")
+        for enabled in [false, true] {
+            profile.linkOsc8 = enabled
+            ProfileApplier.apply(profile: profile, themeStore: themes, to: view)
+            #expect(view.enableOsc8Hyperlinks == enabled)
+        }
     }
 }

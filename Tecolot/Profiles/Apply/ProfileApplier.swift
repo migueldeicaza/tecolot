@@ -38,7 +38,8 @@ public enum ProfileApplier {
         options.rows = profile.rows
         options.cursorStyle = profile.cursorStyle
         options.termName = profile.termName
-        options.featureReport = TerminalFeatureReporting.featureString
+        options.enableOsc8Hyperlinks = profile.linkOsc8
+        options.featureReport = TerminalFeatureReporting.featureString(linkOsc8: profile.linkOsc8)
         // Kitty clipboard protocol, OSC 5522. The library default denies
         // both directions. The session controller serves the standard
         // clipboard and asks the user before each read or write.
@@ -100,6 +101,7 @@ public enum ProfileApplier {
         view.fontSmoothing = profile.fontSmoothing
         #endif
         view.useBrightColors = profile.useBrightColorsForBold
+        view.enableOsc8Hyperlinks = profile.linkOsc8
         view.optionAsMetaKey = profile.optionAsMetaKey
         view.backspaceSendsControlH = profile.backspaceSendsControlH
         let cursorStyleParameter: Int
@@ -153,7 +155,8 @@ public enum ProfileApplier {
                                          processEnvironment: [String: String] = ProcessInfo.processInfo.environment) -> LaunchParameters {
         let environment = TerminalEnvironment.base(
             parentEnvironment: processEnvironment,
-            termName: profile.termName
+            termName: profile.termName,
+            linkOsc8: profile.linkOsc8
         )
         let directory = initialDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
 
