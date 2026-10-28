@@ -232,7 +232,12 @@ _tecolot_deferred_init() {
 
     # Enable reporting current working dir to terminal. Tecolot supports
     # the kitty-shell-cwd format.
-    _tecolot_report_pwd() { builtin print -nu $_tecolot_fd '\e]7;kitty-shell-cwd://'"$HOST""$PWD"'\a'; }
+    # Directory names can contain backslashes and control bytes.
+    # Print data without escape expansion and remove control bytes.
+    _tecolot_report_pwd() {
+      builtin print -rnu $_tecolot_fd -- \
+        $'\e]7;kitty-shell-cwd://'"${HOST//[[:cntrl:]]}""${PWD//[[:cntrl:]]}"$'\a'
+    }
     chpwd_functions=(${chpwd_functions[@]} "_tecolot_report_pwd")
     # An executed program could change cwd and report the changed cwd, so also report cwd at each new prompt
     # as in this case chpwd_functions is insufficient. chpwd_functions is still needed for things like: cd x && something
