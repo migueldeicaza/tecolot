@@ -549,7 +549,7 @@
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
 			requirement = {
 				kind = revision;
-				revision = 4b219630908f14774e4bed0ff4b41d5060fe58ef;
+				revision = a183c15b52858530a17de57dcc72b93eeebc9857;
 			};
 		};
 		5A81CE0000000001AAAA0003 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
