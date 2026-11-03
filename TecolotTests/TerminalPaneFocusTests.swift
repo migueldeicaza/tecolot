@@ -4,6 +4,31 @@ import Testing
 
 @MainActor
 struct TerminalPaneFocusTests {
+    @Test func backgroundOutputRemainsMarkedDuringWindowUpdates() throws {
+        let workspace = TerminalPaneWorkspace(startsProcesses: false)
+        let controller = try #require(workspace.focusedController)
+        let document = TerminalDocument(content: "")
+        let hostView = TerminalPaneHostView(workspace: workspace, document: document)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostView
+        hostView.synchronize(revision: workspace.revision, document: document)
+
+        let terminal = try #require(controller.terminal)
+        #expect(window.makeFirstResponder(terminal))
+        controller.attach(to: terminal)
+        #expect(!window.isKeyWindow)
+
+        controller.noteOutputActivity()
+        #expect(controller.hasActivity)
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(controller.hasActivity)
+    }
+
     @Test func mouseClickFocusesTheClickedPane() throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let firstController = try #require(workspace.focusedController)
