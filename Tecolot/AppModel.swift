@@ -16,6 +16,11 @@ struct LaunchSpec {
     var profileID: TerminalProfile.ID?
     var workingDirectory: String?
     var themeOverride: String?
+    /// A command line that runs in the login shell instead of an
+    /// interactive shell.
+    var command: String?
+    /// Keeps the session open after the command exits.
+    var holdsAfterExit = false
 }
 
 @MainActor
@@ -183,12 +188,14 @@ final class AppModel {
         }
     }
 
-    private static func applicationSupportDirectory() -> URL {
+    nonisolated static func applicationSupportDirectory(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> URL {
         let base = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first!
-        return base.appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.tirania.Tecolot")
+        return base.appendingPathComponent(bundleIdentifier ?? "com.tirania.Tecolot")
     }
 
     func setPendingLaunch(_ spec: LaunchSpec) {

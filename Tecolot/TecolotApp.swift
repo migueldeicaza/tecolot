@@ -14,6 +14,26 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didEnsureStartupWindow = false
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        CommandURLHandler.shared.rotateToken()
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            if url.scheme == CommandURL.scheme {
+                // A command URL that launches the app opens its own window.
+                didEnsureStartupWindow = true
+                CommandURLHandler.shared.handle(url)
+            } else if url.isFileURL {
+                // This method replaces the default file handling, so pass
+                // documents to the document controller.
+                NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, error in
+                    if let error { NSApp.presentError(error) }
+                }
+            }
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = true
         _ = SecureKeyboardEntry.shared
