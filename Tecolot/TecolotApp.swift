@@ -546,6 +546,7 @@ struct TecolotApp: App {
             AppInfoCommands()
             UpdateCommands()
             SettingsCommands()
+            CommandLineToolCommands()
             NewItemCommands()
             TabSelectionCommands()
             SplitCommands()

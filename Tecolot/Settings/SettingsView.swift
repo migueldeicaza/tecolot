@@ -390,6 +390,7 @@ struct GeneralSettingsView: View {
                 }
                 .disabled(!paneCardsEnabled)
             }
+            CommandLineToolSection()
             Section("Rendering") {
                 Toggle("Use Metal", isOn: metalRendererBinding)
             }
