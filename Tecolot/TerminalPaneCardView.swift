@@ -15,6 +15,7 @@ final class TerminalPaneCardView: NSView {
         var foreground: NSColor
         var background: NSColor
         var highContrast: Bool
+        var extraPadding: Double
     }
 
     let controller: TerminalSessionController
@@ -121,13 +122,14 @@ final class TerminalPaneCardView: NSView {
             presentation: controller.panePresentation,
             foreground: content.terminal.nativeForegroundColor,
             background: content.terminal.nativeBackgroundColor,
-            highContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+            highContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast,
+            extraPadding: workspace?.appearanceSettings.terminalPadding ?? 0
         )
         guard state != appliedState else { return }
         appliedState = state
         let enabled = state.cardsEnabled
         focused = state.focused
-        content.setPaneCardsEnabled(enabled)
+        content.setPadding(cardsEnabled: enabled, extra: CGFloat(state.extraPadding))
         let foreground = state.foreground
         let background = state.background
         let highContrast = state.highContrast

@@ -970,10 +970,11 @@ final class TerminalSessionContainerView: NSView {
     // The top strip also keeps the OSC 9;4 progress bar off the tab bar.
     private static let padding: CGFloat = 2
 
-    static func contentSize(forTerminalSize terminalSize: NSSize) -> NSSize {
-        NSSize(
-            width: terminalSize.width + padding * 2,
-            height: terminalSize.height + padding * 2
+    static func contentSize(forTerminalSize terminalSize: NSSize, extraPadding: CGFloat) -> NSSize {
+        let inset = padding + max(0, extraPadding)
+        return NSSize(
+            width: terminalSize.width + inset * 2,
+            height: terminalSize.height + inset * 2
         )
     }
 
@@ -1081,8 +1082,8 @@ final class TerminalSessionContainerView: NSView {
         bottomPaddingView.layer?.backgroundColor = color
     }
 
-    func setPaneCardsEnabled(_ enabled: Bool) {
-        let padding: CGFloat = enabled ? 0 : Self.padding
+    func setPadding(cardsEnabled: Bool, extra: CGFloat) {
+        let padding: CGFloat = (cardsEnabled ? 0 : Self.padding) + max(0, extra)
         guard currentPadding != padding else { return }
         currentPadding = padding
         paddingConstraints.forEach { $0.constant = padding }

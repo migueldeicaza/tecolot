@@ -32,7 +32,8 @@ enum TerminalProfileWindowSizer {
         }
         // New windows start with one pane and use the compact layout.
         return TerminalSessionContainerView.contentSize(
-            forTerminalSize: terminal.getOptimalFrameSize().size
+            forTerminalSize: terminal.getOptimalFrameSize().size,
+            extraPadding: GlobalAppearanceSettings.storedTerminalPadding
         )
     }
 }

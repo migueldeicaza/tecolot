@@ -21,6 +21,20 @@ nonisolated struct GlobalAppearanceSettings: Equatable {
     var paneCardsEnabled = true
     var paneCardsBackdrop = Backdrop.gradient
 
+    static let terminalPaddingKey = "terminalPadding"
+    static let terminalPaddingRange: ClosedRange<Double> = 0...40
+    /// Points added to the built-in padding around the terminal text.
+    /// Zero keeps the old layout.
+    var terminalPadding: Double = 0
+
+    static func clampedTerminalPadding(_ value: Double) -> Double {
+        min(max(value, terminalPaddingRange.lowerBound), terminalPaddingRange.upperBound)
+    }
+
+    static var storedTerminalPadding: CGFloat {
+        CGFloat(clampedTerminalPadding(UserDefaults.standard.double(forKey: terminalPaddingKey)))
+    }
+
     /// The height of the title bar of a card.
     static let cardTitlebarHeight: CGFloat = 32
     /// The space around the cards and between them.
