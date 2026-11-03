@@ -521,7 +521,6 @@ struct SettingsCommands: Commands {
     }
 }
 
-@main
 struct TecolotApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private let model = AppModel.shared
