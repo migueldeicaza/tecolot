@@ -966,14 +966,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 }
 
 final class TerminalSessionContainerView: NSView {
-    // Ghostty uses two points of window padding by default, on all four sides.
-    // The top strip also keeps the OSC 9;4 progress bar off the tab bar.
-    private static let padding: CGFloat = 2
-
-    static func contentSize(forTerminalSize terminalSize: NSSize) -> NSSize {
+    static func contentSize(forTerminalSize terminalSize: NSSize, padding: CGFloat, top: CGFloat) -> NSSize {
         NSSize(
             width: terminalSize.width + padding * 2,
-            height: terminalSize.height + padding * 2
+            height: terminalSize.height + top + padding
         )
     }
 
@@ -986,11 +982,16 @@ final class TerminalSessionContainerView: NSView {
     private var resizeObservers = [NSObjectProtocol]()
     private var isShowingResizeFeedback = false
     private var paddingConstraints: [NSLayoutConstraint] = []
-    private var currentPadding = TerminalSessionContainerView.padding
+    /// The space on the left, right and bottom sides of the terminal.
+    private(set) var padding: CGFloat
+    /// The space above the terminal.
+    private(set) var topPadding: CGFloat
 
-    init(terminal: LocalProcessTerminalView) {
+    init(terminal: LocalProcessTerminalView, padding: CGFloat, top: CGFloat) {
         self.terminal = terminal
-        super.init(frame: NSRect(x: 0, y: 0, width: Self.padding * 2, height: Self.padding * 2))
+        self.padding = padding
+        topPadding = top
+        super.init(frame: NSRect(x: 0, y: 0, width: padding * 2, height: top + padding))
 
         terminal.translatesAutoresizingMaskIntoConstraints = false
         let paddingViews = [topPaddingView, leftPaddingView, rightPaddingView, bottomPaddingView]
@@ -1004,10 +1005,10 @@ final class TerminalSessionContainerView: NSView {
         resizeFeedbackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(resizeFeedbackView)
         paddingConstraints = [
-            topPaddingView.heightAnchor.constraint(equalToConstant: Self.padding),
-            leftPaddingView.widthAnchor.constraint(equalToConstant: Self.padding),
-            rightPaddingView.widthAnchor.constraint(equalToConstant: Self.padding),
-            bottomPaddingView.heightAnchor.constraint(equalToConstant: Self.padding)
+            topPaddingView.heightAnchor.constraint(equalToConstant: top),
+            leftPaddingView.widthAnchor.constraint(equalToConstant: padding),
+            rightPaddingView.widthAnchor.constraint(equalToConstant: padding),
+            bottomPaddingView.heightAnchor.constraint(equalToConstant: padding)
         ]
         NSLayoutConstraint.activate([
             terminal.topAnchor.constraint(equalTo: topPaddingView.bottomAnchor),
@@ -1050,10 +1051,10 @@ final class TerminalSessionContainerView: NSView {
     override var intrinsicContentSize: NSSize {
         var size = terminal.intrinsicContentSize
         if size.width >= 0 {
-            size.width += currentPadding * 2
+            size.width += padding * 2
         }
         if size.height >= 0 {
-            size.height += currentPadding * 2
+            size.height += topPadding + padding
         }
         return size
     }
@@ -1081,11 +1082,13 @@ final class TerminalSessionContainerView: NSView {
         bottomPaddingView.layer?.backgroundColor = color
     }
 
-    func setPaneCardsEnabled(_ enabled: Bool) {
-        let padding: CGFloat = enabled ? 0 : Self.padding
-        guard currentPadding != padding else { return }
-        currentPadding = padding
-        paddingConstraints.forEach { $0.constant = padding }
+    func setPadding(_ padding: CGFloat, top: CGFloat) {
+        guard self.padding != padding || topPadding != top else { return }
+        self.padding = padding
+        topPadding = top
+        for constraint in paddingConstraints {
+            constraint.constant = constraint.firstItem === topPaddingView ? top : padding
+        }
         invalidateIntrinsicContentSize()
         needsLayout = true
     }
@@ -1179,8 +1182,11 @@ struct TerminalSessionView: NSViewRepresentable {
     var document: TerminalDocument
 
     func makeNSView(context: Context) -> TerminalSessionContainerView {
-        TerminalSessionContainerView(
-            terminal: controller.makeTerminalView(document: document)
+        let padding = GlobalAppearanceSettings.storedTerminalPadding
+        return TerminalSessionContainerView(
+            terminal: controller.makeTerminalView(document: document),
+            padding: padding.points,
+            top: padding.topPoints(cardsEnabled: false)
         )
     }
 

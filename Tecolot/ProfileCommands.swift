@@ -31,8 +31,11 @@ enum TerminalProfileWindowSizer {
             assert(didClose, "The terminal sizing view did not release its UI resources")
         }
         // New windows start with one pane and use the compact layout.
+        let padding = GlobalAppearanceSettings.storedTerminalPadding
         return TerminalSessionContainerView.contentSize(
-            forTerminalSize: terminal.getOptimalFrameSize().size
+            forTerminalSize: terminal.getOptimalFrameSize().size,
+            padding: padding.points,
+            top: padding.topPoints(cardsEnabled: false)
         )
     }
 }
