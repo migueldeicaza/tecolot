@@ -21,7 +21,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm",
-                 revision: "a77ba6878dd5f5ee161c7a9728e0a5e699d00048"),
+                 revision: "24720b1a4cb2b48eebce4043259d07b2d917ecf5"),
     ],
     targets: [
         // Wire format: framing, primitive codec, messages and the row codec.
