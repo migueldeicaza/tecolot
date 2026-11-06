@@ -241,7 +241,9 @@ struct ProfilesSettingsView: View {
             counter += 1
         }
         var profile = TerminalProfile(name: uniqueName)
-        profile.themeName = themes.theme(named: theme).name
+        let themeName = themes.theme(named: theme).name
+        profile.setThemeName(themeName, isDark: false)
+        profile.setThemeName(themeName, isDark: true)
         profile.fontSize = fontSize
         do {
             try profiles.add(profile)
@@ -425,17 +427,8 @@ struct ProfileSettingsPage: View {
                     .padding(.horizontal)
                     .frame(maxHeight: 190)
             }
-            Section {
-                ThemeSectionView(
-                    themes: themes,
-                    selectedThemeName: profile.themeName,
-                    onSelectTheme: { themeName in
-                        update { $0.themeName = themeName }
-                    }
-                )
-            } header: {
-                Text("Theme")
-            }
+            ThemeModeSection(isDark: false, profile: profile, themes: themes, update: update)
+            ThemeModeSection(isDark: true, profile: profile, themes: themes, update: update)
         }
     }
 
@@ -1082,6 +1075,7 @@ struct ProfileExportDocument: FileDocument {
         .environmentObject(SettingsPreviewData.profiles)
         .environmentObject(SettingsPreviewData.themes)
         .environmentObject(SettingsPreviewData.themeIndex)
+        .environmentObject(SystemAppearance(isDark: false))
         .frame(width: 640, height: 520)
 }
 
@@ -1089,6 +1083,7 @@ struct ProfileExportDocument: FileDocument {
     ProfileSettingsPagePreview(section: .text)
         .environmentObject(SettingsPreviewData.themes)
         .environmentObject(SettingsPreviewData.themeIndex)
+        .environmentObject(SystemAppearance(isDark: false))
         .frame(width: 720, height: 720)
 }
 

@@ -26,6 +26,7 @@ struct ContentView: View {
     @EnvironmentObject private var profiles: ProfileStore
     @EnvironmentObject private var themes: ThemeStore
     @EnvironmentObject private var themeIndex: ThemeCatalogIndex
+    @EnvironmentObject private var systemAppearance: SystemAppearance
     // Keep the saved value from the earlier folder icon setting.
     @AppStorage("showWorkingDirectoryIconInTitlebar") private var enableProxyIcon = true
 
@@ -110,6 +111,13 @@ struct ContentView: View {
             }
             .onChange(of: themes.themes) {
                 // A user theme was edited/imported: re-resolve colors
+                for controller in workspace.controllers {
+                    controller.applyAppearance()
+                }
+            }
+            .onChange(of: systemAppearance.isDark) {
+                // The system changed between Light and Dark Mode: use the
+                // theme of the new mode
                 for controller in workspace.controllers {
                     controller.applyAppearance()
                 }
@@ -249,6 +257,7 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
     .environmentObject(SettingsPreviewData.profiles)
     .environmentObject(SettingsPreviewData.themes)
     .environmentObject(SettingsPreviewData.themeIndex)
+    .environmentObject(SystemAppearance(isDark: false))
     .frame(width: 900, height: 560)
 }
 

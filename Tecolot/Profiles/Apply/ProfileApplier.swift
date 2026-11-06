@@ -92,8 +92,9 @@ public enum ProfileApplier {
     /// a running session.
     @MainActor
     public static func apply (profile: TerminalProfile, themeStore: ThemeStore,
-                              sessionThemeOverride: String? = nil, to view: TerminalView) {
-        let themeName = sessionThemeOverride ?? profile.themeName
+                              sessionThemeOverride: String? = nil, isDark: Bool,
+                              to view: TerminalView) {
+        let themeName = sessionThemeOverride ?? profile.themeName (isDark: isDark)
         apply (theme: themeStore.theme (named: themeName), opacity: profile.backgroundOpacity, to: view)
 
         view.font = font (for: profile)

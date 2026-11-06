@@ -337,7 +337,8 @@ final class ProfileStoreTests {
         #expect (store.profiles.count == 1)
         #expect (store.defaultProfileID == profile.id)
         #expect (store.defaultProfile.name == "Default")
-        #expect (store.defaultProfile.themeName == "SwiftTerm")
+        #expect (store.defaultProfile.darkThemeName == "SwiftTerm")
+        #expect (store.defaultProfile.lightThemeName == "Apple System Colors Light")
         let stateURL = dir.appendingPathComponent("store.json")
         #expect (FileManager.default.fileExists(atPath: stateURL.path))
         let state = try #require(try JSONSerialization.jsonObject(
@@ -361,7 +362,7 @@ final class ProfileStoreTests {
         defer { try? FileManager.default.removeItem (at: dir) }
 
         var extra = TerminalProfile (name: "Servers")
-        extra.themeName = "Nord"
+        extra.setThemeName ("Nord", isDark: true)
         extra.fontSize = 14
         extra.useThemeColorsForWindowChrome = false
         try store.add (extra)
@@ -382,7 +383,7 @@ final class ProfileStoreTests {
         #expect (reloaded.profiles.count == 3)
         #expect (reloaded.defaultProfile.name == "Servers")
         #expect (reloaded.profile (named: "Workers") != nil)
-        #expect (reloaded.profile (named: "Servers")?.themeName == "Nord")
+        #expect (reloaded.profile (named: "Servers")?.darkThemeName == "Nord")
         #expect(reloaded.profile(named: "Servers")?.useThemeColorsForWindowChrome == false)
 
         try store.delete (copy.id)
@@ -1125,7 +1126,7 @@ struct Osc8ProfileTests {
         var profile = TerminalProfile(name: "Test")
         for enabled in [false, true] {
             profile.linkOsc8 = enabled
-            ProfileApplier.apply(profile: profile, themeStore: themes, to: view)
+            ProfileApplier.apply(profile: profile, themeStore: themes, isDark: true, to: view)
             #expect(view.enableOsc8Hyperlinks == enabled)
         }
     }

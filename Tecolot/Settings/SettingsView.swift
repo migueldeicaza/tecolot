@@ -487,6 +487,7 @@ struct GeneralSettingsView: View {
     .environmentObject(SettingsPreviewData.profiles)
     .environmentObject(SettingsPreviewData.themes)
     .environmentObject(SettingsPreviewData.themeIndex)
+    .environmentObject(SystemAppearance(isDark: false))
     .defaultAppStorage(SettingsPreviewData.defaults)
     .frame(width: 960, height: 640)
 }

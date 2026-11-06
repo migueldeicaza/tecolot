@@ -549,7 +549,7 @@ enum ThemeBrowserPage: CaseIterable, Identifiable {
     ThemeBrowserView(
         themes: SettingsPreviewData.themes,
         themeIndex: SettingsPreviewData.themeIndex,
-        selectedThemeName: SettingsPreviewData.profile.themeName,
+        selectedThemeName: SettingsPreviewData.profile.darkThemeName,
         onSelect: { _ in },
         style: .all,
         samplePage: selectedSample ?? .shell,

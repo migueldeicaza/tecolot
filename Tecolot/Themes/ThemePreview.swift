@@ -110,6 +110,7 @@ enum ThemePreviewPage: Int, CaseIterable, Identifiable {
     case shell
     case midnightCommander
     case claudeCode
+    case icon
 
     var id: Self { self }
 
@@ -118,6 +119,7 @@ enum ThemePreviewPage: Int, CaseIterable, Identifiable {
         case .shell: "Shell"
         case .midnightCommander: "mc"
         case .claudeCode: "Claude"
+        case .icon: "Icon"
         }
     }
 }
@@ -162,7 +164,7 @@ struct ThemePreviewPager: View {
     }
 }
 
-private struct ThemePreviewPageView: View {
+struct ThemePreviewPageView: View {
     let page: ThemePreviewPage
     let theme: TerminalTheme
     var compact = false
@@ -180,8 +182,34 @@ private struct ThemePreviewPageView: View {
                 MidnightCommanderThemePreview(theme: theme)
             case .claudeCode:
                 ClaudeCodeThemePreview(theme: theme, compact: compact)
+            case .icon:
+                ThemeIconPreview(theme: theme)
             }
         }
+    }
+}
+
+/// The design of the Appearance theme cards. It scales to the height of
+/// the sample and fills its width, so that "Aa" and the colors start at
+/// the left edge and the cursor is at the right edge, as on the cards.
+private struct ThemeIconPreview: View {
+    let theme: TerminalTheme
+
+    var body: some View {
+        GeometryReader { geometry in
+            let size = ThemeModeCard.size
+            let scale = max(0.5, min(geometry.size.height / size.height,
+                                     geometry.size.width / size.width))
+            // In a very wide sample, do not spread the design further than
+            // the proportions of a browser card; center it instead.
+            let width = min(geometry.size.width, geometry.size.height * 2.4)
+            ThemeIconFace(theme: theme, scale: scale)
+                .frame(width: width, height: geometry.size.height)
+                .frame(maxWidth: .infinity)
+        }
+        .background(theme.background.swiftUIColor)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Theme icon for \(theme.name)")
     }
 }
 
@@ -348,7 +376,7 @@ struct ThemeCard: View {
     @State private var isHovering = false
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        ZStack(alignment: .topTrailing) {
             if let onSelect {
                 Button(action: onSelect) {
                     ThemeCardContent(
@@ -409,7 +437,7 @@ private struct ThemeCardContent: View {
                         .strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.15),
                                       lineWidth: isSelected ? 2 : 1)
                 )
-                .overlay(alignment: .topTrailing) {
+                .overlay(alignment: .topLeading) {
                     if !theme.isBuiltIn {
                         Text("CUSTOM")
                             .font(.caption2.bold())
@@ -431,7 +459,7 @@ private struct ThemeCardContent: View {
 #Preview("Theme Preview") {
     ThemePreview(
         theme: SettingsPreviewData.themes.theme(
-            named: SettingsPreviewData.profile.themeName
+            named: SettingsPreviewData.profile.darkThemeName
         ),
         fontSize: 12,
         extended: true
@@ -444,7 +472,7 @@ private struct ThemeCardContent: View {
 
     ThemePreviewPager(
         theme: SettingsPreviewData.themes.theme(
-            named: SettingsPreviewData.profile.themeName
+            named: SettingsPreviewData.profile.darkThemeName
         ),
         selectedPage: $selectedPage
     )
@@ -455,7 +483,7 @@ private struct ThemeCardContent: View {
 #Preview("Theme Card") {
     ThemeCard(
         theme: SettingsPreviewData.themes.theme(
-            named: SettingsPreviewData.profile.themeName
+            named: SettingsPreviewData.profile.darkThemeName
         ),
         isSelected: true,
         isFavorite: true,

@@ -284,6 +284,18 @@ public final class ProfileStore: ObservableObject {
         try ProfileStore.encodedProfile(target).write(to: url, options: .atomic)
     }
 
+    /// Changes every light and dark theme slot, in all profiles, that
+    /// uses `oldName`. `replacement` gets the mode of the slot. Use it when a
+    /// theme is renamed or deleted.
+    public func replaceThemeName(_ oldName: String, with replacement: (_ isDark: Bool) -> String) throws {
+        for original in profiles {
+            var profile = original
+            if profile.replaceThemeName(oldName, with: replacement) {
+                try update(profile)
+            }
+        }
+    }
+
     func uniqueName(basedOn base: String) -> String {
         var candidate = "\(base) copy"
         var counter = 2

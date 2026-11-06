@@ -655,7 +655,7 @@ private struct ThemeSpace3DCanvas: View {
 }
 
 #Preview("3D Theme Space") {
-    @Previewable @State var pinnedThemeName: String? = SettingsPreviewData.profile.themeName
+    @Previewable @State var pinnedThemeName: String? = SettingsPreviewData.profile.darkThemeName
     @Previewable @State var cameraByMode: [ThemePlotMode: ThemeCamera] = [:]
 
     ThemeSpace3DView(
@@ -664,7 +664,7 @@ private struct ThemeSpace3DCanvas: View {
         catalog: SettingsPreviewData.themeIndex.catalog,
         mode: .colorSpace3D,
         query: "",
-        selectedThemeName: SettingsPreviewData.profile.themeName,
+        selectedThemeName: SettingsPreviewData.profile.darkThemeName,
         pinnedThemeName: $pinnedThemeName,
         cameraByMode: $cameraByMode,
         onSelect: { _ in },

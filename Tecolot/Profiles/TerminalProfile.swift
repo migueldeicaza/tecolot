@@ -128,8 +128,12 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var name: String
 
     // MARK: Appearance
-    /// Name of the TerminalTheme providing the colors
-    public var themeName: String
+    /// Name of the TerminalTheme used when the system is in Light Mode.
+    /// The JSON key stays "themeName": profiles from older versions have
+    /// one theme only, and older versions read this key.
+    public var lightThemeName: String
+    /// Name of the TerminalTheme used when the system is in Dark Mode
+    public var darkThemeName: String
     /// Font family name; nil uses the system monospaced font
     public var fontFamily: String?
     /// Font size in points
@@ -187,7 +191,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         let defaults = TerminalProfile.standardValues
         self.id = id
         self.name = name
-        self.themeName = defaults.themeName
+        self.lightThemeName = TerminalProfile.defaultThemeName(isDark: false)
+        self.darkThemeName = TerminalProfile.defaultThemeName(isDark: true)
         self.fontFamily = defaults.fontFamily
         self.fontSize = defaults.fontSize
         self.fontSmoothing = defaults.fontSmoothing
@@ -215,9 +220,44 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.bellStyle = defaults.bellStyle
     }
 
+    /// The theme that the "Default" group shows for each mode, and the
+    /// theme of each mode in a new profile.
+    public static func defaultThemeName(isDark: Bool) -> String {
+        isDark ? TerminalTheme.fallback.name : "Apple System Colors Light"
+    }
+
+    /// The theme name for the given system appearance
+    public func themeName(isDark: Bool) -> String {
+        isDark ? darkThemeName : lightThemeName
+    }
+
+    /// Sets the theme name for the given system appearance
+    public mutating func setThemeName(_ name: String, isDark: Bool) {
+        if isDark {
+            darkThemeName = name
+        } else {
+            lightThemeName = name
+        }
+    }
+
+    /// Replaces each slot that uses `oldName` with the result of
+    /// `replacement` for the mode of that slot. Returns true if a slot changed.
+    @discardableResult
+    public mutating func replaceThemeName(_ oldName: String, with replacement: (_ isDark: Bool) -> String) -> Bool {
+        var changed = false
+        for isDark in [false, true] where themeName(isDark: isDark) == oldName {
+            let newName = replacement(isDark)
+            if newName != oldName {
+                setThemeName(newName, isDark: isDark)
+                changed = true
+            }
+        }
+        return changed
+    }
+
     /// The defaults applied to new profiles and to fields missing from
     /// persisted data written by older versions
-    static var standardValues: (themeName: String, fontFamily: String?, fontSize: Double,
+    static var standardValues: (fontFamily: String?, fontSize: Double,
                                 fontSmoothing: Bool, useBrightColorsForBold: Bool,
                                 cursorStyle: CursorStyle, backgroundOpacity: Double,
                                 useThemeColorsForWindowChrome: Bool,
@@ -229,7 +269,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
                                 termProgram: String, termVersion: String,
                                 environmentVariables: [TerminalEnvironmentVariable], bellStyle: BellStyle,
                                 keyBindings: [TerminalKeyBinding]) {
-        (themeName: TerminalTheme.fallback.name, fontFamily: nil, fontSize: 12,
+        (fontFamily: nil, fontSize: 12,
          fontSmoothing: true, useBrightColorsForBold: true,
          cursorStyle: .blinkBlock, backgroundOpacity: 1.0,
          useThemeColorsForWindowChrome: true,
@@ -243,7 +283,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, themeName, fontFamily, fontSize, fontSmoothing
+        case id, name, fontFamily
+        case lightThemeName = "themeName", darkThemeName, fontSize, fontSmoothing
         case useBrightColorsForBold, cursorStyle, backgroundOpacity
         case useThemeColorsForWindowChrome
         case columns, rows, scrollbackLines, titleOverride, titleComponents
@@ -261,7 +302,15 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         let defaults = TerminalProfile.standardValues
         self.id = try c.decodeIfPresent (UUID.self, forKey: .id) ?? UUID ()
         self.name = try c.decode (String.self, forKey: .name)
-        self.themeName = try c.decodeIfPresent (String.self, forKey: .themeName) ?? defaults.themeName
+        // A profile from an older version has one theme: use it in both modes.
+        if let legacyName = try c.decodeIfPresent (String.self, forKey: .lightThemeName) {
+            self.lightThemeName = legacyName
+            self.darkThemeName = try c.decodeIfPresent (String.self, forKey: .darkThemeName) ?? legacyName
+        } else {
+            self.lightThemeName = TerminalProfile.defaultThemeName(isDark: false)
+            self.darkThemeName = try c.decodeIfPresent (String.self, forKey: .darkThemeName)
+                ?? TerminalProfile.defaultThemeName(isDark: true)
+        }
         self.fontFamily = try c.decodeIfPresent (String.self, forKey: .fontFamily) ?? defaults.fontFamily
         self.fontSize = try c.decodeIfPresent (Double.self, forKey: .fontSize) ?? defaults.fontSize
         self.fontSmoothing = try c.decodeIfPresent (Bool.self, forKey: .fontSmoothing) ?? defaults.fontSmoothing
@@ -315,7 +364,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         var c = encoder.container (keyedBy: CodingKeys.self)
         try c.encode (id, forKey: .id)
         try c.encode (name, forKey: .name)
-        try c.encode (themeName, forKey: .themeName)
+        try c.encode (lightThemeName, forKey: .lightThemeName)
+        try c.encode (darkThemeName, forKey: .darkThemeName)
         try c.encodeIfPresent (fontFamily, forKey: .fontFamily)
         try c.encode (fontSize, forKey: .fontSize)
         try c.encode (fontSmoothing, forKey: .fontSmoothing)

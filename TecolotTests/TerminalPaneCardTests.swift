@@ -20,7 +20,8 @@ struct TerminalPaneCardTests {
         var profile = TerminalProfile(name: "Title Width Test")
         profile.titleOverride = nil
         profile.titleComponents = [.activeTitle]
-        profile.themeName = themeName
+        profile.setThemeName(themeName, isDark: false)
+        profile.setThemeName(themeName, isDark: true)
         first.applyProfile(profile)
         first.applyThemeOverride(themeName)
         let text = "Terminal session with a complete title"
@@ -154,7 +155,8 @@ struct TerminalPaneCardTests {
             profile.backgroundOpacity = 1
             profile.titleOverride = nil
             profile.titleComponents = [.activeTitle]
-            profile.themeName = themeName
+            profile.setThemeName(themeName, isDark: false)
+            profile.setThemeName(themeName, isDark: true)
             controller.applyProfile(profile)
             controller.applyThemeOverride(themeName)
             let terminal = try #require(controller.terminal)

@@ -20,7 +20,11 @@ struct TerminalThemeSelectionTests {
 
         try controller.useThemeForAllWindows(in: profiles)
 
-        #expect(profiles.defaultProfile.themeName == theme.name)
+        let isDark = AppModel.shared.systemAppearance.isDark
+        #expect(profiles.defaultProfile.themeName(isDark: isDark) == theme.name)
+        // The theme of the other mode does not change.
+        #expect(profiles.defaultProfile.themeName(isDark: !isDark)
+            == TerminalProfile.defaultThemeName(isDark: !isDark))
         #expect(controller.profile == profiles.defaultProfile)
         #expect(controller.themeOverride == nil)
         #expect(controller.effectiveTheme == theme)

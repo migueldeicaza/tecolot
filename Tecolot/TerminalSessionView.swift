@@ -136,7 +136,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// The theme currently in effect for this session
     @MainActor
     var effectiveTheme: TerminalTheme {
-        AppModel.shared.themes.theme(named: themeOverride ?? profile.themeName)
+        AppModel.shared.themes.theme(
+            named: themeOverride ?? profile.themeName(isDark: AppModel.shared.systemAppearance.isDark)
+        )
     }
 
     /// Applies a new profile to the running session (colors, font, cursor,
@@ -156,11 +158,13 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         applyAppearance()
     }
 
-    /// Saves this session's theme as the profile default.
+    /// Saves this session's theme as the profile default for the current
+    /// system appearance. The theme of the other mode does not change.
     @MainActor
-    func useThemeForAllWindows(in profiles: ProfileStore) throws {
+    func useThemeForAllWindows(in profiles: ProfileStore, isDark: Bool? = nil) throws {
+        let isDark = isDark ?? AppModel.shared.systemAppearance.isDark
         var updatedProfile = profile
-        updatedProfile.themeName = effectiveTheme.name
+        updatedProfile.setThemeName(effectiveTheme.name, isDark: isDark)
         try profiles.update(updatedProfile)
         // Clear the local theme only after the profile save succeeds.
         // Apply the new profile here, before SwiftUI processes the store change.
@@ -179,6 +183,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         ProfileApplier.apply(profile: appearanceProfile,
                              themeStore: AppModel.shared.themes,
                              sessionThemeOverride: themeOverride,
+                             isDark: AppModel.shared.systemAppearance.isDark,
                              to: terminal)
         (terminal.superview as? TerminalSessionContainerView)?.updatePaddingColor()
         terminal.requestRedraw()

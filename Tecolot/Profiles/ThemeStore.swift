@@ -153,6 +153,11 @@ public final class ThemeStore: ObservableObject {
         deduplicatedName("\(base) copy")
     }
 
+    /// A free name for a new theme, such as "Untitled Dark Theme 2".
+    public func newThemeName(isDark: Bool) -> String {
+        deduplicatedName(isDark ? "Untitled Dark Theme" : "Untitled Light Theme")
+    }
+
     public func fork(of theme: TerminalTheme) -> TerminalTheme {
         var fork = theme
         fork.name = forkName(basedOn: theme.name)
