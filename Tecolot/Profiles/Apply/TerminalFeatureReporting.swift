@@ -6,6 +6,8 @@
 //  the Tecolot host implement together.
 //
 
+import Foundation
+
 enum TerminalFeatureReporting {
     /// The value for TERM_FEATURES and OSC 1337 Capabilities reports.
     ///
@@ -20,4 +22,8 @@ enum TerminalFeatureReporting {
     /// - B, F, Gs, Sy, H, Sx, and P: bracketed paste, focus reporting,
     ///   strikethrough, synchronized output, hyperlinks, Sixel, and progress
     static let featureString = "T3CwLrMSc7UUw17Ts3BFGsSyHSxP"
+
+    static func featureString(linkOsc8: Bool) -> String {
+        linkOsc8 ? featureString : featureString.replacingOccurrences(of: "H", with: "")
+    }
 }

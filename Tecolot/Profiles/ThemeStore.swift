@@ -140,6 +140,22 @@ public final class ThemeStore: ObservableObject {
         themes.first { $0.name == name } ?? TerminalTheme.fallback
     }
 
+    /// The theme that keeps `name` from being used for a user theme, or nil.
+    /// A name is in use when a theme has the same name (case is ignored),
+    /// or when a user theme has the same file name ("Mine!" and "Mine?"
+    /// both are "mine.json"). `exceptUserTheme` is the theme that is
+    /// renamed; it does not conflict with itself.
+    public func conflictingTheme(forName name: String, exceptUserTheme: String? = nil) -> TerminalTheme? {
+        let slug = TerminalTheme.slug(for: name)
+        return themes.first { theme in
+            if let exceptUserTheme, !theme.isBuiltIn, theme.name == exceptUserTheme {
+                return false
+            }
+            return theme.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+                || (!theme.isBuiltIn && theme.id == slug)
+        }
+    }
+
     public func themes(matching query: String) -> [TerminalTheme] {
         guard !query.isEmpty else { return themes }
         return themes.filter { $0.name.localizedCaseInsensitiveContains(query) }
@@ -151,6 +167,11 @@ public final class ThemeStore: ObservableObject {
 
     public func copyName(basedOn base: String) -> String {
         deduplicatedName("\(base) copy")
+    }
+
+    /// A free name for a new theme, such as "Untitled Dark Theme 2".
+    public func newThemeName(isDark: Bool) -> String {
+        deduplicatedName(isDark ? "Untitled Dark Theme" : "Untitled Light Theme")
     }
 
     public func fork(of theme: TerminalTheme) -> TerminalTheme {
@@ -202,6 +223,11 @@ public final class ThemeStore: ObservableObject {
         try UserThemeMigrator().validate(theme)
         var copy = theme
         copy.isBuiltIn = false
+        // Two names with the same file name would write the same file, and
+        // one theme would replace the other.
+        guard conflictingTheme(forName: copy.name, exceptUserTheme: existingUserThemeName) == nil else {
+            throw ProfilesError.duplicateThemeName
+        }
         let isRename = existingUserThemeName.map {
             $0.localizedCaseInsensitiveCompare(copy.name) != .orderedSame
         } ?? false
@@ -415,26 +441,13 @@ public final class ThemeStore: ObservableObject {
     }
 
     private func uniqueThemeName(basedOn base: String) -> String {
-        guard themes.allSatisfy({ $0.name.localizedCaseInsensitiveCompare(base) != .orderedSame }) else {
-            var number = 2
-            var candidate = "\(base) \(number)"
-            while themes.contains(where: {
-                $0.name.localizedCaseInsensitiveCompare(candidate) == .orderedSame
-            }) {
-                number += 1
-                candidate = "\(base) \(number)"
-            }
-            return candidate
-        }
-        return base
+        deduplicatedName(base)
     }
 
     private func deduplicatedName(_ base: String) -> String {
         var candidate = base
         var number = 2
-        while themes.contains(where: {
-            $0.name.localizedCaseInsensitiveCompare(candidate) == .orderedSame
-        }) {
+        while conflictingTheme(forName: candidate) != nil {
             candidate = "\(base) \(number)"
             number += 1
         }
@@ -526,6 +539,7 @@ public final class ThemeStore: ObservableObject {
 public enum ProfilesError: Error, Equatable {
     case invalidTheme
     case themeIsBuiltIn
+    case duplicateThemeName
     case invalidName
     case duplicateName
     case cannotDeleteLastProfile
@@ -537,6 +551,7 @@ extension ProfilesError: LocalizedError {
         switch self {
         case .invalidTheme: return "The theme file is not valid."
         case .themeIsBuiltIn: return "A built-in theme cannot be changed."
+        case .duplicateThemeName: return "A theme with this name, or a very similar name, already exists."
         case .invalidName: return "Enter a profile name."
         case .duplicateName: return "A profile with this name already exists."
         case .cannotDeleteLastProfile: return "The last profile cannot be deleted."

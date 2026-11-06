@@ -316,6 +316,8 @@ struct GeneralSettingsView: View {
     private var paneCardsEnabled = GlobalAppearanceSettings().paneCardsEnabled
     @AppStorage(GlobalAppearanceSettings.paneCardsBackdropKey)
     private var paneCardsBackdrop = GlobalAppearanceSettings().paneCardsBackdrop
+    @AppStorage(GlobalAppearanceSettings.terminalPaddingKey)
+    private var terminalPadding = GlobalAppearanceSettings().terminalPadding
     @EnvironmentObject private var profiles: ProfileStore
     @ObservedObject private var windowGroups: WindowGroupStore
     @AppStorage("newTabsUseCurrentDirectory") private var newTabsUseCurrentDirectory = true
@@ -390,6 +392,11 @@ struct GeneralSettingsView: View {
                     }
                 }
                 .disabled(!paneCardsEnabled)
+                Picker("Padding:", selection: $terminalPadding) {
+                    ForEach(GlobalAppearanceSettings.TerminalPadding.allCases, id: \.self) { padding in
+                        Text(padding.title).tag(padding)
+                    }
+                }
             }
             Section("Rendering") {
                 Toggle("Use Metal", isOn: metalRendererBinding)
@@ -489,6 +496,7 @@ struct GeneralSettingsView: View {
     .environmentObject(SettingsPreviewData.profiles)
     .environmentObject(SettingsPreviewData.themes)
     .environmentObject(SettingsPreviewData.themeIndex)
+    .environmentObject(SystemAppearance(isDark: false))
     .defaultAppStorage(SettingsPreviewData.defaults)
     .frame(width: 960, height: 640)
 }

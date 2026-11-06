@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import SwiftTerm
 @testable import Tecolot
 
 final class ProfileColorTests {
@@ -336,7 +337,8 @@ final class ProfileStoreTests {
         #expect (store.profiles.count == 1)
         #expect (store.defaultProfileID == profile.id)
         #expect (store.defaultProfile.name == "Default")
-        #expect (store.defaultProfile.themeName == "SwiftTerm")
+        #expect (store.defaultProfile.darkThemeName == "SwiftTerm")
+        #expect (store.defaultProfile.lightThemeName == "Apple System Colors Light")
         let stateURL = dir.appendingPathComponent("store.json")
         #expect (FileManager.default.fileExists(atPath: stateURL.path))
         let state = try #require(try JSONSerialization.jsonObject(
@@ -360,7 +362,7 @@ final class ProfileStoreTests {
         defer { try? FileManager.default.removeItem (at: dir) }
 
         var extra = TerminalProfile (name: "Servers")
-        extra.themeName = "Nord"
+        extra.setThemeName ("Nord", isDark: true)
         extra.fontSize = 14
         extra.useThemeColorsForWindowChrome = false
         try store.add (extra)
@@ -381,7 +383,7 @@ final class ProfileStoreTests {
         #expect (reloaded.profiles.count == 3)
         #expect (reloaded.defaultProfile.name == "Servers")
         #expect (reloaded.profile (named: "Workers") != nil)
-        #expect (reloaded.profile (named: "Servers")?.themeName == "Nord")
+        #expect (reloaded.profile (named: "Servers")?.darkThemeName == "Nord")
         #expect(reloaded.profile(named: "Servers")?.useThemeColorsForWindowChrome == false)
 
         try store.delete (copy.id)
@@ -721,7 +723,8 @@ final class LaunchParametersTests {
         #expect (params.execName?.hasPrefix ("-") == true)
         #expect (params.environment.contains ("TERM=xterm-256color"))
         #expect (params.environment.contains ("TERM_FEATURES=\(TerminalFeatureReporting.featureString)"))
-        #expect (!params.environment.contains { $0.hasPrefix("TERM_PROGRAM=") })
+        #expect (params.environment.contains ("TERM_PROGRAM=tecolot"))
+        #expect (params.environment.contains ("TERM_PROGRAM_VERSION=\(TecolotShellIntegration.terminalProgramVersion)"))
         #expect (params.environment.contains { $0.hasPrefix("TECOLOT_RESOURCES_DIR=") })
     }
 
@@ -756,7 +759,7 @@ final class LaunchParametersTests {
         #expect(environment["TERM_VERSION"] == "2.0")
     }
 
-    @Test func otherTermNamesDoNotAddGhosttyProgramIdentity() {
+    @Test func otherTermNamesKeepTecolotProgramIdentity() {
         var profile = TerminalProfile(name: "Test")
         profile.termName = "vt100"
         profile.termProgram = "hidden-program"
@@ -764,8 +767,8 @@ final class LaunchParametersTests {
         let params = ProfileApplier.launchParameters(for: profile)
         let environment = environmentValues(params.environment)
 
-        #expect(environment["TERM_PROGRAM"] == nil)
-        #expect(environment["TERM_PROGRAM_VERSION"] == nil)
+        #expect(environment["TERM_PROGRAM"] == "tecolot")
+        #expect(environment["TERM_PROGRAM_VERSION"] == TecolotShellIntegration.terminalProgramVersion)
         #expect(environment["TERM_VERSION"] == nil)
     }
 
@@ -797,7 +800,7 @@ final class LaunchParametersTests {
             .appendingPathComponent("terminfo", isDirectory: true).path)
         #expect(environment["COLORTERM"] == "truecolor")
         #expect(environment["TERM_FEATURES"] == TerminalFeatureReporting.featureString)
-        #expect(environment["TERM_PROGRAM"] == nil)
+        #expect(environment["TERM_PROGRAM"] == "tecolot")
         #expect(environment["VTE_VERSION"] == nil)
         #expect(environment["PWD"] == nil)
         #expect(environment["SHLVL"] == nil)
@@ -1134,5 +1137,45 @@ final class TecolotShellIntegrationTests {
             terminalProgramVersion: "1"
         )
         #expect(nushellResult.args == nushell.args)
+    }
+}
+
+@Suite("OSC 8 profile setting")
+@MainActor
+struct Osc8ProfileTests {
+    @Test func missingSettingUsesDefault() throws {
+        let profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(#"{"name":"Old profile"}"#.utf8))
+        #expect(profile.linkOsc8)
+    }
+
+    @Test func disabledSettingSurvivesEncoding() throws {
+        var profile = TerminalProfile(name: "Test")
+        profile.linkOsc8 = false
+        let data = try JSONEncoder().encode(profile)
+        #expect(try JSONDecoder().decode(TerminalProfile.self, from: data) == profile)
+    }
+
+    @Test(arguments: [true, false]) func optionsAndEnvironmentMatchSetting(enabled: Bool) {
+        var profile = TerminalProfile(name: "Test")
+        profile.linkOsc8 = enabled
+        let options = ProfileApplier.terminalOptions(for: profile)
+        #expect(options.enableOsc8Hyperlinks == enabled)
+        #expect(options.featureReport?.contains("H") == enabled)
+        let launch = ProfileApplier.launchParameters(for: profile)
+        let features = launch.environment.first { $0.hasPrefix("TERM_FEATURES=") }
+        #expect(features?.contains("H") == enabled)
+    }
+
+    @Test func changesApplyToOpenTerminal() {
+        let view = TerminalView(frame: .zero)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let themes = ThemeStore(directory: directory)
+        var profile = TerminalProfile(name: "Test")
+        for enabled in [false, true] {
+            profile.linkOsc8 = enabled
+            ProfileApplier.apply(profile: profile, themeStore: themes, isDark: true, to: view)
+            #expect(view.enableOsc8Hyperlinks == enabled)
+        }
     }
 }

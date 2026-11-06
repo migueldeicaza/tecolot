@@ -16,10 +16,57 @@ nonisolated struct GlobalAppearanceSettings: Equatable {
         }
     }
 
+    /// The space between the terminal text and the edge of its pane.
+    /// UserDefaults keeps the raw values. Do not change them.
+    nonisolated enum TerminalPadding: String, CaseIterable {
+        /// Not `none`: that name hides `Optional.none` in comparisons.
+        case off = "none"
+        /// Ghostty uses two points of window padding by default, on all four
+        /// sides.
+        case minimal
+        case wide
+        case spacious
+
+        /// The space on the left, right and bottom sides.
+        var points: CGFloat {
+            switch self {
+            case .off: 0
+            case .minimal: 2
+            case .wide: 8
+            case .spacious: 12
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .off: "None"
+            case .minimal: "Minimal"
+            case .wide: "Wide"
+            case .spacious: "Spacious"
+            }
+        }
+
+        /// The space on the top side. SwiftTerm shows the OSC 9;4 progress
+        /// bar at the top edge of the terminal. Without a card title bar
+        /// above the terminal, keep the minimal strip, so that the bar does
+        /// not touch the tab bar.
+        func topPoints(cardsEnabled: Bool) -> CGFloat {
+            cardsEnabled ? points : max(points, Self.minimal.points)
+        }
+    }
+
     static let paneCardsEnabledKey = "paneCardsEnabled"
     static let paneCardsBackdropKey = "paneCardsBackdrop"
+    static let terminalPaddingKey = "terminalPadding"
     var paneCardsEnabled = true
     var paneCardsBackdrop = Backdrop.gradient
+    var terminalPadding = TerminalPadding.minimal
+
+    /// The padding in UserDefaults, for code that has no workspace.
+    static var storedTerminalPadding: TerminalPadding {
+        UserDefaults.standard.string(forKey: terminalPaddingKey)
+            .flatMap(TerminalPadding.init(rawValue:)) ?? GlobalAppearanceSettings().terminalPadding
+    }
 
     /// The height of the title bar of a card.
     static let cardTitlebarHeight: CGFloat = 32

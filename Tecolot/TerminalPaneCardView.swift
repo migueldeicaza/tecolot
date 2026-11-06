@@ -15,6 +15,7 @@ final class TerminalPaneCardView: NSView {
         var foreground: NSColor
         var background: NSColor
         var highContrast: Bool
+        var padding: GlobalAppearanceSettings.TerminalPadding
     }
 
     let controller: TerminalSessionController
@@ -121,13 +122,14 @@ final class TerminalPaneCardView: NSView {
             presentation: controller.panePresentation,
             foreground: content.terminal.nativeForegroundColor,
             background: content.terminal.nativeBackgroundColor,
-            highContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+            highContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast,
+            padding: workspace?.appearanceSettings.terminalPadding ?? GlobalAppearanceSettings.storedTerminalPadding
         )
         guard state != appliedState else { return }
         appliedState = state
         let enabled = state.cardsEnabled
         focused = state.focused
-        content.setPaneCardsEnabled(enabled)
+        content.setPadding(state.padding.points, top: state.padding.topPoints(cardsEnabled: enabled))
         let foreground = state.foreground
         let background = state.background
         let highContrast = state.highContrast
@@ -181,9 +183,10 @@ final class TerminalPaneCardView: NSView {
         surface.frame = bounds
         let height = cardsEnabled ? GlobalAppearanceSettings.cardTitlebarHeight : 0
         header.frame = NSRect(x: 0, y: max(0, bounds.height - height), width: bounds.width, height: height)
-        // The terminal container has four points of required padding. Keep
+        // The terminal container has required padding on each side. Keep
         // that size during initial attachment and very small window layouts.
-        content.frame = NSRect(x: 0, y: 0, width: max(4, bounds.width), height: max(4, bounds.height - height))
+        content.frame = NSRect(x: 0, y: 0, width: max(content.padding * 2, bounds.width),
+                               height: max(content.topPadding + content.padding, bounds.height - height))
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: cardsEnabled ? 14 : 0, cornerHeight: cardsEnabled ? 14 : 0, transform: nil)

@@ -2,354 +2,388 @@
 //  ThemeSectionView.swift
 //  Tecolot
 //
-//  Shows and edits the active profile theme without loading the full browser.
+//  The Light Mode and Dark Mode theme rows of the profile Appearance page.
+//  Each row shows small theme cards in groups (Custom, Default, Favorites).
+//  A click selects the theme for that mode; a context menu edits,
+//  duplicates or deletes it. "New" opens the editor for a new theme.
 //
 import AppKit
 import SwiftUI
 
-struct ThemeSectionView: View {
-    @ObservedObject var themes: ThemeStore
-    // The chooser sheet is presented from a regular hierarchy (not an
-    // NSToolbar popover), where environment propagation is reliable
-    @EnvironmentObject private var themeIndex: ThemeCatalogIndex
-    let selectedThemeName: String
-    /// Returns false when the selection could not be stored in the profile;
-    /// operations then roll back instead of assuming it took effect.
-    let onSelectTheme: (String) -> Bool
+/// The groups of cards in one mode row. A pure function, so that tests can
+/// check it.
+nonisolated enum ThemeModeGroups {
+    struct Group: Identifiable, Equatable {
+        let title: String
+        let themes: [TerminalTheme]
+        var id: String { title }
+    }
 
-    @State private var workingTheme: TerminalTheme
-    @State private var nameDraft: String
-    @State private var saveTask: Task<Void, Never>?
-    @State private var hasPendingSave = false
-    @State private var selectionInFlight: String?
-    @State private var operationError: String?
+    static func groups(
+        themes: [TerminalTheme],
+        favorites: Set<String>,
+        defaultName: String,
+        activeName: String
+    ) -> [Group] {
+        func byName(_ lhs: TerminalTheme, _ rhs: TerminalTheme) -> Bool {
+            lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+        let custom = themes.filter { !$0.isBuiltIn }.sorted(by: byName)
+        let defaults = themes.filter { $0.name == defaultName }
+        var favorite = themes
+            .filter { $0.isBuiltIn && $0.name != defaultName && favorites.contains($0.name) }
+            .sorted(by: byName)
+
+        // Always show the active theme, so that the selection is visible.
+        let shown = Set((custom + defaults + favorite).map(\.name))
+        if !shown.contains(activeName), let active = themes.first(where: { $0.name == activeName }) {
+            favorite.insert(active, at: 0)
+        }
+
+        return [
+            Group(title: "Custom", themes: custom),
+            Group(title: "Default", themes: defaults),
+            Group(title: "Favorites", themes: favorite)
+        ].filter { !$0.themes.isEmpty }
+    }
+}
+
+/// One mode row: a Form section with a header that has a "New" button.
+struct ThemeModeSection: View {
+    let isDark: Bool
+    let profile: TerminalProfile
+    @ObservedObject var themes: ThemeStore
+    /// Reports whether the change was stored.
+    let update: ((inout TerminalProfile) -> Void) -> Bool
+
+    @EnvironmentObject private var themeIndex: ThemeCatalogIndex
+    @EnvironmentObject private var profiles: ProfileStore
+    @EnvironmentObject private var systemAppearance: SystemAppearance
+
+    @State private var editorRequest: EditorRequest?
     @State private var showsChooser = false
     @State private var selectedPreviewPage: ThemePreviewPage? = .shell
-    @FocusState private var nameIsFocused: Bool
+    @State private var themePendingDeletion: TerminalTheme?
+    @State private var operationError: String?
 
-    init(
-        themes: ThemeStore,
-        selectedThemeName: String,
-        onSelectTheme: @escaping (String) -> Bool
-    ) {
-        self.themes = themes
-        self.selectedThemeName = selectedThemeName
-        self.onSelectTheme = onSelectTheme
-        let selectedTheme = themes.theme(named: selectedThemeName)
-        _workingTheme = State(initialValue: selectedTheme)
-        _nameDraft = State(initialValue: selectedTheme.name)
+    private struct EditorRequest: Identifiable {
+        let id = UUID()
+        let theme: TerminalTheme
+        /// The user theme that the editor replaces; nil for a new theme.
+        let existingUserThemeName: String?
     }
 
-    private var storedTheme: TerminalTheme {
-        themes.theme(named: selectedThemeName)
+    private var activeName: String {
+        profile.themeName(isDark: isDark)
     }
 
-    private var availableBaseThemeName: String? {
-        guard !workingTheme.isBuiltIn,
-              let baseThemeName = workingTheme.baseThemeName,
-              themes.themes.contains(where: { $0.name == baseThemeName }) else {
-            return nil
-        }
-        return baseThemeName
-    }
-
-    private var effectiveSelectionBackground: ProfileColor {
-        workingTheme.selectionBackground
-            ?? ProfileColor(swiftUIColor: Color(nsColor: .selectedTextBackgroundColor))
-            ?? workingTheme.foreground
+    private var groups: [ThemeModeGroups.Group] {
+        ThemeModeGroups.groups(
+            themes: themes.themes,
+            favorites: themes.favorites,
+            defaultName: TerminalProfile.defaultThemeName(isDark: isDark),
+            activeName: activeName
+        )
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ThemeHeaderRow(
-                theme: workingTheme,
-                nameDraft: $nameDraft,
-                nameFocus: $nameIsFocused,
-                baseThemeName: availableBaseThemeName,
-                onRename: commitRename,
-                onRevert: revertToBaseTheme,
-                onDuplicate: duplicateTheme,
-                onDelete: deleteTheme,
-                onChoose: showThemeChooser
-            )
-
-            ThemePreviewPager(
-                theme: workingTheme,
-                selectedPage: $selectedPreviewPage
-            )
-                .frame(maxWidth: .infinity)
-                .frame(height: 180)
-
-            ThemeMainColors(
-                background: colorBinding(\.background),
-                foreground: colorBinding(\.foreground),
-                selection: optionalColorBinding(
-                    \.selectionBackground,
-                    effective: effectiveSelectionBackground
-                ),
-                cursor: optionalColorBinding(
-                    \.cursor,
-                    effective: workingTheme.cursor ?? workingTheme.foreground
-                )
-            )
-
-            ThemeANSIColors(colors: (0..<16).map(ansiColorBinding(at:)))
-        }
-        .onChange(of: nameIsFocused) { wasFocused, isFocused in
-            if wasFocused && !isFocused {
-                commitRename()
-            }
-        }
-        .onChange(of: selectedThemeName) { oldName, newName in
-            selectedThemeChanged(from: oldName, to: newName)
-        }
-        .onChange(of: storedTheme) { _, newTheme in
-            storedThemeChanged(to: newTheme)
-        }
-        .onDisappear(perform: flushPendingChanges)
-        .sheet(isPresented: $showsChooser) {
-            ThemeChooserSheet(
-                themes: themes,
-                themeIndex: themeIndex,
-                selectedThemeName: selectedThemeName,
-                selectedPreviewPage: $selectedPreviewPage,
-                onSelectTheme: selectTheme
-            )
-        }
-        .alert("Theme Operation Failed", isPresented: Binding(
-            get: { operationError != nil },
-            set: { if !$0 { operationError = nil } }
-        )) {
-            Button("OK", role: .cancel) {
-                operationError = nil
-            }
-        } message: {
-            Text(operationError ?? "")
-        }
-    }
-
-    private func colorBinding(
-        _ keyPath: WritableKeyPath<TerminalTheme, ProfileColor>
-    ) -> Binding<Color> {
-        Binding(
-            get: { workingTheme[keyPath: keyPath].swiftUIColor },
-            set: { newColor in
-                guard let profileColor = ProfileColor(swiftUIColor: newColor) else { return }
-                applyEdit { $0[keyPath: keyPath] = profileColor }
-            }
-        )
-    }
-
-    private func optionalColorBinding(
-        _ keyPath: WritableKeyPath<TerminalTheme, ProfileColor?>,
-        effective: ProfileColor
-    ) -> Binding<Color> {
-        Binding(
-            get: { (workingTheme[keyPath: keyPath] ?? effective).swiftUIColor },
-            set: { newColor in
-                guard let profileColor = ProfileColor(swiftUIColor: newColor) else { return }
-                applyEdit { $0[keyPath: keyPath] = profileColor }
-            }
-        )
-    }
-
-    private func ansiColorBinding(at index: Int) -> Binding<Color> {
-        Binding(
-            get: {
-                guard workingTheme.ansi.indices.contains(index) else {
-                    return workingTheme.foreground.swiftUIColor
+        Section {
+            strip
+                .sheet(item: $editorRequest) { request in
+                    ThemeEditorView(
+                        theme: request.theme,
+                        themes: themes,
+                        profiles: profiles,
+                        existingUserThemeName: request.existingUserThemeName,
+                        onSave: { saved in select(saved.name) }
+                    )
                 }
-                return workingTheme.ansi[index].swiftUIColor
-            },
-            set: { newColor in
-                guard let profileColor = ProfileColor(swiftUIColor: newColor) else { return }
-                applyEdit { theme in
-                    guard theme.ansi.indices.contains(index) else { return }
-                    theme.ansi[index] = profileColor
+                .sheet(isPresented: $showsChooser) {
+                    ThemeChooserSheet(
+                        themes: themes,
+                        themeIndex: themeIndex,
+                        profiles: profiles,
+                        selectedThemeName: activeName,
+                        selectedPreviewPage: $selectedPreviewPage,
+                        onSelectTheme: chooseFromCatalog
+                    )
+                }
+                .confirmationDialog(
+                    "Delete \u{201C}\(themePendingDeletion?.name ?? "")\u{201D}?",
+                    isPresented: Binding(
+                        get: { themePendingDeletion != nil },
+                        set: { if !$0 { themePendingDeletion = nil } }
+                    ),
+                    presenting: themePendingDeletion
+                ) { theme in
+                    Button("Delete", role: .destructive) { delete(theme) }
+                } message: { _ in
+                    Text("Profiles that use this theme change to another theme.")
+                }
+                .alert("Theme Operation Failed", isPresented: Binding(
+                    get: { operationError != nil },
+                    set: { if !$0 { operationError = nil } }
+                )) {
+                    Button("OK", role: .cancel) { operationError = nil }
+                } message: {
+                    Text(operationError ?? "")
+                }
+        } header: {
+            header
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(isDark ? "Dark Mode" : "Light Mode")
+                .font(.headline)
+            if systemAppearance.isDark == isDark {
+                Text("\u{2014} Active")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("New", systemImage: "plus.circle", action: newTheme)
+                .buttonStyle(.borderless)
+                .help(isDark ? "Make a new dark theme" : "Make a new light theme")
+        }
+    }
+
+    private var strip: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 14) {
+                    ForEach(Array(groups.enumerated()), id: \.element.id) { offset, group in
+                        if offset > 0 {
+                            Divider()
+                                .frame(height: 70)
+                                .padding(.top, 22)
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(group.title)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            HStack(alignment: .top, spacing: 12) {
+                                ForEach(group.themes) { theme in
+                                    card(for: theme)
+                                        .id(theme.name)
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                        .frame(height: 70)
+                        .padding(.top, 22)
+                    ThemeBrowseCard { showsChooser = true }
+                        .padding(.top, 22)
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 2)
+            }
+            .scrollIndicators(.automatic)
+            .onAppear { proxy.scrollTo(activeName, anchor: .center) }
+        }
+    }
+
+    private func card(for theme: TerminalTheme) -> some View {
+        ThemeModeCard(theme: theme, isSelected: theme.name == activeName)
+            .onTapGesture { select(theme.name) }
+            .contextMenu {
+                Button("Edit…") { edit(theme) }
+                Button("Duplicate") { duplicate(theme) }
+                if theme.isBuiltIn {
+                    Button(themes.isFavorite(theme.name) ? "Remove from Favorites" : "Add to Favorites") {
+                        toggleFavorite(theme.name)
+                    }
+                }
+                if !theme.isBuiltIn {
+                    Divider()
+                    Button("Delete…", role: .destructive) {
+                        themePendingDeletion = theme
+                    }
                 }
             }
-        )
     }
 
-    private func applyEdit(_ mutate: (inout TerminalTheme) -> Void) {
-        if workingTheme.isBuiltIn {
-            let original = workingTheme
-            var fork = themes.fork(of: original)
-            mutate(&fork)
-            workingTheme = fork
-            nameDraft = fork.name
-            selectionInFlight = fork.name
-            do {
-                try themes.saveUserTheme(fork)
-                if !onSelectTheme(fork.name) {
-                    selectionInFlight = nil
-                    try? themes.deleteUserTheme(named: fork.name)
-                    workingTheme = original
-                    nameDraft = original.name
+    // MARK: Actions
+
+    @discardableResult
+    private func select(_ name: String) -> Bool {
+        guard name != activeName else { return true }
+        return update { $0.setThemeName(name, isDark: isDark) }
+    }
+
+    private func newTheme() {
+        // Start from the theme of this row when it agrees with the mode,
+        // else from the default theme of the mode.
+        let current = themes.theme(named: activeName)
+        var draft = current.isDark == isDark
+            ? current
+            : themes.theme(named: TerminalProfile.defaultThemeName(isDark: isDark))
+        draft.name = themes.newThemeName(isDark: isDark)
+        draft.isBuiltIn = false
+        draft.baseThemeName = nil
+        editorRequest = EditorRequest(theme: draft, existingUserThemeName: nil)
+    }
+
+    private func edit(_ theme: TerminalTheme) {
+        if theme.isBuiltIn {
+            // A built-in theme does not change: the editor makes a copy.
+            editorRequest = EditorRequest(theme: themes.fork(of: theme), existingUserThemeName: nil)
+        } else {
+            editorRequest = EditorRequest(theme: theme, existingUserThemeName: theme.name)
+        }
+    }
+
+    private func duplicate(_ theme: TerminalTheme) {
+        // The copy is new until "Save & Apply": "Cancel" leaves no theme.
+        editorRequest = EditorRequest(theme: themes.duplicate(of: theme), existingUserThemeName: nil)
+    }
+
+    private func toggleFavorite(_ name: String) {
+        do {
+            try themes.toggleFavorite(name)
+        } catch {
+            operationError = error.localizedDescription
+        }
+    }
+
+    private func delete(_ theme: TerminalTheme) {
+        do {
+            try ThemeLibrary(themes: themes, profiles: profiles).delete(named: theme.name)
+        } catch {
+            operationError = error.localizedDescription
+        }
+    }
+
+    private func chooseFromCatalog(_ name: String) {
+        guard select(name) else { return }
+        let theme = themes.theme(named: name)
+        if theme.isBuiltIn && !themes.isFavorite(name)
+            && name != TerminalProfile.defaultThemeName(isDark: isDark) {
+            toggleFavorite(name)
+        }
+    }
+}
+
+/// A small preview of a theme: "Aa" in the text color, "~/" on the
+/// selection color, "_" on the cursor color, and the eight normal ANSI
+/// colors. The name is under the card.
+struct ThemeModeCard: View {
+    let theme: TerminalTheme
+    let isSelected: Bool
+
+    static let size = CGSize(width: 112, height: 66)
+
+    var body: some View {
+        VStack(spacing: 6) {
+            face
+                .frame(width: Self.size.width, height: Self.size.height)
+                .background(theme.background.swiftUIColor, in: .rect(cornerRadius: 10))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(.separator, lineWidth: 1)
                 }
-            } catch {
-                selectionInFlight = nil
-                workingTheme = original
-                nameDraft = original.name
-                operationError = error.localizedDescription
+                .padding(3)
+                .overlay {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 13)
+                            .strokeBorder(Color.accentColor, lineWidth: 3)
+                    }
+                }
+            Text(theme.name)
+                .font(.callout.weight(isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? .primary : .secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: Self.size.width + 6)
+        }
+        .contentShape(.rect)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(theme.name))
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private var face: some View {
+        ThemeIconFace(theme: theme)
+    }
+}
+
+/// The small design of a theme: "Aa" in the text color, "~/" on the
+/// selection color, "_" on the cursor color, and the eight normal ANSI
+/// colors. The Appearance cards and the "Icon" sample page use it.
+struct ThemeIconFace: View {
+    let theme: TerminalTheme
+    /// Multiplies all sizes. 1 is the size of the Appearance cards.
+    var scale: CGFloat = 1
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8 * scale) {
+            HStack(spacing: 6 * scale) {
+                Text("Aa")
+                    .font(.system(size: 17 * scale))
+                    .foregroundStyle(theme.foreground.swiftUIColor)
+                Spacer(minLength: 0)
+                Text("~/")
+                    .font(.system(size: 12 * scale, weight: .medium, design: .monospaced))
+                    .foregroundStyle(theme.effectiveSelectionText.swiftUIColor)
+                    .padding(.horizontal, 4 * scale)
+                    .padding(.vertical, 2 * scale)
+                    .background(
+                        theme.effectiveSelectionBackground.swiftUIColor,
+                        in: .rect(cornerRadius: 4 * scale)
+                    )
+                Text("_")
+                    .font(.system(size: 11 * scale, weight: .bold, design: .monospaced))
+                    .foregroundStyle(theme.effectiveCursorText.swiftUIColor)
+                    .frame(width: 11 * scale, height: 20 * scale, alignment: .bottom)
+                    .background(
+                        theme.effectiveCursor.swiftUIColor,
+                        in: .rect(cornerRadius: 3 * scale)
+                    )
             }
-            return
-        }
-
-        var changed = workingTheme
-        mutate(&changed)
-        guard changed != workingTheme else { return }
-        workingTheme = changed
-        scheduleSave()
-    }
-
-    private func scheduleSave() {
-        hasPendingSave = true
-        saveTask?.cancel()
-        saveTask = Task { @MainActor in
-            do {
-                try await Task.sleep(for: .milliseconds(500))
-            } catch {
-                return
+            HStack(spacing: -4 * scale) {
+                ForEach(0..<min(8, theme.ansi.count), id: \.self) { index in
+                    Circle()
+                        .fill(theme.ansi[index].swiftUIColor)
+                        .overlay(Circle().strokeBorder(theme.background.swiftUIColor.opacity(0.6), lineWidth: 1))
+                        .frame(width: 15 * scale, height: 15 * scale)
+                }
             }
-            guard !Task.isCancelled else { return }
-            flushPendingChanges()
         }
+        .padding(.horizontal, 9 * scale)
     }
+}
 
-    private func flushPendingChanges() {
-        saveTask?.cancel()
-        saveTask = nil
-        guard hasPendingSave, !workingTheme.isBuiltIn else { return }
-        do {
-            try themes.saveUserTheme(workingTheme, replacing: workingTheme.name)
-            hasPendingSave = false
-        } catch {
-            operationError = error.localizedDescription
-        }
-    }
+/// The last card of a row: opens the catalog of all themes.
+private struct ThemeBrowseCard: View {
+    let action: () -> Void
 
-    private func commitRename() {
-        flushPendingChanges()
-        let oldName = workingTheme.name
-        let newName = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard newName != oldName else {
-            nameDraft = oldName
-            return
-        }
-        guard !newName.isEmpty else {
-            nameDraft = oldName
-            operationError = "Enter a theme name."
-            return
-        }
-        guard !themes.themes.contains(where: {
-            $0.name != oldName
-                && $0.name.localizedCaseInsensitiveCompare(newName) == .orderedSame
-        }) else {
-            nameDraft = oldName
-            operationError = "A theme with this name already exists."
-            return
-        }
-
-        var renamed = workingTheme
-        renamed.name = newName
-        selectionInFlight = newName
-        do {
-            try themes.saveUserTheme(renamed, replacing: oldName)
-            if onSelectTheme(newName) {
-                workingTheme = renamed
-                nameDraft = newName
-            } else {
-                selectionInFlight = nil
-                try? themes.saveUserTheme(workingTheme, replacing: newName)
-                nameDraft = oldName
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: "square.grid.2x2")
+                    .font(.title2)
+                Text("Browse…")
+                    .font(.callout)
             }
-        } catch {
-            selectionInFlight = nil
-            nameDraft = oldName
-            operationError = error.localizedDescription
+            .foregroundStyle(.secondary)
+            .frame(width: 80, height: ThemeModeCard.size.height)
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            }
+            .contentShape(.rect)
         }
-    }
-
-    private func revertToBaseTheme() {
-        guard let baseThemeName = availableBaseThemeName else { return }
-        flushPendingChanges()
-        do {
-            try themes.deleteUserTheme(named: workingTheme.name)
-            selectTheme(baseThemeName)
-        } catch {
-            operationError = error.localizedDescription
-        }
-    }
-
-    private func duplicateTheme() {
-        flushPendingChanges()
-        let copy = themes.duplicate(of: workingTheme)
-        do {
-            try themes.saveUserTheme(copy)
-            selectTheme(copy.name)
-        } catch {
-            operationError = error.localizedDescription
-        }
-    }
-
-    private func deleteTheme() {
-        guard !workingTheme.isBuiltIn else { return }
-        flushPendingChanges()
-        let nextName = availableBaseThemeName ?? TerminalTheme.fallback.name
-        do {
-            try themes.deleteUserTheme(named: workingTheme.name)
-            selectTheme(nextName)
-        } catch {
-            operationError = error.localizedDescription
-        }
-    }
-
-    private func showThemeChooser() {
-        showsChooser = true
-    }
-
-    private func selectTheme(_ name: String) {
-        flushPendingChanges()
-        // Selecting the already-active theme fires no selection change, so the
-        // in-flight marker would never be cleared and block store reseeds.
-        if name != selectedThemeName {
-            selectionInFlight = name
-        }
-        if !onSelectTheme(name) {
-            selectionInFlight = nil
-            reseed(with: themes.theme(named: selectedThemeName))
-        }
-    }
-
-    private func selectedThemeChanged(from oldName: String, to newName: String) {
-        if oldName != newName {
-            flushPendingChanges()
-        }
-        if selectionInFlight == newName {
-            selectionInFlight = nil
-        }
-        reseed(with: themes.theme(named: newName))
-    }
-
-    private func storedThemeChanged(to newTheme: TerminalTheme) {
-        guard !hasPendingSave, selectionInFlight == nil else { return }
-        guard newTheme != workingTheme else { return }
-        reseed(with: newTheme)
-    }
-
-    private func reseed(with theme: TerminalTheme) {
-        saveTask?.cancel()
-        saveTask = nil
-        hasPendingSave = false
-        workingTheme = theme
-        nameDraft = theme.name
+        .buttonStyle(.plain)
+        .help("Choose from all themes")
     }
 }
 
 struct ThemeChooserSheet: View {
     @ObservedObject var themes: ThemeStore
     @ObservedObject var themeIndex: ThemeCatalogIndex
+    @ObservedObject var profiles: ProfileStore
     let selectedThemeName: String
     @Binding var selectedPreviewPage: ThemePreviewPage?
     let onSelectTheme: (String) -> Void
@@ -360,12 +394,14 @@ struct ThemeChooserSheet: View {
     init(
         themes: ThemeStore,
         themeIndex: ThemeCatalogIndex,
+        profiles: ProfileStore,
         selectedThemeName: String,
         selectedPreviewPage: Binding<ThemePreviewPage?>,
         onSelectTheme: @escaping (String) -> Void
     ) {
         self.themes = themes
         self.themeIndex = themeIndex
+        self.profiles = profiles
         self.selectedThemeName = selectedThemeName
         _selectedPreviewPage = selectedPreviewPage
         self.onSelectTheme = onSelectTheme
@@ -382,6 +418,7 @@ struct ThemeChooserSheet: View {
             ThemeBrowserView(
                 themes: themes,
                 themeIndex: themeIndex,
+                profiles: profiles,
                 selectedThemeName: draftThemeName,
                 onSelect: { draftThemeName = $0.name },
                 style: .all,
@@ -407,133 +444,23 @@ struct ThemeChooserSheet: View {
     }
 }
 
-private struct ThemeHeaderRow: View {
-    let theme: TerminalTheme
-    @Binding var nameDraft: String
-    let nameFocus: FocusState<Bool>.Binding
-    let baseThemeName: String?
-    let onRename: () -> Void
-    let onRevert: () -> Void
-    let onDuplicate: () -> Void
-    let onDelete: () -> Void
-    let onChoose: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if theme.isBuiltIn {
-                Text(theme.name)
-                    .font(.headline)
-            } else {
-                TextField("Theme name", text: $nameDraft)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.headline)
-                    .focused(nameFocus)
-                    .onSubmit {
-                        onRename()
-                        nameFocus.wrappedValue = false
-                    }
-                    .frame(minWidth: 100, maxWidth: 250)
-            }
-            Spacer(minLength: 4)
-            if let baseThemeName {
-                Button("Revert to \(baseThemeName)", action: onRevert)
-            }
-            Button("Duplicate", action: onDuplicate)
-            if !theme.isBuiltIn {
-                Button("Delete", role: .destructive, action: onDelete)
-            }
-            Button("Change Theme…", action: onChoose)
-        }
-        .controlSize(.small)
-    }
-}
-
-private struct ThemeMainColors: View {
-    let background: Binding<Color>
-    let foreground: Binding<Color>
-    let selection: Binding<Color>
-    let cursor: Binding<Color>
-
-    var body: some View {
-        HStack(spacing: 16) {
-            ThemeColorSwatch("Background", color: background)
-            ThemeColorSwatch("Text", color: foreground)
-            ThemeColorSwatch("Selection", color: selection)
-            ThemeColorSwatch("Cursor", color: cursor)
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
-private struct ThemeANSIColors: View {
-    let colors: [Binding<Color>]
-
-    private static let names: [LocalizedStringKey] = [
-        "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
-        "bright black", "bright red", "bright green", "bright yellow",
-        "bright blue", "bright magenta", "bright cyan", "bright white"
-    ]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("ANSI Colors")
-                .font(.headline)
-            Grid(horizontalSpacing: 8, verticalSpacing: 10) {
-                GridRow {
-                    ForEach(0..<8, id: \.self) { index in
-                        ThemeColorSwatch(Self.names[index], color: colors[index])
-                    }
-                }
-                GridRow {
-                    ForEach(8..<16, id: \.self) { index in
-                        ThemeColorSwatch(Self.names[index], color: colors[index])
-                    }
-                }
-            }
-        }
-    }
-}
-
-private struct ThemeColorSwatch: View {
-    let label: LocalizedStringKey
-    let color: Binding<Color>
-
-    init(_ label: LocalizedStringKey, color: Binding<Color>) {
-        self.label = label
-        self.color = color
-    }
-
-    var body: some View {
-        VStack(spacing: 4) {
-            ColorPicker(label, selection: color, supportsOpacity: false)
-                .labelsHidden()
-                .accessibilityLabel(Text(label))
-            Text(label)
-                .font(.caption2)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity)
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
-#Preview("Theme Section") {
-    @Previewable @State var selectedThemeName = SettingsPreviewData.profile.themeName
+#Preview("Theme Modes") {
+    @Previewable @State var profile = SettingsPreviewData.profile
 
     Form {
-        Section {
-            ThemeSectionView(
-                themes: SettingsPreviewData.themes,
-                selectedThemeName: selectedThemeName,
-                onSelectTheme: { selectedThemeName = $0; return true }
-            )
-        } header: {
-            Text("Theme")
+        ThemeModeSection(isDark: false, profile: profile, themes: SettingsPreviewData.themes) {
+            $0(&profile)
+            return true
+        }
+        ThemeModeSection(isDark: true, profile: profile, themes: SettingsPreviewData.themes) {
+            $0(&profile)
+            return true
         }
     }
     .formStyle(.grouped)
     .environmentObject(SettingsPreviewData.themeIndex)
+    .environmentObject(SettingsPreviewData.profiles)
+    .environmentObject(SystemAppearance(isDark: false))
     .frame(width: 720, height: 520)
 }
 
@@ -543,7 +470,8 @@ private struct ThemeColorSwatch: View {
     ThemeChooserSheet(
         themes: SettingsPreviewData.themes,
         themeIndex: SettingsPreviewData.themeIndex,
-        selectedThemeName: SettingsPreviewData.profile.themeName,
+        profiles: SettingsPreviewData.profiles,
+        selectedThemeName: SettingsPreviewData.profile.darkThemeName,
         selectedPreviewPage: $selectedPreviewPage,
         onSelectTheme: { _ in }
     )

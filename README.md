@@ -235,6 +235,13 @@ xcodebuild test \
   CODE_SIGNING_ALLOWED=NO
 ```
 
+In Settings → Profiles → Advanced, use **Enable OSC 8 links** to control links
+set by terminal programs. The setting is on by default. Changes apply to open
+terminals. When the setting is off, Tecolot ignores OSC 8 links and can still
+detect web addresses in text. Capability reports and the shell environment
+use the setting from terminal creation. Open a new terminal to update these
+values. Exported profiles store this setting as `linkOsc8`.
+
 ## Help and contributions
 
 - Use [GitHub Issues](https://github.com/migueldeicaza/tecolot/issues) for bugs,

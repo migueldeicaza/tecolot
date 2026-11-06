@@ -553,6 +553,7 @@ struct TecolotApp: App {
                 .environmentObject(model.profiles)
                 .environmentObject(model.themes)
                 .environmentObject(model.themeIndex)
+                .environmentObject(model.systemAppearance)
         }
         .defaultLaunchBehavior(.suppressed)
         .windowToolbarStyle(.unifiedCompact)
@@ -574,6 +575,7 @@ struct TecolotApp: App {
                 .environmentObject(model.profiles)
                 .environmentObject(model.themes)
                 .environmentObject(model.themeIndex)
+                .environmentObject(model.systemAppearance)
         }
         .defaultSize(width: 820, height: 560)
         .windowResizability(.contentMinSize)

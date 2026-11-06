@@ -13,6 +13,8 @@ struct ContentView: View {
     private var paneCardsEnabled = GlobalAppearanceSettings().paneCardsEnabled
     @AppStorage(GlobalAppearanceSettings.paneCardsBackdropKey)
     private var paneCardsBackdrop = GlobalAppearanceSettings().paneCardsBackdrop
+    @AppStorage(GlobalAppearanceSettings.terminalPaddingKey)
+    private var terminalPadding = GlobalAppearanceSettings().terminalPadding
     @Binding var document: TerminalDocument
     /// nil for untitled windows; document metadata is only persisted for
     /// file-backed sessions so that closing an untitled window never
@@ -24,6 +26,7 @@ struct ContentView: View {
     @EnvironmentObject private var profiles: ProfileStore
     @EnvironmentObject private var themes: ThemeStore
     @EnvironmentObject private var themeIndex: ThemeCatalogIndex
+    @EnvironmentObject private var systemAppearance: SystemAppearance
     // Keep the saved value from the earlier folder icon setting.
     @AppStorage("showWorkingDirectoryIconInTitlebar") private var enableProxyIcon = true
 
@@ -58,7 +61,8 @@ struct ContentView: View {
             revision: workspace.revision,
             appearanceSettings: GlobalAppearanceSettings(
                 paneCardsEnabled: paneCardsEnabled,
-                paneCardsBackdrop: paneCardsBackdrop
+                paneCardsBackdrop: paneCardsBackdrop,
+                terminalPadding: terminalPadding
             )
         )
             .background(WindowTabbingConfigurator(
@@ -101,7 +105,16 @@ struct ContentView: View {
             .onChange(of: themes.themes) {
                 // A user theme was edited/imported: re-resolve colors
                 for controller in workspace.controllers {
-                    controller.applyAppearance()
+                    controller.applyThemeColors()
+                }
+            }
+            .onChange(of: systemAppearance.isDark) {
+                // The system changed between Light and Dark Mode: use the
+                // theme of the new mode. Only the colors change: a full
+                // profile apply would also reset the cursor style that a
+                // program (vim, a shell in vi mode) set.
+                for controller in workspace.controllers {
+                    controller.applyThemeColors()
                 }
             }
     }
@@ -114,12 +127,16 @@ struct ThemePickerPopover: View {
     @ObservedObject var themes: ThemeStore
     @ObservedObject var themeIndex: ThemeCatalogIndex
     @ObservedObject var profiles: ProfileStore
+    /// controller.effectiveTheme depends on the system appearance. This
+    /// popover is in an NSHostingController, so observe it here.
+    @ObservedObject var systemAppearance: SystemAppearance
     @State private var errorMessage: String?
 
     var body: some View {
         VStack {
             ThemeBrowserView(themes: themes,
                              themeIndex: themeIndex,
+                             profiles: profiles,
                              selectedThemeName: controller.effectiveTheme.name) { theme in
                 controller.applyThemeOverride(theme.name)
             }
@@ -224,6 +241,7 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
     .environmentObject(SettingsPreviewData.profiles)
     .environmentObject(SettingsPreviewData.themes)
     .environmentObject(SettingsPreviewData.themeIndex)
+    .environmentObject(SystemAppearance(isDark: false))
     .frame(width: 900, height: 560)
 }
 
@@ -234,6 +252,7 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
         controller: controller,
         themes: SettingsPreviewData.themes,
         themeIndex: SettingsPreviewData.themeIndex,
-        profiles: SettingsPreviewData.profiles
+        profiles: SettingsPreviewData.profiles,
+        systemAppearance: SystemAppearance(isDark: false)
     )
 }

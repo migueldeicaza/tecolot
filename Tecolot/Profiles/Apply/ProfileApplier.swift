@@ -38,7 +38,8 @@ public enum ProfileApplier {
         options.rows = profile.rows
         options.cursorStyle = profile.cursorStyle
         options.termName = profile.termName
-        options.featureReport = TerminalFeatureReporting.featureString
+        options.enableOsc8Hyperlinks = profile.linkOsc8
+        options.featureReport = TerminalFeatureReporting.featureString(linkOsc8: profile.linkOsc8)
         // Kitty clipboard protocol, OSC 5522. The library default denies
         // both directions. The session controller serves the standard
         // clipboard and asks the user before each read or write.
@@ -71,18 +72,24 @@ public enum ProfileApplier {
         view.nativeForegroundColor = nativeColor (theme.foreground)
         view.backgroundOpacity = CGFloat (opacity)
 
-        if let cursor = theme.cursor {
-            view.caretColor = nativeColor (cursor)
+        // Set each optional color, also when the theme does not have it.
+        // Otherwise the color of the previous theme stays, for example
+        // after the system changes between Light and Dark Mode. The
+        // effective colors are the same rules that the editor and the
+        // previews show.
+        view.caretColor = nativeColor (theme.effectiveCursor)
+        view.caretTextColor = nativeColor (theme.effectiveCursorText)
+        #if os(macOS)
+        // The system selection color depends on the appearance of the view.
+        var selection = theme.foreground
+        view.effectiveAppearance.performAsCurrentDrawingAppearance {
+            selection = theme.effectiveSelectionBackground
         }
-        if let cursorText = theme.cursorText {
-            view.caretTextColor = nativeColor (cursorText)
-        }
-        if let selection = theme.selectionBackground {
-            view.selectedTextBackgroundColor = nativeColor (selection)
-        }
-        if let selectionText = theme.selectionText {
-            view.selectedTextForegroundColor = nativeColor (selectionText)
-        }
+        view.selectedTextBackgroundColor = nativeColor (selection)
+        #else
+        view.selectedTextBackgroundColor = nativeColor (theme.effectiveSelectionBackground)
+        #endif
+        view.selectedTextForegroundColor = nativeColor (theme.effectiveSelectionText)
     }
 
     /// Applies everything in a profile that can change on a live terminal:
@@ -91,8 +98,9 @@ public enum ProfileApplier {
     /// a running session.
     @MainActor
     public static func apply (profile: TerminalProfile, themeStore: ThemeStore,
-                              sessionThemeOverride: String? = nil, to view: TerminalView) {
-        let themeName = sessionThemeOverride ?? profile.themeName
+                              sessionThemeOverride: String? = nil, isDark: Bool,
+                              to view: TerminalView) {
+        let themeName = sessionThemeOverride ?? profile.themeName (isDark: isDark)
         apply (theme: themeStore.theme (named: themeName), opacity: profile.backgroundOpacity, to: view)
 
         view.font = font (for: profile)
@@ -100,6 +108,7 @@ public enum ProfileApplier {
         view.fontSmoothing = profile.fontSmoothing
         #endif
         view.useBrightColors = profile.useBrightColorsForBold
+        view.enableOsc8Hyperlinks = profile.linkOsc8
         view.optionAsMetaKey = profile.optionAsMetaKey
         view.backspaceSendsControlH = profile.backspaceSendsControlH
         let cursorStyleParameter: Int
@@ -153,7 +162,8 @@ public enum ProfileApplier {
                                          processEnvironment: [String: String] = ProcessInfo.processInfo.environment) -> LaunchParameters {
         let environment = TerminalEnvironment.base(
             parentEnvironment: processEnvironment,
-            termName: profile.termName
+            termName: profile.termName,
+            linkOsc8: profile.linkOsc8
         )
         let directory = initialDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
 

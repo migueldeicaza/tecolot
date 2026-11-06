@@ -34,6 +34,8 @@ final class AppModel {
     let profiles: ProfileStore
     let themes: ThemeStore
     let themeIndex: ThemeCatalogIndex
+    /// Selects the light or the dark theme of each profile.
+    let systemAppearance = SystemAppearance()
     let windowGroups: WindowGroupStore
     let issueCenter: PersistenceIssueCenter
     let recovery: DataRecoveryCoordinator

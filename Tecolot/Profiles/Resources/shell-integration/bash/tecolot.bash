@@ -193,7 +193,9 @@ function __tecolot_precmd() {
   # command like cd /test && cat. PS0 is evaluated before cd is run.
   if [[ "$_tecolot_last_reported_cwd" != "$PWD" ]]; then
     _tecolot_last_reported_cwd="$PWD"
-    builtin printf "\e]7;kitty-shell-cwd://%s%s\a" "$HOSTNAME" "$PWD"
+    # Remove control bytes so a path or host cannot end OSC 7 early.
+    # Keep data in %s arguments to preserve backslashes as text.
+    builtin printf "\e]7;kitty-shell-cwd://%s%s\a" "${HOSTNAME//[[:cntrl:]]/}" "${PWD//[[:cntrl:]]/}"
   fi
 
   _tecolot_executing=0

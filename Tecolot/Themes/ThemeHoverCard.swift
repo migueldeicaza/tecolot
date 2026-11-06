@@ -84,7 +84,7 @@ struct ThemeHoverCard: View {
 
 #Preview("Theme Hover Card") {
     let theme = SettingsPreviewData.themes.theme(
-        named: SettingsPreviewData.profile.themeName
+        named: SettingsPreviewData.profile.darkThemeName
     )
 
     if let metrics = SettingsPreviewData.themeIndex.metrics[theme.name] {

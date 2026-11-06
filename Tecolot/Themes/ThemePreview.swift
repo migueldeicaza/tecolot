@@ -16,7 +16,12 @@ extension ProfileColor {
     }
 
     init? (swiftUIColor: Color) {
-        guard let color = NSColor (swiftUIColor).usingColorSpace (.sRGB) else {
+        self.init (nsColor: NSColor (swiftUIColor))
+    }
+
+    /// The color in sRGB, at 16 bits for each channel.
+    init? (nsColor: NSColor) {
+        guard let color = nsColor.usingColorSpace (.sRGB) else {
             return nil
         }
 
@@ -27,6 +32,36 @@ extension ProfileColor {
                    green: channel (color.greenComponent),
                    blue: channel (color.blueComponent))
     }
+
+    /// The nearest color at 8 bits for each channel, so that it shows as
+    /// "#RRGGBB".
+    var roundedTo8Bits: ProfileColor {
+        func channel (_ value: UInt16) -> UInt16 {
+            UInt16 ((Double (value) / 257).rounded ()) * 257
+        }
+        return ProfileColor (red: channel (red), green: channel (green), blue: channel (blue))
+    }
+}
+
+/// The colors that the terminal shows for the optional slots of a theme.
+/// The terminal, the editor and all previews use these rules.
+extension TerminalTheme {
+    /// The cursor block; the text color when the theme has none.
+    var effectiveCursor: ProfileColor { cursor ?? foreground }
+
+    /// The text under a block cursor; the background color when the theme
+    /// has none.
+    var effectiveCursorText: ProfileColor { cursorText ?? background }
+
+    /// The selection; the system selection color when the theme has none.
+    var effectiveSelectionBackground: ProfileColor {
+        selectionBackground
+            ?? ProfileColor (nsColor: .selectedTextBackgroundColor)
+            ?? foreground
+    }
+
+    /// The selected text; the text color when the theme has none.
+    var effectiveSelectionText: ProfileColor { selectionText ?? foreground }
 }
 
 struct ThemePreview: View {
@@ -60,7 +95,7 @@ struct ThemePreview: View {
             Text(" % ").foregroundStyle(theme.foreground.swiftUIColor)
             Text("ls -l").foregroundStyle(theme.foreground.swiftUIColor)
             Rectangle()
-                .fill((theme.cursor ?? theme.foreground).swiftUIColor)
+                .fill(theme.effectiveCursor.swiftUIColor)
                 .frame(width: fontSize * 0.6, height: fontSize + 1)
         }
     }
@@ -70,8 +105,8 @@ struct ThemePreview: View {
             Text("docs").foregroundStyle(theme.ansi[4].swiftUIColor)
             if extended {
                 Text("main.swift")
-                    .foregroundStyle((theme.selectionText ?? theme.foreground).swiftUIColor)
-                    .background(selectionBackground)
+                    .foregroundStyle(theme.effectiveSelectionText.swiftUIColor)
+                    .background(theme.effectiveSelectionBackground.swiftUIColor)
             } else {
                 Text("main.swift").foregroundStyle(theme.foreground.swiftUIColor)
             }
@@ -99,17 +134,13 @@ struct ThemePreview: View {
             }
         }
     }
-
-    private var selectionBackground: Color {
-        theme.selectionBackground?.swiftUIColor
-            ?? Color(nsColor: .selectedTextBackgroundColor)
-    }
 }
 
 enum ThemePreviewPage: Int, CaseIterable, Identifiable {
     case shell
     case midnightCommander
     case claudeCode
+    case icon
 
     var id: Self { self }
 
@@ -118,6 +149,7 @@ enum ThemePreviewPage: Int, CaseIterable, Identifiable {
         case .shell: "Shell"
         case .midnightCommander: "mc"
         case .claudeCode: "Claude"
+        case .icon: "Icon"
         }
     }
 }
@@ -162,7 +194,7 @@ struct ThemePreviewPager: View {
     }
 }
 
-private struct ThemePreviewPageView: View {
+struct ThemePreviewPageView: View {
     let page: ThemePreviewPage
     let theme: TerminalTheme
     var compact = false
@@ -180,8 +212,34 @@ private struct ThemePreviewPageView: View {
                 MidnightCommanderThemePreview(theme: theme)
             case .claudeCode:
                 ClaudeCodeThemePreview(theme: theme, compact: compact)
+            case .icon:
+                ThemeIconPreview(theme: theme)
             }
         }
+    }
+}
+
+/// The design of the Appearance theme cards. It scales to the height of
+/// the sample and fills its width, so that "Aa" and the colors start at
+/// the left edge and the cursor is at the right edge, as on the cards.
+private struct ThemeIconPreview: View {
+    let theme: TerminalTheme
+
+    var body: some View {
+        GeometryReader { geometry in
+            let size = ThemeModeCard.size
+            let scale = max(0.5, min(geometry.size.height / size.height,
+                                     geometry.size.width / size.width))
+            // In a very wide sample, do not spread the design further than
+            // the proportions of a browser card; center it instead.
+            let width = min(geometry.size.width, geometry.size.height * 2.4)
+            ThemeIconFace(theme: theme, scale: scale)
+                .frame(width: width, height: geometry.size.height)
+                .frame(maxWidth: .infinity)
+        }
+        .background(theme.background.swiftUIColor)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Theme icon for \(theme.name)")
     }
 }
 
@@ -348,7 +406,7 @@ struct ThemeCard: View {
     @State private var isHovering = false
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        ZStack(alignment: .topTrailing) {
             if let onSelect {
                 Button(action: onSelect) {
                     ThemeCardContent(
@@ -409,7 +467,7 @@ private struct ThemeCardContent: View {
                         .strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.15),
                                       lineWidth: isSelected ? 2 : 1)
                 )
-                .overlay(alignment: .topTrailing) {
+                .overlay(alignment: .topLeading) {
                     if !theme.isBuiltIn {
                         Text("CUSTOM")
                             .font(.caption2.bold())
@@ -431,7 +489,7 @@ private struct ThemeCardContent: View {
 #Preview("Theme Preview") {
     ThemePreview(
         theme: SettingsPreviewData.themes.theme(
-            named: SettingsPreviewData.profile.themeName
+            named: SettingsPreviewData.profile.darkThemeName
         ),
         fontSize: 12,
         extended: true
@@ -444,7 +502,7 @@ private struct ThemeCardContent: View {
 
     ThemePreviewPager(
         theme: SettingsPreviewData.themes.theme(
-            named: SettingsPreviewData.profile.themeName
+            named: SettingsPreviewData.profile.darkThemeName
         ),
         selectedPage: $selectedPage
     )
@@ -455,7 +513,7 @@ private struct ThemeCardContent: View {
 #Preview("Theme Card") {
     ThemeCard(
         theme: SettingsPreviewData.themes.theme(
-            named: SettingsPreviewData.profile.themeName
+            named: SettingsPreviewData.profile.darkThemeName
         ),
         isSelected: true,
         isFavorite: true,

@@ -20,7 +20,8 @@ struct TerminalPaneCardTests {
         var profile = TerminalProfile(name: "Title Width Test")
         profile.titleOverride = nil
         profile.titleComponents = [.activeTitle]
-        profile.themeName = themeName
+        profile.setThemeName(themeName, isDark: false)
+        profile.setThemeName(themeName, isDark: true)
         first.applyProfile(profile)
         first.applyThemeOverride(themeName)
         let text = "Terminal session with a complete title"
@@ -154,7 +155,8 @@ struct TerminalPaneCardTests {
             profile.backgroundOpacity = 1
             profile.titleOverride = nil
             profile.titleComponents = [.activeTitle]
-            profile.themeName = themeName
+            profile.setThemeName(themeName, isDark: false)
+            profile.setThemeName(themeName, isDark: true)
             controller.applyProfile(profile)
             controller.applyThemeOverride(themeName)
             let terminal = try #require(controller.terminal)
@@ -223,8 +225,87 @@ struct TerminalPaneCardTests {
         #expect(split.dividerThickness == 12)
         #expect(abs(firstCard.bounds.height - firstCard.content.frame.height - 32) < 0.5)
         #expect(firstCard.content.terminal.superview === firstCard.content)
-        #expect(firstTerminal.frame == firstCard.content.bounds)
+        // Cards use the padding setting too. The default is two points.
+        #expect(firstTerminal.frame == firstCard.content.bounds.insetBy(dx: 2, dy: 2))
         #expect(window.firstResponder === secondTerminal)
+    }
+
+    @Test(arguments: [true, false])
+    func paddingSettingInsetsTheTerminal(cards: Bool) throws {
+        let workspace = TerminalPaneWorkspace(startsProcesses: false)
+        let first = try #require(workspace.focusedController)
+        workspace.split(first, direction: .right)
+        let document = TerminalDocument()
+        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.contentView = host
+        for padding in GlobalAppearanceSettings.TerminalPadding.allCases {
+            host.synchronize(revision: workspace.revision, document: document,
+                             settings: .init(paneCardsEnabled: cards, paneCardsBackdrop: .gradient,
+                                             terminalPadding: padding))
+            host.layoutSubtreeIfNeeded()
+            let terminal = try #require(first.terminal)
+            #expect(host.cardsEnabled == cards)
+            let container = try #require(terminal.superview as? TerminalSessionContainerView)
+            let side = padding.points
+            let top = padding.topPoints(cardsEnabled: cards)
+            #expect(container.padding == side)
+            #expect(container.topPadding == top)
+            #expect(terminal.frame == NSRect(x: side, y: side, width: container.bounds.width - side * 2,
+                                             height: container.bounds.height - top - side))
+        }
+    }
+
+    @Test func paddingRaisesTheMinimumPaneSize() throws {
+        let workspace = TerminalPaneWorkspace(startsProcesses: false)
+        let first = try #require(workspace.focusedController)
+        workspace.split(first, direction: .right)
+        let document = TerminalDocument()
+        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.contentView = host
+        func minimum(_ padding: GlobalAppearanceSettings.TerminalPadding) throws -> CGFloat {
+            host.synchronize(revision: workspace.revision, document: document,
+                             settings: .init(paneCardsEnabled: false, paneCardsBackdrop: .gradient,
+                                             terminalPadding: padding))
+            host.layoutSubtreeIfNeeded()
+            let split = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
+            return host.splitView(split, constrainMinCoordinate: 0, ofSubviewAt: 0)
+        }
+        let off = try minimum(.off)
+        let spacious = try minimum(.spacious)
+        // The first pane is one cell plus the padding on its two sides.
+        #expect(abs(spacious - off - 24) < 0.5)
+    }
+
+    @Test func largePaddingCanTurnOffCardsInASmallWindow() throws {
+        let workspace = TerminalPaneWorkspace(startsProcesses: false)
+        let first = try #require(workspace.focusedController)
+        workspace.split(first, direction: .down)
+        let document = TerminalDocument()
+        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.contentView = host
+        host.synchronize(revision: workspace.revision, document: document,
+                         settings: .init(terminalPadding: .off))
+        host.layoutSubtreeIfNeeded()
+        let terminal = try #require(first.terminal)
+        let cell = terminal.bounds.height / CGFloat(terminal.terminalDimensions.rows)
+        // Three spaces, two title bars and two rows, with 8 points to spare.
+        // Spacious padding needs 2 x 24 more points, so the cards do not fit.
+        let height = GlobalAppearanceSettings.cardSpacing * 3 + GlobalAppearanceSettings.cardTitlebarHeight * 2
+            + cell * 2 + 8
+        window.setContentSize(NSSize(width: 800, height: height.rounded(.up)))
+        host.layoutSubtreeIfNeeded()
+        #expect(host.cardsEnabled)
+
+        host.synchronize(revision: workspace.revision, document: document,
+                         settings: .init(terminalPadding: .spacious))
+        host.layoutSubtreeIfNeeded()
+        #expect(!host.cardsEnabled)
     }
 
     @Test func inactivePaneReceivesItsOwnTitleAndDirectory() async throws {

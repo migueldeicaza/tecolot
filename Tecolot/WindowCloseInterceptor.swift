@@ -119,7 +119,20 @@ final class WindowCloseInterceptor: NSObject, NSWindowDelegate {
         alert.addButton(withTitle: "Close")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
+        // A destructive button has no Return key equivalent, and making it
+        // the default button draws it blue. Catch Return while the sheet
+        // is key so the button stays red.
+        let returnMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak alert] event in
+            guard let alert, event.window === alert.window,
+                  event.specialKey == .carriageReturn || event.specialKey == .enter,
+                  event.modifierFlags.isDisjoint(with: [.command, .option, .control, .shift]) else {
+                return event
+            }
+            alert.buttons.first?.performClick(nil)
+            return nil
+        }
         alert.beginSheetModal(for: sender) { [weak self, weak sender] response in
+            if let returnMonitor { NSEvent.removeMonitor(returnMonitor) }
             guard let self else { return }
             self.isPresentingConfirmation = false
             guard response == .alertFirstButtonReturn else { return }

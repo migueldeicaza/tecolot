@@ -5,6 +5,11 @@ Nushell, Elvish, and supported Bash sessions. The scripts report prompt and
 command boundaries with OSC 133. They also report the current directory with
 OSC 7 and can update the terminal title and cursor.
 
+The Zsh and Bash directory reports remove control characters from the hostname
+and path. Zsh also prints backslashes as text. This prevents directory names
+from adding escape sequences to an OSC 7 report. These checks follow
+[Ghostty's fix for GHSA-2r63-vmw6-3m3c](https://github.com/ghostty-org/ghostty/pull/14859).
+
 Every child process receives `TECOLOT_RESOURCES_DIR`. Users can use this
 variable to load the bundled scripts manually or to locate related files.
 

@@ -687,7 +687,9 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
         // The container supplies the terminal's Auto Layout constraints.
         // NSSplitView must size the container, not the terminal itself.
         let view = TerminalSessionContainerView(
-            terminal: controller.makeTerminalView(document: document)
+            terminal: controller.makeTerminalView(document: document),
+            padding: terminalPadding.points,
+            top: terminalPadding.topPoints(cardsEnabled: cardsEnabled)
         )
         let card = TerminalPaneCardView(controller: controller, content: view, cardsEnabled: cardsEnabled)
         paneViews[controller.id] = card
@@ -837,9 +839,16 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
         }
     }
 
+    /// The space on each side of each terminal, from the settings.
+    private var terminalPadding: GlobalAppearanceSettings.TerminalPadding {
+        workspace.appearanceSettings.terminalPadding
+    }
+
     private func minimumPaneSize(for controller: TerminalSessionController, cards: Bool) -> NSSize {
-        let width = terminalCellSize(for: controller, horizontal: true) + 4
-        let height = terminalCellSize(for: controller, horizontal: false) + 4
+        let padding = terminalPadding.points
+        let top = terminalPadding.topPoints(cardsEnabled: cards)
+        let width = terminalCellSize(for: controller, horizontal: true) + padding * 2
+        let height = terminalCellSize(for: controller, horizontal: false) + top + padding
         guard cards else { return NSSize(width: width, height: height) }
         // The title bar needs space for the icon and some of the title.
         return NSSize(width: max(width, 72), height: height + GlobalAppearanceSettings.cardTitlebarHeight)

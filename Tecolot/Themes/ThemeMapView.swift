@@ -469,7 +469,7 @@ private struct PlotCanvas: View, Animatable {
 
 
 #Preview("Theme Map") {
-    @Previewable @State var pinnedThemeName: String? = SettingsPreviewData.profile.themeName
+    @Previewable @State var pinnedThemeName: String? = SettingsPreviewData.profile.darkThemeName
 
     ThemeMapView(
         themes: SettingsPreviewData.themes.themes,
@@ -477,7 +477,7 @@ private struct PlotCanvas: View, Animatable {
         catalog: SettingsPreviewData.themeIndex.catalog,
         mode: .brightnessAndColorfulness,
         query: "",
-        selectedThemeName: SettingsPreviewData.profile.themeName,
+        selectedThemeName: SettingsPreviewData.profile.darkThemeName,
         pinnedThemeName: $pinnedThemeName,
         onSelect: { _ in },
         onShowSimilar: { _ in }

@@ -241,7 +241,9 @@ struct ProfilesSettingsView: View {
             counter += 1
         }
         var profile = TerminalProfile(name: uniqueName)
-        profile.themeName = themes.theme(named: theme).name
+        let themeName = themes.theme(named: theme).name
+        profile.setThemeName(themeName, isDark: false)
+        profile.setThemeName(themeName, isDark: true)
         profile.fontSize = fontSize
         do {
             try profiles.add(profile)
@@ -425,17 +427,8 @@ struct ProfileSettingsPage: View {
                     .padding(.horizontal)
                     .frame(maxHeight: 190)
             }
-            Section {
-                ThemeSectionView(
-                    themes: themes,
-                    selectedThemeName: profile.themeName,
-                    onSelectTheme: { themeName in
-                        update { $0.themeName = themeName }
-                    }
-                )
-            } header: {
-                Text("Theme")
-            }
+            ThemeModeSection(isDark: false, profile: profile, themes: themes, update: update)
+            ThemeModeSection(isDark: true, profile: profile, themes: themes, update: update)
         }
     }
 
@@ -556,6 +549,8 @@ struct ProfileSettingsPage: View {
                     TextField("TERM_PROGRAM:", text: binding(\.termProgram))
                     TextField("TERM_VERSION:", text: binding(\.termVersion))
                 }
+                Toggle("Enable OSC 8 links", isOn: binding(\.linkOsc8))
+                    .help("Allow terminal programs to set links on text. Turn this off to ignore these links. Tecolot can still detect web addresses in text.")
                 Picker("Bell:", selection: binding(\.bellStyle)) {
                     ForEach(BellStyle.allCases, id: \.tagName) { style in
                         Text(style.displayName).tag(style)
@@ -1095,13 +1090,16 @@ struct ProfileExportDocument: FileDocument {
         .environmentObject(SettingsPreviewData.profiles)
         .environmentObject(SettingsPreviewData.themes)
         .environmentObject(SettingsPreviewData.themeIndex)
+        .environmentObject(SystemAppearance(isDark: false))
         .frame(width: 640, height: 520)
 }
 
 #Preview("Text Settings") {
     ProfileSettingsPagePreview(section: .text)
+        .environmentObject(SettingsPreviewData.profiles)
         .environmentObject(SettingsPreviewData.themes)
         .environmentObject(SettingsPreviewData.themeIndex)
+        .environmentObject(SystemAppearance(isDark: false))
         .frame(width: 720, height: 720)
 }
 
