@@ -10,6 +10,8 @@ import SwiftUI
 
 struct ThemeEditorView: View {
     @ObservedObject var themes: ThemeStore
+    /// A rename changes the theme name in these profiles.
+    let profiles: ProfileStore
     /// The user theme that this sheet edits; nil for a new theme. A theme
     /// forked from a built-in theme is new until it is saved.
     let existingUserThemeName: String?
@@ -22,15 +24,20 @@ struct ThemeEditorView: View {
     /// The sample under "Colors"; nil hides it.
     @State private var previewPage: ThemePreviewPage?
     @State private var saveError: String?
+    /// The color field that has the keyboard focus. While the user types a
+    /// hex value, Return confirms the value and does not save the theme.
+    @FocusState private var focusedWell: String?
     private let original: TerminalTheme
 
     init(
         theme: TerminalTheme,
         themes: ThemeStore,
+        profiles: ProfileStore,
         existingUserThemeName: String? = nil,
-        onSave: @escaping (TerminalTheme) -> Void = { _ in }
+        onSave: @escaping (TerminalTheme) -> Void
     ) {
         self.themes = themes
+        self.profiles = profiles
         self.existingUserThemeName = existingUserThemeName
         self.onSave = onSave
         self.original = theme
@@ -42,10 +49,7 @@ struct ThemeEditorView: View {
     }
 
     private var conflictingTheme: TerminalTheme? {
-        themes.themes.first {
-            $0.name.localizedCaseInsensitiveCompare(trimmedName) == .orderedSame
-                && existingUserThemeName?.localizedCaseInsensitiveCompare($0.name) != .orderedSame
-        }
+        themes.conflictingTheme(forName: trimmedName, exceptUserTheme: existingUserThemeName)
     }
 
     private var canSave: Bool {
@@ -116,7 +120,9 @@ struct ThemeEditorView: View {
                     .font(.title2.weight(.semibold))
                     .frame(maxWidth: 320)
                 if let conflictingTheme {
-                    Text("A theme named \u{201C}\(conflictingTheme.name)\u{201D} already exists.")
+                    Text(conflictingTheme.name.localizedCaseInsensitiveCompare(trimmedName) == .orderedSame
+                         ? "A theme named \u{201C}\(conflictingTheme.name)\u{201D} already exists."
+                         : "The name is too similar to \u{201C}\(conflictingTheme.name)\u{201D}.")
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
@@ -141,15 +147,18 @@ struct ThemeEditorView: View {
                         }
                     }
                     GridRow {
-                        HexColorWell(color: colorBinding(\.background))
-                        HexColorWell(color: colorBinding(\.foreground))
-                        HexColorWell(color: optionalColorBinding(\.cursor, effective: draft.foreground))
-                        HexColorWell(color: optionalColorBinding(\.cursorText, effective: draft.background))
-                        HexColorWell(color: optionalColorBinding(
+                        well("background", colorBinding(\.background))
+                        well("foreground", colorBinding(\.foreground))
+                        well("cursor", optionalColorBinding(\.cursor, effective: draft.effectiveCursor))
+                        well("cursorText", optionalColorBinding(\.cursorText, effective: draft.effectiveCursorText))
+                        well("selection", optionalColorBinding(
                             \.selectionBackground,
-                            effective: Self.effectiveSelectionBackground(of: draft)
+                            effective: draft.effectiveSelectionBackground
                         ))
-                        HexColorWell(color: optionalColorBinding(\.selectionText, effective: draft.foreground))
+                        well("selectionText", optionalColorBinding(
+                            \.selectionText,
+                            effective: draft.effectiveSelectionText
+                        ))
                     }
                 }
             }
@@ -164,6 +173,10 @@ struct ThemeEditorView: View {
         .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 12))
     }
 
+    private func well(_ id: String, _ color: Binding<ProfileColor>) -> some View {
+        HexColorWell(color: color, focus: $focusedWell, id: id)
+    }
+
     private func ansiGrid(range: Range<Int>) -> some View {
         Grid(horizontalSpacing: 10, verticalSpacing: 4) {
             GridRow {
@@ -176,7 +189,7 @@ struct ThemeEditorView: View {
             }
             GridRow {
                 ForEach(range, id: \.self) { index in
-                    HexColorWell(color: ansiBinding(at: index))
+                    well("ansi\(index)", ansiBinding(at: index))
                         .accessibilityLabel(Text("ANSI color \(index)"))
                 }
             }
@@ -201,7 +214,7 @@ struct ThemeEditorView: View {
             }
             .keyboardShortcut(.cancelAction)
             Button("Save & Apply", action: save)
-                .keyboardShortcut(.defaultAction)
+                .keyboardShortcut(focusedWell == nil ? KeyboardShortcut.defaultAction : nil)
                 .disabled(!canSave)
         }
         .controlSize(.large)
@@ -259,7 +272,8 @@ struct ThemeEditorView: View {
         theme.name = trimmedName
         theme.isBuiltIn = false
         do {
-            try themes.saveUserTheme(theme, replacing: existingUserThemeName)
+            try ThemeLibrary(themes: themes, profiles: profiles)
+                .save(theme, replacing: existingUserThemeName)
             onSave(theme)
             dismiss()
         } catch {
@@ -275,13 +289,6 @@ struct ThemeEditorView: View {
     private static let ansiLabels = [
         "Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White"
     ]
-
-    /// The selection color that the terminal shows when the theme has none.
-    static func effectiveSelectionBackground(of theme: TerminalTheme) -> ProfileColor {
-        theme.selectionBackground
-            ?? ProfileColor(swiftUIColor: Color(nsColor: .selectedTextBackgroundColor))
-            ?? theme.foreground
-    }
 
     private static func colors(of theme: TerminalTheme) -> [ProfileColor?] {
         theme.ansi + [theme.foreground, theme.background, theme.cursor, theme.cursorText,
@@ -317,10 +324,19 @@ private struct ThemeColorGroup<Content: View>: View {
 }
 
 /// A color block that opens the color panel, above an editable hex value.
+///
+/// A typed value goes into the binding as soon as it is a valid color, so
+/// that "Save & Apply" gets it also while the field has the focus. The
+/// binding changes only when the user changes the value: a field that only
+/// gets and loses the focus does not change an optional slot from "use the
+/// default" to a fixed color.
 struct HexColorWell: View {
     @Binding var color: ProfileColor
+    var focus: FocusState<String?>.Binding
+    let id: String
     @State private var text = ""
-    @FocusState private var isFocused: Bool
+
+    private var isFocused: Bool { focus.wrappedValue == id }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -333,7 +349,7 @@ struct HexColorWell: View {
                 .textFieldStyle(.plain)
                 .font(.system(.callout, design: .monospaced))
                 .multilineTextAlignment(.center)
-                .focused($isFocused)
+                .focused(focus, equals: id)
                 .onSubmit(commit)
                 .padding(.vertical, 5)
                 .frame(maxWidth: .infinity)
@@ -343,8 +359,15 @@ struct HexColorWell: View {
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
         .frame(minWidth: 64, maxWidth: .infinity)
         .onAppear { text = Self.display(color) }
+        .onChange(of: text) { _, newText in
+            guard isFocused, let parsed = Self.parse(newText), parsed != color else { return }
+            color = parsed
+        }
         .onChange(of: color) { _, newColor in
-            if !isFocused {
+            // Show a color that comes from somewhere else (the color panel,
+            // "Revert…"), also while the field has the focus. Do not change
+            // the text when it already shows this color, while the user types.
+            if Self.parse(text) != newColor {
                 text = Self.display(newColor)
             }
         }
@@ -355,15 +378,21 @@ struct HexColorWell: View {
         }
     }
 
+    /// Writes a changed, valid value, then shows the value in the standard
+    /// form. An invalid value shows the current color again.
     private func commit() {
+        if let parsed = Self.parse(text), parsed != color {
+            color = parsed
+        }
+        text = Self.display(color)
+    }
+
+    static func parse(_ text: String) -> ProfileColor? {
         var spec = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !spec.hasPrefix("#") && !spec.lowercased().hasPrefix("rgb:") {
             spec = "#" + spec
         }
-        if let parsed = ProfileColor(hex: spec) {
-            color = parsed
-        }
-        text = Self.display(color)
+        return ProfileColor(hex: spec)
     }
 
     static func display(_ color: ProfileColor) -> String {
@@ -396,7 +425,7 @@ private struct NativeColorWell: NSViewRepresentable {
 
     func updateNSView(_ well: NSColorWell, context: Context) {
         context.coordinator.color = $color
-        if ProfileColor(nsColor: well.color) != color {
+        if ProfileColor(nsColor: well.color)?.roundedTo8Bits != color.roundedTo8Bits {
             well.color = color.swiftUIColor.nsColor
         }
     }
@@ -409,7 +438,9 @@ private struct NativeColorWell: NSViewRepresentable {
         }
 
         @objc func colorChanged(_ sender: NSColorWell) {
-            if let value = ProfileColor(nsColor: sender.color), value != color.wrappedValue {
+            // 8 bits for each channel, so that the value shows as "#RRGGBB".
+            if let value = ProfileColor(nsColor: sender.color)?.roundedTo8Bits,
+               value != color.wrappedValue {
                 color.wrappedValue = value
             }
         }
@@ -420,19 +451,6 @@ private extension Color {
     var nsColor: NSColor { NSColor(self) }
 }
 
-extension ProfileColor {
-    /// The color at 8 bits for each channel, so that it shows as "#RRGGBB".
-    init?(nsColor: NSColor) {
-        guard let color = nsColor.usingColorSpace(.sRGB) else { return nil }
-        func channel(_ value: CGFloat) -> UInt16 {
-            UInt16((min(max(value, 0), 1) * 255).rounded()) * 257
-        }
-        self.init(red: channel(color.redComponent),
-                  green: channel(color.greenComponent),
-                  blue: channel(color.blueComponent))
-    }
-}
-
 #Preview("Theme Editor") {
     ThemeEditorView(
         theme: SettingsPreviewData.themes.duplicate(
@@ -440,6 +458,8 @@ extension ProfileColor {
                 named: SettingsPreviewData.profile.darkThemeName
             )
         ),
-        themes: SettingsPreviewData.themes
+        themes: SettingsPreviewData.themes,
+        profiles: SettingsPreviewData.profiles,
+        onSave: { _ in }
     )
 }

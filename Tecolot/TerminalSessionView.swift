@@ -161,10 +161,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// Saves this session's theme as the profile default for the current
     /// system appearance. The theme of the other mode does not change.
     @MainActor
-    func useThemeForAllWindows(in profiles: ProfileStore, isDark: Bool? = nil) throws {
-        let isDark = isDark ?? AppModel.shared.systemAppearance.isDark
+    func useThemeForAllWindows(in profiles: ProfileStore) throws {
         var updatedProfile = profile
-        updatedProfile.setThemeName(effectiveTheme.name, isDark: isDark)
+        updatedProfile.setThemeName(effectiveTheme.name, isDark: AppModel.shared.systemAppearance.isDark)
         try profiles.update(updatedProfile)
         // Clear the local theme only after the profile save succeeds.
         // Apply the new profile here, before SwiftUI processes the store change.
@@ -174,17 +173,37 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     @MainActor
     func applyAppearance() {
+        applyAppearance(colorsOnly: false)
+    }
+
+    /// Applies only the theme colors and the opacity. Use it when only the
+    /// theme changes, for example when the system changes between Light
+    /// and Dark Mode. It does not send the cursor style of the profile, so
+    /// a cursor style that a program set stays.
+    @MainActor
+    func applyThemeColors() {
+        applyAppearance(colorsOnly: true)
+    }
+
+    @MainActor
+    private func applyAppearance(colorsOnly: Bool) {
         guard let terminal else { return }
         if effectiveBackgroundOpacity < 1.0 {
             updateWindowTransparency()
         }
-        var appearanceProfile = profile
-        appearanceProfile.backgroundOpacity = effectiveBackgroundOpacity
-        ProfileApplier.apply(profile: appearanceProfile,
-                             themeStore: AppModel.shared.themes,
-                             sessionThemeOverride: themeOverride,
-                             isDark: AppModel.shared.systemAppearance.isDark,
-                             to: terminal)
+        if colorsOnly {
+            ProfileApplier.apply(theme: effectiveTheme,
+                                 opacity: effectiveBackgroundOpacity,
+                                 to: terminal)
+        } else {
+            var appearanceProfile = profile
+            appearanceProfile.backgroundOpacity = effectiveBackgroundOpacity
+            ProfileApplier.apply(profile: appearanceProfile,
+                                 themeStore: AppModel.shared.themes,
+                                 sessionThemeOverride: themeOverride,
+                                 isDark: AppModel.shared.systemAppearance.isDark,
+                                 to: terminal)
+        }
         (terminal.superview as? TerminalSessionContainerView)?.updatePaddingColor()
         terminal.requestRedraw()
         if effectiveBackgroundOpacity >= 1.0 {

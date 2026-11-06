@@ -143,7 +143,8 @@ final class ThemeTitlebarControl: NSView, NSPopoverDelegate {
             controller: controller,
             themes: themes,
             themeIndex: themeIndex,
-            profiles: profiles
+            profiles: profiles,
+            systemAppearance: AppModel.shared.systemAppearance
         ))
         presentedController = controller
         self.popover = popover

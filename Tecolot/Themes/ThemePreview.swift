@@ -16,7 +16,12 @@ extension ProfileColor {
     }
 
     init? (swiftUIColor: Color) {
-        guard let color = NSColor (swiftUIColor).usingColorSpace (.sRGB) else {
+        self.init (nsColor: NSColor (swiftUIColor))
+    }
+
+    /// The color in sRGB, at 16 bits for each channel.
+    init? (nsColor: NSColor) {
+        guard let color = nsColor.usingColorSpace (.sRGB) else {
             return nil
         }
 
@@ -27,6 +32,36 @@ extension ProfileColor {
                    green: channel (color.greenComponent),
                    blue: channel (color.blueComponent))
     }
+
+    /// The nearest color at 8 bits for each channel, so that it shows as
+    /// "#RRGGBB".
+    var roundedTo8Bits: ProfileColor {
+        func channel (_ value: UInt16) -> UInt16 {
+            UInt16 ((Double (value) / 257).rounded ()) * 257
+        }
+        return ProfileColor (red: channel (red), green: channel (green), blue: channel (blue))
+    }
+}
+
+/// The colors that the terminal shows for the optional slots of a theme.
+/// The terminal, the editor and all previews use these rules.
+extension TerminalTheme {
+    /// The cursor block; the text color when the theme has none.
+    var effectiveCursor: ProfileColor { cursor ?? foreground }
+
+    /// The text under a block cursor; the background color when the theme
+    /// has none.
+    var effectiveCursorText: ProfileColor { cursorText ?? background }
+
+    /// The selection; the system selection color when the theme has none.
+    var effectiveSelectionBackground: ProfileColor {
+        selectionBackground
+            ?? ProfileColor (nsColor: .selectedTextBackgroundColor)
+            ?? foreground
+    }
+
+    /// The selected text; the text color when the theme has none.
+    var effectiveSelectionText: ProfileColor { selectionText ?? foreground }
 }
 
 struct ThemePreview: View {
@@ -60,7 +95,7 @@ struct ThemePreview: View {
             Text(" % ").foregroundStyle(theme.foreground.swiftUIColor)
             Text("ls -l").foregroundStyle(theme.foreground.swiftUIColor)
             Rectangle()
-                .fill((theme.cursor ?? theme.foreground).swiftUIColor)
+                .fill(theme.effectiveCursor.swiftUIColor)
                 .frame(width: fontSize * 0.6, height: fontSize + 1)
         }
     }
@@ -70,8 +105,8 @@ struct ThemePreview: View {
             Text("docs").foregroundStyle(theme.ansi[4].swiftUIColor)
             if extended {
                 Text("main.swift")
-                    .foregroundStyle((theme.selectionText ?? theme.foreground).swiftUIColor)
-                    .background(selectionBackground)
+                    .foregroundStyle(theme.effectiveSelectionText.swiftUIColor)
+                    .background(theme.effectiveSelectionBackground.swiftUIColor)
             } else {
                 Text("main.swift").foregroundStyle(theme.foreground.swiftUIColor)
             }
@@ -98,11 +133,6 @@ struct ThemePreview: View {
                     .foregroundStyle(theme.foreground.swiftUIColor)
             }
         }
-    }
-
-    private var selectionBackground: Color {
-        theme.selectionBackground?.swiftUIColor
-            ?? Color(nsColor: .selectedTextBackgroundColor)
     }
 }
 

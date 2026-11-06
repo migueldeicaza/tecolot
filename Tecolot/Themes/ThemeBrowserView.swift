@@ -99,6 +99,8 @@ struct ThemeBrowserView: View {
     /// hosted inside an NSToolbar popover, where environment-object
     /// propagation is not guaranteed
     @ObservedObject var themeIndex: ThemeCatalogIndex
+    /// A rename or a delete of a user theme changes these profiles.
+    let profiles: ProfileStore
     /// Name of the currently active theme (shown selected)
     var selectedThemeName: String
     var onSelect: (TerminalTheme) -> Void
@@ -228,7 +230,9 @@ struct ThemeBrowserView: View {
         .sheet(item: $editorPresentation) { presentation in
             ThemeEditorView(theme: presentation.theme,
                             themes: themes,
-                            existingUserThemeName: presentation.existingUserThemeName)
+                            profiles: profiles,
+                            existingUserThemeName: presentation.existingUserThemeName,
+                            onSave: { onSelect($0) })
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: importTypes) { result in
             importTheme(result)
@@ -447,7 +451,7 @@ struct ThemeBrowserView: View {
             if !theme.isBuiltIn {
                 Button("Delete User Theme", role: .destructive) {
                     do {
-                        try themes.deleteUserTheme(named: theme.name)
+                        try ThemeLibrary(themes: themes, profiles: profiles).delete(named: theme.name)
                     } catch {
                         importError = error.localizedDescription
                     }
@@ -549,6 +553,7 @@ enum ThemeBrowserPage: CaseIterable, Identifiable {
     ThemeBrowserView(
         themes: SettingsPreviewData.themes,
         themeIndex: SettingsPreviewData.themeIndex,
+        profiles: SettingsPreviewData.profiles,
         selectedThemeName: SettingsPreviewData.profile.darkThemeName,
         onSelect: { _ in },
         style: .all,

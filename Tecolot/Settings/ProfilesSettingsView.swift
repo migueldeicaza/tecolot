@@ -1081,6 +1081,7 @@ struct ProfileExportDocument: FileDocument {
 
 #Preview("Text Settings") {
     ProfileSettingsPagePreview(section: .text)
+        .environmentObject(SettingsPreviewData.profiles)
         .environmentObject(SettingsPreviewData.themes)
         .environmentObject(SettingsPreviewData.themeIndex)
         .environmentObject(SystemAppearance(isDark: false))

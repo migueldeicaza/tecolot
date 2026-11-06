@@ -158,6 +158,7 @@ public final class ProfileStore: ObservableObject {
         if profiles.isEmpty && loadedWithoutIssues {
             try add(ProfileStore.builtInDefaultProfile)
         }
+        saveThemeModes()
     }
 
     public func setDefault(_ id: TerminalProfile.ID) throws {
@@ -192,6 +193,7 @@ public final class ProfileStore: ObservableObject {
 
         let wasEmpty = profiles.isEmpty
         profiles = ProfileStore.sorted(profiles + [profile])
+        saveThemeModes()
         if wasEmpty {
             defaultProfileID = profile.id
             do {
@@ -222,6 +224,7 @@ public final class ProfileStore: ObservableObject {
         var updated = profiles
         updated[index] = profile
         profiles = ProfileStore.sorted(updated)
+        saveThemeModes()
     }
 
     @discardableResult
@@ -287,12 +290,35 @@ public final class ProfileStore: ObservableObject {
     /// Changes every light and dark theme slot, in all profiles, that
     /// uses `oldName`. `replacement` gets the mode of the slot. Use it when a
     /// theme is renamed or deleted.
-    public func replaceThemeName(_ oldName: String, with replacement: (_ isDark: Bool) -> String) throws {
+    ///
+    /// All profiles change, or none: if a write fails, the profiles that
+    /// changed before the error get their old values again. Returns the
+    /// old values of the changed profiles, for `restore(_:)`.
+    @discardableResult
+    public func replaceThemeName(
+        _ oldName: String,
+        with replacement: (_ isDark: Bool) -> String
+    ) throws -> [TerminalProfile] {
+        var originals: [TerminalProfile] = []
         for original in profiles {
             var profile = original
-            if profile.replaceThemeName(oldName, with: replacement) {
+            guard profile.replaceThemeName(oldName, with: replacement) else { continue }
+            do {
                 try update(profile)
+            } catch {
+                restore(originals)
+                throw error
             }
+            originals.append(original)
+        }
+        return originals
+    }
+
+    /// Writes the given profile values again. Use it to undo a change when
+    /// a later step of the same operation fails.
+    public func restore(_ originals: [TerminalProfile]) {
+        for original in originals {
+            try? update(original)
         }
     }
 
@@ -343,6 +369,49 @@ public final class ProfileStore: ObservableObject {
         try encodedProfile(profile).write(to: url(for: profile, in: directory), options: .atomic)
     }
 
+    // MARK: Theme modes of older versions
+
+    /// The two theme names of each profile, in a file that older versions
+    /// do not know. An older version reads only "themeName" and writes the
+    /// profile again without "darkThemeName". When this version reads that
+    /// profile, it gets the Dark Mode theme from this file again.
+    private struct ThemeModes: Codable, Equatable {
+        var light: String
+        var dark: String
+    }
+
+    private var themeModesFile: URL {
+        stateFile.deletingLastPathComponent().appendingPathComponent("theme-modes.json")
+    }
+
+    private func loadThemeModes() -> [String: ThemeModes] {
+        guard let data = try? Data(contentsOf: themeModesFile) else { return [:] }
+        return (try? JSONDecoder().decode([String: ThemeModes].self, from: data)) ?? [:]
+    }
+
+    /// Records the theme names of the profiles. A failure is not an error:
+    /// the file only helps after an older version changed a profile.
+    private func saveThemeModes() {
+        let modes = Dictionary(uniqueKeysWithValues: profiles.map {
+            ($0.id.uuidString, ThemeModes(light: $0.lightThemeName, dark: $0.darkThemeName))
+        })
+        guard modes != loadThemeModes() else { return }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try? encoder.encode(modes).write(to: themeModesFile, options: .atomic)
+    }
+
+    /// True when the profile file has no "darkThemeName" key, that is, an
+    /// older version wrote it.
+    nonisolated static func fileHasNoDarkThemeName(_ url: URL) -> Bool {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let profile = object["profile"] as? [String: Any] else {
+            return false
+        }
+        return profile["darkThemeName"] == nil
+    }
+
     private func loadProfiles() -> (values: [TerminalProfile], issues: [PersistenceIssue]) {
         let files: [URL]
         do {
@@ -361,6 +430,7 @@ public final class ProfileStore: ObservableObject {
         }
         var values: [TerminalProfile] = []
         var issues: [PersistenceIssue] = []
+        let themeModes = loadThemeModes()
         for file in files where file.pathExtension == "json" {
             let result = VersionedFileLoader.load(
                 from: file,
@@ -368,7 +438,16 @@ public final class ProfileStore: ObservableObject {
                 backupRoot: backupDirectory,
                 migrator: ProfileDocumentMigrator()
             )
-            if let profile = result.value { values.append(profile) }
+            if var profile = result.value {
+                // An older version wrote this profile without the Dark Mode
+                // theme. If its theme did not change, use the recorded one.
+                if let modes = themeModes[profile.id.uuidString],
+                   modes.light == profile.lightThemeName,
+                   Self.fileHasNoDarkThemeName(file) {
+                    profile.darkThemeName = modes.dark
+                }
+                values.append(profile)
+            }
             if let issue = result.issue { issues.append(issue) }
         }
         return (values, issues)

@@ -93,16 +93,16 @@ struct ThemeModeSection: View {
                     ThemeEditorView(
                         theme: request.theme,
                         themes: themes,
+                        profiles: profiles,
                         existingUserThemeName: request.existingUserThemeName,
-                        onSave: { saved in
-                            didSave(saved, replacing: request.existingUserThemeName)
-                        }
+                        onSave: { saved in select(saved.name) }
                     )
                 }
                 .sheet(isPresented: $showsChooser) {
                     ThemeChooserSheet(
                         themes: themes,
                         themeIndex: themeIndex,
+                        profiles: profiles,
                         selectedThemeName: activeName,
                         selectedPreviewPage: $selectedPreviewPage,
                         onSelectTheme: chooseFromCatalog
@@ -236,13 +236,8 @@ struct ThemeModeSection: View {
     }
 
     private func duplicate(_ theme: TerminalTheme) {
-        let copy = themes.duplicate(of: theme)
-        do {
-            try themes.saveUserTheme(copy)
-            editorRequest = EditorRequest(theme: copy, existingUserThemeName: copy.name)
-        } catch {
-            operationError = error.localizedDescription
-        }
+        // The copy is new until "Save & Apply": "Cancel" leaves no theme.
+        editorRequest = EditorRequest(theme: themes.duplicate(of: theme), existingUserThemeName: nil)
     }
 
     private func toggleFavorite(_ name: String) {
@@ -255,27 +250,10 @@ struct ThemeModeSection: View {
 
     private func delete(_ theme: TerminalTheme) {
         do {
-            try themes.deleteUserTheme(named: theme.name)
-            let base = theme.baseThemeName.flatMap { name in
-                themes.themes.first { $0.name == name }?.name
-            }
-            try profiles.replaceThemeName(theme.name) { slotIsDark in
-                base ?? TerminalProfile.defaultThemeName(isDark: slotIsDark)
-            }
+            try ThemeLibrary(themes: themes, profiles: profiles).delete(named: theme.name)
         } catch {
             operationError = error.localizedDescription
         }
-    }
-
-    private func didSave(_ saved: TerminalTheme, replacing oldName: String?) {
-        do {
-            if let oldName, oldName != saved.name {
-                try profiles.replaceThemeName(oldName) { _ in saved.name }
-            }
-        } catch {
-            operationError = error.localizedDescription
-        }
-        select(saved.name)
     }
 
     private func chooseFromCatalog(_ name: String) {
@@ -348,19 +326,19 @@ struct ThemeIconFace: View {
                 Spacer(minLength: 0)
                 Text("~/")
                     .font(.system(size: 12 * scale, weight: .medium, design: .monospaced))
-                    .foregroundStyle((theme.selectionText ?? theme.foreground).swiftUIColor)
+                    .foregroundStyle(theme.effectiveSelectionText.swiftUIColor)
                     .padding(.horizontal, 4 * scale)
                     .padding(.vertical, 2 * scale)
                     .background(
-                        ThemeEditorView.effectiveSelectionBackground(of: theme).swiftUIColor,
+                        theme.effectiveSelectionBackground.swiftUIColor,
                         in: .rect(cornerRadius: 4 * scale)
                     )
                 Text("_")
                     .font(.system(size: 11 * scale, weight: .bold, design: .monospaced))
-                    .foregroundStyle((theme.cursorText ?? theme.background).swiftUIColor)
+                    .foregroundStyle(theme.effectiveCursorText.swiftUIColor)
                     .frame(width: 11 * scale, height: 20 * scale, alignment: .bottom)
                     .background(
-                        (theme.cursor ?? theme.foreground).swiftUIColor,
+                        theme.effectiveCursor.swiftUIColor,
                         in: .rect(cornerRadius: 3 * scale)
                     )
             }
@@ -405,6 +383,7 @@ private struct ThemeBrowseCard: View {
 struct ThemeChooserSheet: View {
     @ObservedObject var themes: ThemeStore
     @ObservedObject var themeIndex: ThemeCatalogIndex
+    @ObservedObject var profiles: ProfileStore
     let selectedThemeName: String
     @Binding var selectedPreviewPage: ThemePreviewPage?
     let onSelectTheme: (String) -> Void
@@ -415,12 +394,14 @@ struct ThemeChooserSheet: View {
     init(
         themes: ThemeStore,
         themeIndex: ThemeCatalogIndex,
+        profiles: ProfileStore,
         selectedThemeName: String,
         selectedPreviewPage: Binding<ThemePreviewPage?>,
         onSelectTheme: @escaping (String) -> Void
     ) {
         self.themes = themes
         self.themeIndex = themeIndex
+        self.profiles = profiles
         self.selectedThemeName = selectedThemeName
         _selectedPreviewPage = selectedPreviewPage
         self.onSelectTheme = onSelectTheme
@@ -437,6 +418,7 @@ struct ThemeChooserSheet: View {
             ThemeBrowserView(
                 themes: themes,
                 themeIndex: themeIndex,
+                profiles: profiles,
                 selectedThemeName: draftThemeName,
                 onSelect: { draftThemeName = $0.name },
                 style: .all,
@@ -488,6 +470,7 @@ struct ThemeChooserSheet: View {
     ThemeChooserSheet(
         themes: SettingsPreviewData.themes,
         themeIndex: SettingsPreviewData.themeIndex,
+        profiles: SettingsPreviewData.profiles,
         selectedThemeName: SettingsPreviewData.profile.darkThemeName,
         selectedPreviewPage: $selectedPreviewPage,
         onSelectTheme: { _ in }

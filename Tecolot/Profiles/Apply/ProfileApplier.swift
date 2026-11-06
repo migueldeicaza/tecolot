@@ -72,18 +72,24 @@ public enum ProfileApplier {
         view.nativeForegroundColor = nativeColor (theme.foreground)
         view.backgroundOpacity = CGFloat (opacity)
 
-        if let cursor = theme.cursor {
-            view.caretColor = nativeColor (cursor)
+        // Set each optional color, also when the theme does not have it.
+        // Otherwise the color of the previous theme stays, for example
+        // after the system changes between Light and Dark Mode. The
+        // effective colors are the same rules that the editor and the
+        // previews show.
+        view.caretColor = nativeColor (theme.effectiveCursor)
+        view.caretTextColor = nativeColor (theme.effectiveCursorText)
+        #if os(macOS)
+        // The system selection color depends on the appearance of the view.
+        var selection = theme.foreground
+        view.effectiveAppearance.performAsCurrentDrawingAppearance {
+            selection = theme.effectiveSelectionBackground
         }
-        if let cursorText = theme.cursorText {
-            view.caretTextColor = nativeColor (cursorText)
-        }
-        if let selection = theme.selectionBackground {
-            view.selectedTextBackgroundColor = nativeColor (selection)
-        }
-        if let selectionText = theme.selectionText {
-            view.selectedTextForegroundColor = nativeColor (selectionText)
-        }
+        view.selectedTextBackgroundColor = nativeColor (selection)
+        #else
+        view.selectedTextBackgroundColor = nativeColor (theme.effectiveSelectionBackground)
+        #endif
+        view.selectedTextForegroundColor = nativeColor (theme.effectiveSelectionText)
     }
 
     /// Applies everything in a profile that can change on a live terminal:
