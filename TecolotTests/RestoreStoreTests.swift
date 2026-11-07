@@ -337,6 +337,7 @@ struct RestoreStoreTests {
         workspace.split(first, orientation: .vertical)
         hostView.synchronize(revision: workspace.revision, document: TerminalDocument())
         hostView.layoutSubtreeIfNeeded()
+        try await wait("sessions created") { workspace.controllers.allSatisfy { $0.persistentSessionID != nil } }
         let ids = workspace.controllers.compactMap(\.persistentSessionID)
         #expect(ids.count == 2)
         #expect(Set(ids).count == 2)

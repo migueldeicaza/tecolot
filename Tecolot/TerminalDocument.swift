@@ -13,10 +13,13 @@ struct TerminalDocument: FileDocument {
 
     var profileID: UUID?
     var themeOverride: String?
+    /// The terminal text of a file from an older version. A save keeps it.
+    var legacyContent: String?
 
-    init(profileID: UUID? = nil, themeOverride: String? = nil) {
+    init(profileID: UUID? = nil, themeOverride: String? = nil, legacyContent: String? = nil) {
         self.profileID = profileID
         self.themeOverride = themeOverride
+        self.legacyContent = legacyContent
     }
 
     init(configuration: ReadConfiguration) throws {
@@ -26,12 +29,14 @@ struct TerminalDocument: FileDocument {
         let value = try TerminalSessionDocumentCodec.decode(data)
         profileID = value.profileID
         themeOverride = value.themeOverride
+        legacyContent = value.legacyContent
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         let data = try TerminalSessionDocumentCodec.encode(TerminalSessionDocumentValue(
             profileID: profileID,
-            themeOverride: themeOverride
+            themeOverride: themeOverride,
+            legacyContent: legacyContent
         ))
         return .init(regularFileWithContents: data)
     }

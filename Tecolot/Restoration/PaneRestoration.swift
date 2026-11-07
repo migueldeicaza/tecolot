@@ -178,24 +178,12 @@ extension TerminalSessionController {
                                                       directoryNotFound: check.notFound,
                                                       program: pane.alternateScreenProgram)
             }
-            let ready = launch
             // The pane can close while the checks run: then no session starts.
-            guard self != nil else { return }
-            let result = await Task.detached {
-                Result { try PersistentSessions.directory().create(ready, helperPath: helperPath) }
-            }.value
-            guard let self else {
-                // The pane closed during the create. End the new session and
-                // keep the state, so that the Sessions window can restore it.
-                if case .success(let record) = result { try? PersistentSessions.directory().terminate(record.id) }
-                return
-            }
-            switch result {
-            case .success(let record):
+            guard let self else { return }
+            // When the pane closes during the create, the new session ends
+            // and the state stays, so that the Sessions window can restore it.
+            createSession(launch, helperPath: helperPath) {
                 if let state { states.remove(state.id) }
-                attachReplacementSession(record.id)
-            case .failure(let error):
-                showReplacementError(error)
             }
         }
     }

@@ -18,13 +18,19 @@ import SwiftTerm
 import TecolotSessionClient
 import TecolotWire
 
-final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuItemValidation, TerminalKeyboardHost {
+final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuItemValidation, TerminalKeyboardHost,
+                                TerminalContextMenuActions {
     private(set) var session: RemoteSession
     let source: RemoteFrameSource
     weak var sessionController: TerminalSessionController?
 
     var optionAsMetaKey = true
     var backspaceSendsControlH = false
+    /// The Terminal menu's Allow Mouse Reporting. Off, the mouse selects
+    /// text also when the program asked for mouse reports.
+    var allowMouseReporting = true
+    /// The profile's OSC 8 setting: Command-click opens a hyperlink.
+    var allowsOsc8Links = true
     var remoteDestination: String?
     var remoteInputEnabled = true {
         didSet {
@@ -50,6 +56,8 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     private var selectionAnchor: Position?
     private var selectionHead: Position?
     private var pressedButton: TerminalMouseButton?
+    /// The hyperlink under a Command-click, opened when the button goes up.
+    private var pressedLink: (link: String, line: Int64, column: Int)?
 
     init(session: RemoteSession, font: NSFont) {
         self.session = session
@@ -137,6 +145,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
             if !change.isDisjoint(with: [.geometry, .viewport, .buffer]) {
                 DispatchQueue.main.async { self?.scheduleScrollerUpdate() }
             }
+            if change.contains(.colors) {
+                DispatchQueue.main.async { self?.updateDefaultColors() }
+            }
         }
     }
 
@@ -150,7 +161,85 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         source.session = newSession
         observe(newSession)
         hideBanner()
+        updateDefaultColors()
         requestRedraw()
+    }
+
+    // MARK: Colors
+
+    private var themeForeground = SwiftTerm.Color(red: 0xffff, green: 0xffff, blue: 0xffff)
+    private var themeBackground = SwiftTerm.Color(red: 0, green: 0, blue: 0)
+    private var themeCursor: NSColor?
+    /// The theme that the helper did not report back yet. Until it does,
+    /// the colors that the helper reports are those of an older theme.
+    private var pendingTheme: (foreground: WireRGB, background: WireRGB)?
+    private var pendingThemeGeneration = 0
+
+    /// The alpha of the default background: the profile's opacity.
+    var backgroundOpacity: CGFloat = 1 {
+        didSet {
+            guard backgroundOpacity != oldValue else { return }
+            updateDefaultColors()
+        }
+    }
+
+    /// Sets the theme's default colors. The view draws the colors that a
+    /// program sets instead (OSC 10, 11 and 12), swaps them in reverse video
+    /// (DECSCNM), and gives the background `opacity`, as a local pane does.
+    /// The caller sends the theme to the helper.
+    func setThemeColors(foreground: SwiftTerm.Color, background: SwiftTerm.Color, cursor: NSColor?, opacity: CGFloat) {
+        themeForeground = foreground
+        themeBackground = background
+        themeCursor = cursor
+        pendingTheme = (Self.wire(foreground), Self.wire(background))
+        // Do not wait forever: a program can change the colors again before
+        // the helper reports the theme.
+        pendingThemeGeneration += 1
+        let generation = pendingThemeGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, generation == pendingThemeGeneration, pendingTheme != nil else { return }
+            pendingTheme = nil
+            updateDefaultColors()
+        }
+        backgroundOpacity = opacity
+        updateDefaultColors()
+    }
+
+    /// The default colors that draw now: the theme's, or the program's.
+    var defaultColors: (foreground: SwiftTerm.Color, background: SwiftTerm.Color, cursor: NSColor?, reversed: Bool) {
+        let state = session.state
+        guard pendingTheme == nil, let colors = state.colors else {
+            return (themeForeground, themeBackground, themeCursor, state.reverseVideo)
+        }
+        return (Self.color(colors.foreground), Self.color(colors.background),
+                colors.cursor.map { Self.color($0).nsColor } ?? themeCursor, state.reverseVideo)
+    }
+
+    private func updateDefaultColors() {
+        if let pending = pendingTheme, let colors = session.state.colors,
+           colors.foreground == pending.foreground, colors.background == pending.background {
+            pendingTheme = nil
+        }
+        let colors = defaultColors
+        var foreground = colors.foreground.nsColor
+        var background = colors.background.nsColor
+        if colors.reversed { swap(&foreground, &background) }
+        background = background.withAlphaComponent(backgroundOpacity)
+        let cursor = colors.cursor
+        if !nativeForegroundColor.isEqual(foreground) { nativeForegroundColor = foreground }
+        if !nativeBackgroundColor.isEqual(background) {
+            nativeBackgroundColor = background
+            (superview as? TerminalSessionContainerView)?.updatePaddingColor()
+        }
+        if caretColor != cursor { caretColor = cursor }
+    }
+
+    private static func wire(_ color: SwiftTerm.Color) -> WireRGB {
+        WireRGB(red: color.red, green: color.green, blue: color.blue)
+    }
+
+    private static func color(_ wire: WireRGB) -> SwiftTerm.Color {
+        SwiftTerm.Color(red: wire.red, green: wire.green, blue: wire.blue)
     }
 
     // MARK: Find
@@ -657,7 +746,8 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     /// follows the live screen, and Shift is not held.
     private func reportsMouse(_ event: NSEvent) -> Bool {
         let state = session.state
-        return remoteInputEnabled && state.mouseReporting && state.follow && !event.modifierFlags.contains(.shift)
+        return remoteInputEnabled && allowMouseReporting && state.mouseReporting && state.follow
+            && !event.modifierFlags.contains(.shift)
     }
 
     private func sendMouse(_ action: TerminalMouseAction, _ button: TerminalMouseButton, _ event: NSEvent) {
@@ -675,12 +765,22 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        pressedLink = nil
+        let cell = mouseCell(event)
+        // Command-click opens a hyperlink, as in a local pane, also while
+        // the program reads the mouse.
+        if event.modifierFlags.contains(.command), event.clickCount == 1 {
+            let line = session.state.displayTop + Int64(cell.row)
+            if let link = hyperlink(line: line, column: cell.column) {
+                pressedLink = (link, line, cell.column)
+                return
+            }
+        }
         if reportsMouse(event) {
             pressedButton = .left
             sendMouse(.press, .left, event)
             return
         }
-        let cell = mouseCell(event)
         let line = Int(session.state.displayTop) + cell.row
         switch event.clickCount {
         case 2:
@@ -697,7 +797,8 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     override func mouseDragged(with event: NSEvent) {
-        if pressedButton != nil {
+        if pressedLink != nil { return }
+        if pressedButton == .left {
             sendMouse(.move, .left, event)
             return
         }
@@ -711,7 +812,15 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     override func mouseUp(with event: NSEvent) {
-        if pressedButton != nil {
+        if let pressed = pressedLink {
+            pressedLink = nil
+            let cell = mouseCell(event)
+            if session.state.displayTop + Int64(cell.row) == pressed.line, cell.column == pressed.column {
+                openHyperlink(pressed.link)
+            }
+            return
+        }
+        if pressedButton == .left {
             pressedButton = nil
             sendMouse(.release, .left, event)
         }
@@ -720,9 +829,125 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     override func mouseMoved(with event: NSEvent) {
         let state = session.state
         // Any-event tracking (mode 1003) reports motion without a button.
-        if state.pointerModes & 0x7 == 4 && state.follow {
+        if allowMouseReporting && state.pointerModes & 0x7 == 4 && state.follow {
             sendMouse(.move, .none, event)
         }
+    }
+
+    // The right and middle buttons go to the program when it reads the
+    // mouse. Otherwise the right button shows the context menu.
+
+    override func rightMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        guard reportsMouse(event) else {
+            super.rightMouseDown(with: event)
+            return
+        }
+        pressedButton = .right
+        sendMouse(.press, .right, event)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        guard pressedButton == .right else {
+            super.rightMouseDragged(with: event)
+            return
+        }
+        sendMouse(.move, .right, event)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        guard pressedButton == .right else {
+            super.rightMouseUp(with: event)
+            return
+        }
+        pressedButton = nil
+        sendMouse(.release, .right, event)
+    }
+
+    /// AppKit's button 2 is the middle button. SwiftTerm does not report
+    /// the higher (back and forward) buttons.
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2, reportsMouse(event) else {
+            super.otherMouseDown(with: event)
+            return
+        }
+        window?.makeFirstResponder(self)
+        pressedButton = .middle
+        sendMouse(.press, .middle, event)
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        guard event.buttonNumber == 2, pressedButton == .middle else {
+            super.otherMouseDragged(with: event)
+            return
+        }
+        sendMouse(.move, .middle, event)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2, pressedButton == .middle else {
+            super.otherMouseUp(with: event)
+            return
+        }
+        pressedButton = nil
+        sendMouse(.release, .middle, event)
+    }
+
+    // MARK: Context menu
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard event.type == .rightMouseDown
+                || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
+              !reportsMouse(event) else { return nil }
+        return makeContextMenu()
+    }
+
+    func makeContextMenu(pasteboard: NSPasteboard = .general) -> NSMenu {
+        TerminalContextMenu.make(target: self, hasSelection: selectionActive, pasteboard: pasteboard)
+    }
+
+    @objc func splitRight(_ sender: Any?) { split(in: .right) }
+    @objc func splitLeft(_ sender: Any?) { split(in: .left) }
+    @objc func splitDown(_ sender: Any?) { split(in: .down) }
+    @objc func splitUp(_ sender: Any?) { split(in: .up) }
+
+    private func split(in direction: TerminalPaneDirection) {
+        guard let controller = sessionController else { return }
+        controller.workspace?.split(controller, direction: direction)
+    }
+
+    @objc func resetTerminal(_ sender: Any?) {
+        guard remoteInputEnabled else { return }
+        session.reset(.hard)
+    }
+
+    // MARK: Hyperlinks
+
+    /// The target of the OSC 8 hyperlink at a cell, when the profile allows
+    /// these links.
+    func hyperlink(line: Int64, column: Int) -> String? {
+        guard allowsOsc8Links else { return nil }
+        let payload: String? = session.withState { state, cache in
+            guard let cells = cache[line]?.cells, column >= 0, column < cells.count else { return nil }
+            let id = cells[column].style.link
+            return id == 0 ? nil : state.links[id]
+        }
+        return payload.flatMap(Self.hyperlinkTarget(payload:))
+    }
+
+    /// The URI of an OSC 8 payload, "params;URI" as SwiftTerm keeps it.
+    static func hyperlinkTarget(payload: String) -> String? {
+        guard let separator = payload.firstIndex(of: ";") else { return nil }
+        let target = String(payload[payload.index(after: separator)...])
+        return target.isEmpty ? nil : target
+    }
+
+    /// Opens a link with SwiftTerm's policy for OSC 8 links: the target needs
+    /// a scheme, unsafe local files are blocked, and other apps' schemes ask
+    /// first.
+    private func openHyperlink(_ link: String) {
+        guard allowsOsc8Links else { return }
+        TerminalLinkRequest(link: link, params: [:], isExplicit: true).openDefault()
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -881,6 +1106,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         switch menuItem.action {
         case #selector(copy(_:)): return selectionActive
         case #selector(paste(_:)): return remoteInputEnabled && NSPasteboard.general.string(forType: .string) != nil
+        case #selector(splitRight(_:)), #selector(splitLeft(_:)), #selector(splitDown(_:)), #selector(splitUp(_:)):
+            return sessionController?.workspace != nil
+        case #selector(resetTerminal(_:)): return remoteInputEnabled
         default: return true
         }
     }

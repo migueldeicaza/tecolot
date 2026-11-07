@@ -85,7 +85,7 @@ private final class TerminalSessionEventDelivery: Sendable {
     }
 }
 
-final class AppTerminalView: LocalProcessTerminalView {
+final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuActions {
     weak var sessionController: TerminalSessionController? {
         didSet {
             eventDelivery.setController(sessionController)
@@ -161,25 +161,8 @@ final class AppTerminalView: LocalProcessTerminalView {
     }
 
     func makeContextMenu(pasteboard: NSPasteboard = .general) -> NSMenu {
-        let menu = NSMenu()
-        // AppKit adds system menu items, including Auto Fill.
-        menu.allowsContextMenuPlugIns = true
-        if let selection = getSelection(), !selection.isEmpty {
-            menu.addItem(contextMenuItem("Copy", action: #selector(copy(_:))))
-        }
-        if let text = pasteboard.string(forType: .string), !text.isEmpty {
-            menu.addItem(contextMenuItem("Paste", action: #selector(paste(_:))))
-        }
-        if !menu.items.isEmpty {
-            menu.addItem(.separator())
-        }
-        menu.addItem(contextMenuItem("Split Right", action: #selector(splitRight(_:))))
-        menu.addItem(contextMenuItem("Split Left", action: #selector(splitLeft(_:))))
-        menu.addItem(contextMenuItem("Split Down", action: #selector(splitDown(_:))))
-        menu.addItem(contextMenuItem("Split Up", action: #selector(splitUp(_:))))
-        menu.addItem(.separator())
-        menu.addItem(contextMenuItem("Reset Terminal", action: #selector(resetTerminal(_:))))
-        return menu
+        TerminalContextMenu.make(target: self, hasSelection: getSelection()?.isEmpty == false,
+                                 pasteboard: pasteboard)
     }
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
@@ -198,25 +181,19 @@ final class AppTerminalView: LocalProcessTerminalView {
         allowMouseReporting && currentMouseMode != .off
     }
 
-    private func contextMenuItem(_ title: String, action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        item.target = self
-        return item
-    }
-
-    @objc private func splitRight(_ sender: Any?) {
+    @objc func splitRight(_ sender: Any?) {
         split(in: .right)
     }
 
-    @objc private func splitLeft(_ sender: Any?) {
+    @objc func splitLeft(_ sender: Any?) {
         split(in: .left)
     }
 
-    @objc private func splitDown(_ sender: Any?) {
+    @objc func splitDown(_ sender: Any?) {
         split(in: .down)
     }
 
-    @objc private func splitUp(_ sender: Any?) {
+    @objc func splitUp(_ sender: Any?) {
         split(in: .up)
     }
 
@@ -225,7 +202,7 @@ final class AppTerminalView: LocalProcessTerminalView {
         controller.workspace?.split(controller, direction: direction)
     }
 
-    @objc private func resetTerminal(_ sender: Any?) {
+    @objc func resetTerminal(_ sender: Any?) {
         resetToInitialState()
     }
 
@@ -241,5 +218,47 @@ final class AppTerminalView: LocalProcessTerminalView {
     nonisolated override func terminalControlBytesForPaste(source: Terminal) -> Set<UInt8> {
         process?.terminalControlBytesForPaste()
             ?? TerminalPasteControls.approximateTerminalControlBytes
+    }
+}
+
+/// The actions of the context menu of a terminal pane, local or persistent.
+@MainActor @objc protocol TerminalContextMenuActions {
+    func splitRight(_ sender: Any?)
+    func splitLeft(_ sender: Any?)
+    func splitDown(_ sender: Any?)
+    func splitUp(_ sender: Any?)
+    func resetTerminal(_ sender: Any?)
+}
+
+/// The context menu of a terminal pane: Copy and Paste when they apply,
+/// the splits, and Reset Terminal.
+enum TerminalContextMenu {
+    @MainActor
+    static func make(target: NSResponder & TerminalContextMenuActions, hasSelection: Bool,
+                     pasteboard: NSPasteboard) -> NSMenu {
+        let menu = NSMenu()
+        // AppKit adds system menu items, including Auto Fill.
+        menu.allowsContextMenuPlugIns = true
+        func item(_ title: String, _ action: Selector) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = target
+            return item
+        }
+        if hasSelection {
+            menu.addItem(item("Copy", #selector(NSText.copy(_:))))
+        }
+        if let text = pasteboard.string(forType: .string), !text.isEmpty {
+            menu.addItem(item("Paste", #selector(NSText.paste(_:))))
+        }
+        if !menu.items.isEmpty {
+            menu.addItem(.separator())
+        }
+        menu.addItem(item("Split Right", #selector(TerminalContextMenuActions.splitRight(_:))))
+        menu.addItem(item("Split Left", #selector(TerminalContextMenuActions.splitLeft(_:))))
+        menu.addItem(item("Split Down", #selector(TerminalContextMenuActions.splitDown(_:))))
+        menu.addItem(item("Split Up", #selector(TerminalContextMenuActions.splitUp(_:))))
+        menu.addItem(.separator())
+        menu.addItem(item("Reset Terminal", #selector(TerminalContextMenuActions.resetTerminal(_:))))
+        return menu
     }
 }

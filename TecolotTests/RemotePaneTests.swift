@@ -124,6 +124,7 @@ struct RemotePaneTests {
         let controller = TerminalSessionController()
         controller.resolveLaunchIfNeeded(document: TerminalDocument())
         let view = try #require(controller.makePersistentView())
+        try await wait("session created") { controller.persistentSessionID != nil }
         let id = try #require(controller.persistentSessionID)
         defer {
             controller.terminate()

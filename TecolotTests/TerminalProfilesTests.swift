@@ -674,15 +674,17 @@ final class ProfileStoreTests {
 }
 
 final class TerminalSessionDocumentCodecTests {
-    /// The text of an old file is not shown: RestoreStore keeps the text of the panes.
+    /// The text of a file from before the versioned format stays: the pane
+    /// shows it, and a save keeps it.
     @Test func plainTextMigratesInMemoryAndSavesAsV1() throws {
         let original = Data("prompt output\n".utf8)
         let value = try TerminalSessionDocumentCodec.decode(original)
-        #expect(value == TerminalSessionDocumentValue())
+        #expect(value == TerminalSessionDocumentValue(legacyContent: "prompt output\n"))
 
         let saved = try TerminalSessionDocumentCodec.encode(value)
         let object = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
         #expect((object["version"] as? NSNumber)?.intValue == 1)
+        #expect(object["content"] as? String == "prompt output\n")
         #expect(try TerminalSessionDocumentCodec.decode(saved) == value)
     }
 
@@ -694,18 +696,37 @@ final class TerminalSessionDocumentCodecTests {
     }
 
     @Test func jsonWithoutVersionRemainsLegacyTerminalText() throws {
-        let data = Data("{\"ordinary\":\"terminal output\"}".utf8)
-        #expect(try TerminalSessionDocumentCodec.decode(data) == TerminalSessionDocumentValue())
+        let text = "{\"ordinary\":\"terminal output\"}"
+        #expect(try TerminalSessionDocumentCodec.decode(Data(text.utf8))
+                == TerminalSessionDocumentValue(legacyContent: text))
     }
 
-    @Test func savedTextOfAnOlderFileIsDropped() throws {
+    @Test func savedTextOfAnOlderFileIsKept() throws {
         let profileID = UUID()
         let data = Data("{\"version\":1,\"profileID\":\"\(profileID.uuidString)\",\"content\":\"old text\"}".utf8)
         let value = try TerminalSessionDocumentCodec.decode(data)
-        #expect(value == TerminalSessionDocumentValue(profileID: profileID))
+        #expect(value == TerminalSessionDocumentValue(profileID: profileID, legacyContent: "old text"))
         let saved = try TerminalSessionDocumentCodec.encode(value)
         let object = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
+        #expect(object["content"] as? String == "old text")
+        #expect(try TerminalSessionDocumentCodec.decode(saved) == value)
+    }
+
+    /// Files of this version have no text, and a save adds none.
+    @Test func newFilesHaveNoText() throws {
+        let empty = Data("{\"version\":1,\"content\":\"\"}".utf8)
+        #expect(try TerminalSessionDocumentCodec.decode(empty) == TerminalSessionDocumentValue())
+        let saved = try TerminalSessionDocumentCodec.encode(TerminalSessionDocumentValue(themeOverride: "Basic"))
+        let object = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
         #expect(object["content"] == nil)
+    }
+
+    @Test func replayTextKeepsTheLastLinesAndRemovesControls() {
+        #expect(TerminalSessionDocumentCodec.replayText(for: "one\ntwo\nthree\n", limit: 2) == "two\nthree\n")
+        #expect(TerminalSessionDocumentCodec.replayText(for: "a\u{1B}]52;c;x\u{7}\tb\r\n", limit: 10)
+                == "a\u{FFFD}]52;c;x\u{FFFD}\tb\n")
+        #expect(TerminalSessionDocumentCodec.replayText(for: "text", limit: 0) == nil)
+        #expect(TerminalSessionDocumentCodec.replayText(for: "\n", limit: 10) == "\n")
     }
 }
 

@@ -187,6 +187,8 @@ struct PersistentPaneTests {
         let view = try #require(controller.persistentView)
         view.findPasteboard = NSPasteboard.withUniqueName()
         defer { view.findPasteboard.releaseGlobally() }
+        // The helper starts off the main thread; the pane shows at once.
+        try await wait("session created") { controller.persistentSessionID != nil }
         let session = view.session
         let sessionID = try #require(controller.persistentSessionID)
         defer { try? PersistentSessions.directory().terminate(sessionID, signal: SIGKILL) }
@@ -242,6 +244,8 @@ struct PersistentPaneTests {
         hostView.synchronize(revision: workspace.revision, document: document)
         hostView.layoutSubtreeIfNeeded()
         let view = try #require(controller.persistentView)
+        // The helper starts off the main thread; the pane shows at once.
+        try await wait("session created") { controller.persistentSessionID != nil }
         let session = view.session
         let sessionID = try #require(controller.persistentSessionID)
         defer { try? PersistentSessions.directory().terminate(sessionID, signal: SIGKILL) }
@@ -280,6 +284,8 @@ struct PersistentPaneTests {
         hostView.synchronize(revision: workspace.revision, document: document)
         hostView.layoutSubtreeIfNeeded()
         let view = try #require(controller.persistentView)
+        // The helper starts off the main thread; the pane shows at once.
+        try await wait("session created") { controller.persistentSessionID != nil }
         let session = view.session
         let sessionID = try #require(controller.persistentSessionID)
         defer { try? PersistentSessions.directory().terminate(sessionID, signal: SIGKILL) }
@@ -334,6 +340,8 @@ struct PersistentPaneTests {
         hostView.synchronize(revision: workspace.revision, document: document)
         hostView.layoutSubtreeIfNeeded()
         let view = try #require(controller.persistentView)
+        // The helper starts off the main thread; the pane shows at once.
+        try await wait("session created") { controller.persistentSessionID != nil }
         let session = view.session
         let sessionID = try #require(controller.persistentSessionID)
         defer { try? PersistentSessions.directory().terminate(sessionID, signal: SIGKILL) }
@@ -348,6 +356,126 @@ struct PersistentPaneTests {
         session.send(text: "printf '\\033]9;4;0\\a'\r")
         try await wait("progress removed") { view.progressReport == nil }
         workspace.terminateAll()
+    }
+
+    private func mouseEvent(_ type: NSEvent.EventType, in window: NSWindow, at point: NSPoint,
+                            modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: modifiers, timestamp: 0,
+                                        windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                        clickCount: 1, pressure: 1))
+    }
+
+    /// The Terminal menu, the program's colors, the opacity, the mouse
+    /// buttons and OSC 8 links work in a persistent pane as in a local pane.
+    @Test func persistentPaneMatchesLocalPaneFeatures() async throws {
+        setenv("TECOLOT_RUNTIME_DIR", "/tmp/tecolot-tests-\(getpid())", 1)
+        let profile = AppModel.shared.profiles.defaultProfile
+        var spec = LaunchSpec(profileID: profile.id, workingDirectory: "/tmp")
+        spec.persistent = true
+        AppModel.shared.setPendingLaunch(spec)
+        let workspace = TerminalPaneWorkspace()
+        let controller = try #require(workspace.focusedController)
+        let document = TerminalDocument()
+        let hostView = TerminalPaneHostView(workspace: workspace, document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.contentView = hostView
+        hostView.synchronize(revision: workspace.revision, document: document)
+        hostView.layoutSubtreeIfNeeded()
+        let view = try #require(controller.persistentView)
+        try await wait("session created") { controller.persistentSessionID != nil }
+        let sessionID = try #require(controller.persistentSessionID)
+        defer {
+            workspace.terminateAll()
+            try? PersistentSessions.directory().terminate(sessionID, signal: SIGKILL)
+        }
+        let session = view.session
+        try await wait("attached") { session.state.connected }
+        #expect(window.makeFirstResponder(view))
+
+        // Font size: the view's font changes, and the helper follows its grid.
+        let size = view.font.pointSize
+        controller.biggerFont()
+        controller.biggerFont()
+        #expect(view.font.pointSize == size + 2)
+        try await wait("grid after Bigger Font") { session.state.columns == view.gridSize.columns }
+        controller.smallerFont()
+        #expect(view.font.pointSize == size + 1)
+        controller.applyThemeColors()
+        #expect(view.font.pointSize == size + 1)
+        controller.defaultFontSize()
+        #expect(view.font.pointSize == CGFloat(controller.profile.fontSize))
+
+        // Terminal menu toggles.
+        let meta = controller.optionAsMetaKey
+        #expect(meta == view.optionAsMetaKey)
+        controller.optionAsMetaKey = !meta
+        #expect(view.optionAsMetaKey == !meta)
+        #expect(controller.optionAsMetaKey == !meta)
+        controller.optionAsMetaKey = meta
+        #expect(controller.allowMouseReporting)
+
+        // Right clicks go to a program that reads the mouse, and show the
+        // context menu when Allow Mouse Reporting is off.
+        let point = NSPoint(x: 20, y: 20)
+        let rightClick = try mouseEvent(.rightMouseDown, in: window, at: point)
+        #expect(view.menu(for: rightClick) != nil)
+        session.send(text: "printf '\\033[?1000h'; cat -v\r")
+        try await wait("mouse reporting") { session.state.mouseReporting }
+        #expect(view.menu(for: rightClick) == nil)
+        view.rightMouseDown(with: rightClick)
+        view.rightMouseUp(with: try mouseEvent(.rightMouseUp, in: window, at: point))
+        // X10 encoding: ESC [ M, then 32 + 2 for the right button.
+        try await wait("right button report") { screen(session).contains("^[[M\"") }
+        controller.allowMouseReporting = false
+        #expect(!view.allowMouseReporting)
+        #expect(view.menu(for: rightClick) != nil)
+        let titles = try #require(view.menu(for: rightClick)).items.map(\.title)
+        #expect(titles.contains("Split Right") && titles.contains("Reset Terminal"))
+        controller.allowMouseReporting = true
+        session.send(bytes: [3])
+        session.send(text: "printf '\\033[?1000l'\r")
+        try await wait("mouse reporting off") { !session.state.mouseReporting }
+
+        // Default colors that the program sets (OSC 11), and reverse video.
+        session.send(text: "printf '\\033]11;rgb:ffff/0000/0000\\033\\\\'\r")
+        try await wait("program background") {
+            let background = view.defaultColors.background
+            return background.red > 0xf000 && background.green < 0x1000 && background.blue < 0x1000
+        }
+        let red = view.nativeBackgroundColor.usingColorSpace(.sRGB)
+        #expect((red?.redComponent ?? 0) > 0.9 && (red?.greenComponent ?? 1) < 0.1)
+        session.send(text: "printf '\\033[?5h'\r")
+        try await wait("reverse video") { view.defaultColors.reversed }
+        #expect(view.nativeForegroundColor.usingColorSpace(.sRGB)?.redComponent ?? 0 > 0.9)
+        session.send(text: "printf '\\033[?5l'\r")
+        try await wait("reverse video off") { !view.defaultColors.reversed }
+
+        // The profile's opacity, and the Settings preview.
+        controller.previewBackgroundOpacity(0.5)
+        #expect(abs(view.nativeBackgroundColor.alphaComponent - 0.5) < 0.01)
+        #expect(!window.isOpaque)
+        controller.previewBackgroundOpacity(nil)
+        #expect(abs(view.nativeBackgroundColor.alphaComponent - CGFloat(controller.profile.backgroundOpacity)) < 0.01)
+
+        // OSC 8 hyperlinks.
+        session.send(text: "printf '\\033]8;;https://example.com/x\\033\\\\LINKTEXT\\033]8;;\\033\\\\\\n'\r")
+        try await wait("link row") { screenHasRow(session, "LINKTEXT") }
+        let line: Int64? = session.withState { state, cache in
+            (state.displayTop ..< state.displayTop + Int64(state.rows)).first { line in
+                guard let row = cache[line] else { return false }
+                return cache.text(from: (line, 0), to: (line, row.cells.count - 1))?
+                    .trimmingCharacters(in: .whitespaces) == "LINKTEXT"
+            }
+        }
+        let linkLine = try #require(line)
+        #expect(view.hyperlink(line: linkLine, column: 0) == "https://example.com/x")
+        #expect(view.hyperlink(line: linkLine, column: 20) == nil)
+        view.allowsOsc8Links = false
+        #expect(view.hyperlink(line: linkLine, column: 0) == nil)
+        view.allowsOsc8Links = true
+        #expect(RemoteTerminalView.hyperlinkTarget(payload: "id=1;file:///tmp/a;b") == "file:///tmp/a;b")
+        #expect(RemoteTerminalView.hyperlinkTarget(payload: "nosemicolon") == nil)
     }
 
     @Test func persistentPaneTypesResizesAndDetaches() async throws {
@@ -370,8 +498,10 @@ struct PersistentPaneTests {
         let view = try #require(controller.persistentView)
         #expect(controller.terminal == nil)
         #expect(controller.isPersistent)
-        let sessionID = try #require(controller.persistentSessionID)
+        // The helper starts off the main thread; the pane shows at once.
+        try await wait("session created") { controller.persistentSessionID != nil }
         let session = view.session
+        let sessionID = try #require(controller.persistentSessionID)
         try await wait("attached") { session.state.connected }
         #expect(window.makeFirstResponder(view))
 

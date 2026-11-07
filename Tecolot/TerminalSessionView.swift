@@ -130,6 +130,13 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored private var windowKeyObserver: NSObjectProtocol?
     @ObservationIgnored private var windowUpdateObserver: NSObjectProtocol?
     @ObservationIgnored private var previewBackgroundOpacity: Double?
+    /// The font size that Bigger/Smaller Font chose for a persistent pane.
+    /// It stays when the pane reconnects; a profile change resets it, as
+    /// in a local pane.
+    @ObservationIgnored private var persistentFontSize: CGFloat?
+    /// The text of an older `.terminalSession` file, shown in the pane that
+    /// opens the file.
+    @ObservationIgnored private var legacyDocumentText: String?
 
     private(set) var hasActivity = false
 
@@ -180,6 +187,11 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
         themeOverride = spec?.themeOverride ?? document.themeOverride
         launchDirectory = spec?.workingDirectory
+        // A file from an older version has the text of its terminal: show it
+        // above the new shell, as those versions did.
+        legacyDocumentText = document.legacyContent.flatMap {
+            TerminalSessionDocumentCodec.replayText(for: $0, limit: RestoreStore.restoredRowsLimit)
+        }
         wantsPersistentSession = Self.startsPersistentSession(spec: spec, profile: profile)
         attachSessionID = spec?.attachSessionID
         remoteDestination = spec?.remoteDestination
@@ -308,7 +320,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @MainActor
     private func applyAppearance(colorsOnly: Bool) {
         if let persistentView {
-            applyPersistentAppearance(to: persistentView)
+            // A profile change resets Bigger/Smaller Font, as in a local pane.
+            if !colorsOnly { persistentFontSize = nil }
+            applyPersistentAppearance(to: persistentView, colorsOnly: colorsOnly)
             return
         }
         guard let terminal else { return }
@@ -344,7 +358,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         previewBackgroundOpacity = opacity
         let newOpacity = effectiveBackgroundOpacity
         guard oldOpacity != newOpacity else { return }
-        guard let terminal else {
+        guard let surface else {
             updateWindowTransparency()
             return
         }
@@ -354,9 +368,13 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if newOpacity < 1.0 {
             updateWindowTransparency()
         }
-        terminal.backgroundOpacity = CGFloat(newOpacity)
-        (terminal.superview as? TerminalSessionContainerView)?.updatePaddingColor()
-        terminal.requestRedraw()
+        if let terminal {
+            terminal.backgroundOpacity = CGFloat(newOpacity)
+        } else {
+            persistentView?.backgroundOpacity = CGFloat(newOpacity)
+        }
+        (surface.superview as? TerminalSessionContainerView)?.updatePaddingColor()
+        surface.requestRedraw()
         if newOpacity >= 1.0 {
             updateWindowTransparency()
         }
@@ -696,13 +714,25 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     var allowMouseReporting: Bool {
-        get { terminal?.allowMouseReporting ?? false }
-        set { terminal?.allowMouseReporting = newValue }
+        get { terminal?.allowMouseReporting ?? persistentView?.allowMouseReporting ?? false }
+        set {
+            if let persistentView {
+                persistentView.allowMouseReporting = newValue
+                return
+            }
+            terminal?.allowMouseReporting = newValue
+        }
     }
 
     var optionAsMetaKey: Bool {
-        get { terminal?.optionAsMetaKey ?? false }
-        set { terminal?.optionAsMetaKey = newValue }
+        get { terminal?.optionAsMetaKey ?? persistentView?.optionAsMetaKey ?? false }
+        set {
+            if let persistentView {
+                persistentView.optionAsMetaKey = newValue
+                return
+            }
+            terminal?.optionAsMetaKey = newValue
+        }
     }
 
     var useMetalRenderer: Bool {
@@ -757,28 +787,40 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         surface?.selectionActive ?? false
     }
 
+    /// The font of the pane's view, local or persistent.
+    private var surfaceFont: NSFont? {
+        terminal?.font ?? persistentView?.font
+    }
+
     func biggerFont() {
-        guard let terminal else { return }
-        let size = terminal.font.pointSize
-        guard size < 72 else { return }
-        setFontSize(size + 1, on: terminal)
+        guard let size = surfaceFont?.pointSize, size < 72 else { return }
+        setFontSize(size + 1)
     }
 
     func smallerFont() {
-        guard let terminal else { return }
-        let size = terminal.font.pointSize
-        guard size > 5 else { return }
-        setFontSize(size - 1, on: terminal)
+        guard let size = surfaceFont?.pointSize, size > 5 else { return }
+        setFontSize(size - 1)
     }
 
     func defaultFontSize() {
-        guard let terminal else { return }
-        setFontSize(CGFloat(profile.fontSize), on: terminal)
+        persistentFontSize = nil
+        setFontSize(CGFloat(profile.fontSize))
     }
 
-    // Changes only the size, keeping the profile's font family
-    private func setFontSize(_ size: CGFloat, on terminal: LocalProcessTerminalView) {
-        terminal.font = NSFont(descriptor: terminal.font.fontDescriptor, size: size)
+    /// Changes only the size, keeping the profile's font family. A
+    /// persistent view sends its new grid size to the helper.
+    private func setFontSize(_ size: CGFloat) {
+        if let persistentView {
+            if size != CGFloat(profile.fontSize) { persistentFontSize = size }
+            persistentView.font = Self.font(persistentView.font, size: size)
+            return
+        }
+        guard let terminal else { return }
+        terminal.font = Self.font(terminal.font, size: size)
+    }
+
+    private static func font(_ font: NSFont, size: CGFloat) -> NSFont {
+        NSFont(descriptor: font.fontDescriptor, size: size)
             ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
     }
 
@@ -1132,6 +1174,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             if (try? ScrollbackFile.validate(replayText)) != nil {
                 terminal.feed(text: ScrollbackFile.terminalBytes(replayText))
             }
+        } else if let legacyDocumentText {
+            self.legacyDocumentText = nil
+            terminal.feed(text: ScrollbackFile.terminalBytes(legacyDocumentText))
         }
     }
 
@@ -1270,18 +1315,20 @@ extension TerminalSessionController {
             startReplacementSession(for: restoration)
             return view
         }
+        guard let sessionID = attachSessionID else {
+            // A new session: the helper can take seconds to start (or time
+            // out). The pane shows at once and the session attaches when the
+            // helper is ready.
+            let view = RemoteTerminalView(session: makeRemoteSession(socket: -1), font: font)
+            view.sessionController = self
+            view.glyphFallbackProvider = NerdFontFallbackProvider.shared
+            persistentView = view
+            attachPersistentView()
+            startNewSession()
+            return view
+        }
         do {
-            let directory = try PersistentSessions.directory()
-            let sessionID: String
-            if let attachSessionID {
-                sessionID = attachSessionID
-            } else {
-                let record = try PersistentSessions.create(
-                    profile: profile, workingDirectory: launchDirectory,
-                    columns: profile.columns, rows: profile.rows, cellWidth: 0, cellHeight: 0)
-                sessionID = record.id
-            }
-            let socket = try directory.connect(sessionID)
+            let socket = try PersistentSessions.directory().connect(sessionID)
             let session = makeRemoteSession(socket: socket)
             let view = RemoteTerminalView(session: session, font: font)
             view.sessionController = self
@@ -1301,6 +1348,47 @@ extension TerminalSessionController {
             alert.informativeText = error.localizedDescription
             DispatchQueue.main.async { alert.runModal() }
             return nil
+        }
+    }
+
+    /// Starts the helper of a new session for the pane's profile.
+    @MainActor
+    private func startNewSession() {
+        guard let helperPath = PersistentSessions.helperPath else {
+            showReplacementError(PersistentSessionError.helperMissing)
+            return
+        }
+        var launch = PersistentSessions.makeLaunch(profile: profile, workingDirectory: launchDirectory,
+                                                   columns: profile.columns, rows: profile.rows,
+                                                   cellWidth: 0, cellHeight: 0)
+        if let text = legacyDocumentText {
+            legacyDocumentText = nil
+            launch.replay = text
+        }
+        createSession(launch, helperPath: helperPath)
+    }
+
+    /// Starts a helper for `launch` off the main thread, then shows its
+    /// session in this pane. When the pane closes before the helper is
+    /// ready, the new session ends. `created` runs before the attach.
+    @MainActor
+    func createSession(_ launch: SessionLaunch, helperPath: String,
+                       created: @escaping @MainActor () -> Void = {}) {
+        Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                Result { try PersistentSessions.directory().create(launch, helperPath: helperPath) }
+            }.value
+            guard let self, !self.persistentDetached else {
+                if case .success(let record) = result { try? PersistentSessions.directory().terminate(record.id) }
+                return
+            }
+            switch result {
+            case .success(let record):
+                created()
+                self.attachReplacementSession(record.id)
+            case .failure(let error):
+                self.showReplacementError(error)
+            }
         }
     }
 
@@ -1375,8 +1463,12 @@ extension TerminalSessionController {
             let session = makeRemoteSession(socket: socket)
             view.replaceSession(session)
             persistentSessionID = id
-            session.start(size: view.wireGridSize, focused: view.hasFocus, scale: view.displayScale)
-            applyPersistentAppearance(to: view)
+            // A view that is not laid out yet starts with the profile's size.
+            let grid = view.wireGridSize
+            let size = grid.columns > 1 && grid.rows > 1 ? grid : WireGridSize(columns: profile.columns, rows: profile.rows)
+            session.start(size: size, focused: view.hasFocus, scale: view.displayScale)
+            // The new session needs the theme; the view keeps its other settings.
+            applyPersistentAppearance(to: view, colorsOnly: true)
         } catch {
             showReplacementError(error)
         }
@@ -1486,7 +1578,7 @@ extension TerminalSessionController {
         view.remoteInputEnabled = false
         updateRemoteBanner(state: link.state)
         session.start(size: view.wireGridSize, focused: view.hasFocus, scale: view.displayScale)
-        applyPersistentAppearance(to: view)
+        applyPersistentAppearance(to: view, colorsOnly: true)
     }
 
     @MainActor
@@ -1607,7 +1699,7 @@ extension TerminalSessionController {
             persistentView.replaceSession(session)
             session.start(size: persistentView.wireGridSize, focused: persistentView.hasFocus,
                           scale: persistentView.displayScale)
-            applyPersistentAppearance(to: persistentView)
+            applyPersistentAppearance(to: persistentView, colorsOnly: true)
         } catch {
             persistentView.showBanner("The session is no longer running.", actionTitle: "Close") { [weak self] in
                 self?.closePaneOrWindow()
@@ -1633,6 +1725,11 @@ extension TerminalSessionController {
                 }
                 return persistentView?.selectionActive == false
             }
+            if zoomGesture == nil {
+                let gesture = NSMagnificationGestureRecognizer(target: self, action: #selector(handleMagnify(_:)))
+                persistentView.addGestureRecognizer(gesture)
+                zoomGesture = gesture
+            }
             if keyEventMonitor == nil {
                 keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                     self?.handleKeyBinding(event) == true ? nil : event
@@ -1643,13 +1740,18 @@ extension TerminalSessionController {
     }
 
     @MainActor
-    func applyPersistentAppearance(to view: RemoteTerminalView) {
+    /// `colorsOnly` keeps the font and the keyboard settings, for example
+    /// the Option-as-Meta choice of the Terminal menu.
+    func applyPersistentAppearance(to view: RemoteTerminalView, colorsOnly: Bool = false) {
         let theme = effectiveTheme
         if theme.isValid {
             let ansi = theme.ansi.map(\.terminalColor)
-            view.nativeBackgroundColor = ProfileApplier.nativeColor(theme.background)
-            view.nativeForegroundColor = ProfileApplier.nativeColor(theme.foreground)
-            view.caretColor = ProfileApplier.nativeColor(theme.effectiveCursor)
+            // The view applies the default colors that a program set, reverse
+            // video, and the opacity over these.
+            view.setThemeColors(foreground: theme.foreground.terminalColor,
+                                background: theme.background.terminalColor,
+                                cursor: ProfileApplier.nativeColor(theme.effectiveCursor),
+                                opacity: CGFloat(effectiveBackgroundOpacity))
             view.caretTextColor = ProfileApplier.nativeColor(theme.effectiveCursorText)
             var selection = theme.foreground
             view.effectiveAppearance.performAsCurrentDrawingAppearance {
@@ -1667,11 +1769,15 @@ extension TerminalSessionController {
                                                   background: rgb(theme.background.terminalColor),
                                                   cursor: theme.cursor.map { rgb($0.terminalColor) }))
         }
-        view.font = ProfileApplier.font(for: profile)
-        view.fontSmoothing = profile.fontSmoothing
-        view.useBrightColors = profile.useBrightColorsForBold
-        view.optionAsMetaKey = profile.optionAsMetaKey
-        view.backspaceSendsControlH = profile.backspaceSendsControlH
+        if !colorsOnly {
+            let font = ProfileApplier.font(for: profile)
+            view.font = persistentFontSize.map { Self.font(font, size: $0) } ?? font
+            view.fontSmoothing = profile.fontSmoothing
+            view.useBrightColors = profile.useBrightColorsForBold
+            view.optionAsMetaKey = profile.optionAsMetaKey
+            view.backspaceSendsControlH = profile.backspaceSendsControlH
+            view.allowsOsc8Links = profile.linkOsc8
+        }
         (view.superview as? TerminalSessionContainerView)?.updatePaddingColor()
         view.requestRedraw()
         updateWindowTransparency()
