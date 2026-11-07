@@ -64,6 +64,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     private(set) var displayedWindowTitle = "Tecolot"
     private(set) var panePresentation = PanePresentation()
     @ObservationIgnored private var launchDirectory: String?
+    @ObservationIgnored private var launchCommand: String?
+    @ObservationIgnored private var holdsAfterExit = false
     @ObservationIgnored private var didResolveLaunch = false
     @ObservationIgnored private var restoredContent: String?
     @ObservationIgnored var bufferSnapshotHandler: ((String) -> Void)?
@@ -108,6 +110,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
         themeOverride = spec?.themeOverride ?? document.themeOverride
         launchDirectory = spec?.workingDirectory
+        launchCommand = spec?.command
+        holdsAfterExit = spec?.holdsAfterExit ?? false
         restoredContent = document.content
     }
 
@@ -383,7 +387,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
         let exitedCleanly = (exitCode ?? 0) == 0
-        switch profile.whenShellExits {
+        switch holdsAfterExit ? .keepOpen : profile.whenShellExits {
         case .closeWindow:
             closePaneOrWindow()
         case .closeIfExitedCleanly:
@@ -829,7 +833,11 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
         restoreBufferIfNeeded(on: terminal)
 
-        let params = ProfileApplier.launchParameters(for: profile, initialDirectory: launchDirectory)
+        var launchProfile = profile
+        if let launchCommand {
+            launchProfile.shell = .command(launchCommand, runInShell: true)
+        }
+        let params = ProfileApplier.launchParameters(for: launchProfile, initialDirectory: launchDirectory)
         terminal.startProcess(executable: params.executable,
                               args: params.args,
                               environment: params.environment,

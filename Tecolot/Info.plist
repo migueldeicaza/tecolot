@@ -10,6 +10,17 @@
 	<true/>
 	<key>OSAScriptingDefinition</key>
 	<string>Tecolot.sdef</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.tirania.Tecolot.command</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>tecolot</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
