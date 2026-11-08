@@ -449,4 +449,198 @@ struct TerminalPaneCardTests {
         workspace.moveDivider(in: .right)
         #expect(split.arrangedSubviews[0].frame.width == firstWidth)
     }
+
+    @Test func compactStyleKeepsTheTitleBarWithoutSpaceOrDecorations() throws {
+        let workspace = TerminalPaneWorkspace(startsProcesses: false)
+        let first = try #require(workspace.focusedController)
+        workspace.split(first, direction: .right)
+        let document = TerminalDocument()
+        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.contentView = host
+        // The desktop blur shows only when the backdrop is visible.
+        host.synchronize(revision: workspace.revision, document: document,
+                         settings: .init(paneCardsBackdrop: .desktopBlur, paneStyle: .compact))
+        host.layoutSubtreeIfNeeded()
+        let split = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
+        let cards = split.arrangedSubviews.compactMap { $0 as? TerminalPaneCardView }
+        #expect(host.cardsEnabled)
+        #expect(host.appliedPaneStyle == .compact)
+        #expect(split.frame == host.bounds)
+        #expect(split.dividerThickness == 1)
+        #expect(!host.showsDesktopBlur)
+        for card in cards {
+            #expect(card.cardsEnabled)
+            #expect(card.layer?.shadowOpacity == 0)
+            let surface = try #require(card.subviews.first)
+            #expect(surface.layer?.cornerRadius == 0)
+            let header = try #require(surface.subviews.first { !($0 is TerminalSessionContainerView) })
+            #expect(!header.isHidden)
+            #expect(header.frame.height == GlobalAppearanceSettings.cardTitlebarHeight)
+        }
+
+        host.synchronize(revision: workspace.revision, document: document,
+                         settings: .init(paneCardsBackdrop: .desktopBlur, paneStyle: .comfortable))
+        host.layoutSubtreeIfNeeded()
+        let spacing = GlobalAppearanceSettings.cardSpacing
+        #expect(host.appliedPaneStyle == .comfortable)
+        #expect(split.frame == host.bounds.insetBy(dx: spacing, dy: spacing))
+        #expect(split.dividerThickness == spacing)
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
+            #expect(host.showsDesktopBlur)
+        }
+        for card in cards {
+            #expect(card.layer?.shadowOpacity ?? 0 > 0)
+            #expect(card.subviews.first?.layer?.cornerRadius == 14)
+        }
+    }
+
+    /// A window on the screen. The transitions run only in a visible window.
+    /// macOS updates the occlusion state some time after the window shows.
+    private func visibleWindow(for host: TerminalPaneHostView) async throws -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+                              styleMask: [.titled, .resizable, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        for _ in 0..<40 where !window.occlusionState.contains(.visible) {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        return window
+    }
+
+    @Test(.enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion),
+          arguments: [TerminalPaneDirection.right, .left, .down, .up])
+    func newPaneGrowsFromTheEdgeOfItsSplit(direction: TerminalPaneDirection) async throws {
+        let workspace = TerminalPaneWorkspace(startsProcesses: false)
+        let first = try #require(workspace.focusedController)
+        let document = TerminalDocument()
+        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let window = try await visibleWindow(for: host)
+        defer { window.orderOut(nil) }
+        host.synchronize(revision: workspace.revision, document: document)
+        host.layoutSubtreeIfNeeded()
+        try #require(host.transitionsAllowed)
+
+        workspace.split(first, direction: direction)
+        host.synchronize(revision: workspace.revision, document: document)
+        #expect(workspace.pendingTransition == nil)
+        #expect(host.isRunningTransition)
+        let second = try #require(workspace.focusedController)
+        let split = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
+        let card = try #require(split.arrangedSubviews.compactMap { $0 as? TerminalPaneCardView }
+            .first { $0.controller === second })
+        let layer = try #require(card.layer)
+        // The animations start in the display pass, not in the layout pass.
+        // The test calls viewWillDraw() in place of the display pass.
+        #expect(layer.animation(forKey: "paneTransition.bounds") == nil)
+        host.viewWillDraw()
+
+        // The animation converts host rectangles through the layer tree.
+        #expect(host.layerRect(card.convert(card.bounds, to: host), for: card) == layer.frame)
+        let bounds = try #require(layer.animation(forKey: "paneTransition.bounds") as? CABasicAnimation)
+        let start = try #require((bounds.fromValue as? NSValue)?.rectValue)
+        let horizontal = direction == .left || direction == .right
+        #expect(horizontal ? start.width == 0 : start.height == 0)
+        #expect(layer.masksToBounds)
+
+        // The divider starts at the outer edge of the new pane.
+        let position = try #require(layer.animation(forKey: "paneTransition.position") as? CABasicAnimation)
+        let from = try #require((position.fromValue as? NSValue)?.pointValue)
+        let edge = TerminalPaneHostView.edgeRect(of: card.convert(card.bounds, to: host), at: direction)
+        let expected = try #require(host.layerRect(edge, for: card))
+        #expect(abs(from.x - (expected.minX + layer.anchorPoint.x * expected.width)) < 0.5)
+        #expect(abs(from.y - (expected.minY + layer.anchorPoint.y * expected.height)) < 0.5)
+
+        host.cancelTransition()
+        #expect(!host.isRunningTransition)
+        #expect(!layer.masksToBounds)
+        #expect(!(layer.animationKeys() ?? []).contains { $0.hasPrefix("paneTransition") })
+    }
+
+    @Test(.enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion))
+    func closedPaneShrinksToItsOuterEdge() async throws {
+        let workspace = TerminalPaneWorkspace(startsProcesses: false)
+        let first = try #require(workspace.focusedController)
+        workspace.split(first, direction: .right)
+        let second = try #require(workspace.focusedController)
+        let document = TerminalDocument()
+        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let window = try await visibleWindow(for: host)
+        defer { window.orderOut(nil) }
+        host.synchronize(revision: workspace.revision, document: document)
+        host.layoutSubtreeIfNeeded()
+        try #require(host.transitionsAllowed)
+        let split = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
+        let closed = try #require(split.arrangedSubviews.compactMap { $0 as? TerminalPaneCardView }
+            .first { $0.controller === second })
+        let oldFrame = closed.convert(closed.bounds, to: host)
+
+        #expect(workspace.close(second))
+        host.synchronize(revision: workspace.revision, document: document)
+        host.viewWillDraw()
+        #expect(host.isRunningTransition)
+        // The card of the closed pane stays in the window, in an overlay
+        // above the panes, and takes no clicks.
+        let overlay = try #require(closed.superview as? TerminalTransitionOverlayView)
+        #expect(overlay.superview === host)
+        #expect(closed.window === window)
+        #expect(closed.convert(closed.bounds, to: host) == oldFrame)
+        let point = NSPoint(x: oldFrame.midX, y: oldFrame.midY)
+        let hit = host.hitTest(host.convert(point, to: host.superview))
+        #expect(hit == nil || !(hit!.isDescendant(of: closed)))
+        let bounds = try #require(closed.layer?.animation(forKey: "paneTransition.bounds") as? CABasicAnimation)
+        #expect((bounds.toValue as? NSValue)?.rectValue.width == 0)
+        let position = try #require(closed.layer?.animation(forKey: "paneTransition.position") as? CABasicAnimation)
+        // The second pane of a vertical split shrinks to its right edge.
+        let end = try #require(host.layerRect(CGRect(x: oldFrame.maxX, y: oldFrame.minY, width: 0,
+                                                     height: oldFrame.height), for: closed))
+        #expect((position.toValue as? NSValue)?.pointValue.x == end.minX)
+
+        // The pane that stays grows from its old frame.
+        let survivor = try #require(host.subviews.compactMap { $0 as? TerminalPaneCardView }
+            .first { $0.controller === first })
+        #expect(survivor.layer?.animation(forKey: "paneTransition.bounds") != nil)
+
+        // A second close of the same pane, for example when its process
+        // exits, does nothing and does not stop the transition.
+        #expect(!workspace.close(second))
+        #expect(host.isRunningTransition)
+        // A close request from the closed pane does not close the window.
+        second.requestClose()
+        #expect(window.isVisible)
+
+        host.cancelTransition()
+        #expect(closed.superview == nil)
+        #expect(!host.isRunningTransition)
+    }
+
+    @Test func noTransitionInAWindowThatIsNotVisible() throws {
+        let workspace = TerminalPaneWorkspace(startsProcesses: false)
+        let first = try #require(workspace.focusedController)
+        let document = TerminalDocument()
+        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        host.synchronize(revision: workspace.revision, document: document)
+        #expect(!host.transitionsAllowed)
+        workspace.split(first, direction: .right)
+        host.synchronize(revision: workspace.revision, document: document)
+        #expect(!host.isRunningTransition)
+        let second = try #require(workspace.focusedController)
+        #expect(workspace.close(second))
+        #expect(workspace.pendingTransition == nil)
+    }
+
+    @Test func zoomedSplitDoesNotAnimate() throws {
+        let workspace = TerminalPaneWorkspace(startsProcesses: false)
+        let first = try #require(workspace.focusedController)
+        workspace.split(first, direction: .right)
+        workspace.toggleSplitZoom()
+        let zoomed = try #require(workspace.focusedController)
+        workspace.split(zoomed, direction: .down)
+        #expect(workspace.pendingTransition == nil)
+    }
 }

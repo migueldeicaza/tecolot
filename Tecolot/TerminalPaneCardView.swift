@@ -16,6 +16,7 @@ final class TerminalPaneCardView: NSView {
         var background: NSColor
         var highContrast: Bool
         var padding: GlobalAppearanceSettings.TerminalPadding
+        var paneStyle: GlobalAppearanceSettings.PaneStyle
     }
 
     let controller: TerminalSessionController
@@ -38,6 +39,7 @@ final class TerminalPaneCardView: NSView {
     private let overflow = NSButton()
     private var appliedState: AppliedState?
     private var focused = false
+    private var paneStyle = GlobalAppearanceSettings.PaneStyle.comfortable
 
     init(controller: TerminalSessionController, content: TerminalSessionContainerView, cardsEnabled: Bool) {
         self.controller = controller
@@ -123,24 +125,30 @@ final class TerminalPaneCardView: NSView {
             foreground: content.terminal.nativeForegroundColor,
             background: content.terminal.nativeBackgroundColor,
             highContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast,
-            padding: workspace?.appearanceSettings.terminalPadding ?? GlobalAppearanceSettings.storedTerminalPadding
+            padding: workspace?.appearanceSettings.terminalPadding ?? GlobalAppearanceSettings.storedTerminalPadding,
+            paneStyle: workspace?.appearanceSettings.paneStyle ?? .comfortable
         )
         guard state != appliedState else { return }
         appliedState = state
         let enabled = state.cardsEnabled
         focused = state.focused
+        paneStyle = state.paneStyle
+        let decorated = state.paneStyle.showsDecorations
         content.setPadding(state.padding.points, top: state.padding.topPoints(cardsEnabled: enabled))
         let foreground = state.foreground
         let background = state.background
         let highContrast = state.highContrast
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        surface.layer?.cornerRadius = enabled ? 14 : 0
+        surface.layer?.cornerRadius = enabled ? state.paneStyle.cornerRadius : 0
         // An opaque base also covers the interval before a Metal drawable
         // arrives. Leave translucent surfaces clear. If not, the alpha
         // applies two times.
         surface.layer?.backgroundColor = background.alphaComponent >= 1 ? background.cgColor : NSColor.clear.cgColor
-        surface.layer?.borderWidth = enabled && (focused || highContrast) ? (focused && highContrast ? 2 : 1) : 0
+        // The compact style shows the focus with the title bar color. With
+        // Increase Contrast, it also keeps the border.
+        let showsBorder = enabled && (decorated ? (focused || highContrast) : highContrast)
+        surface.layer?.borderWidth = showsBorder ? (focused && highContrast ? 2 : 1) : 0
         surface.layer?.borderColor = foreground.withAlphaComponent(highContrast ? 0.8 : (focused ? 0.28 : 0.10)).cgColor
         header.wantsLayer = true
         let headerBackground = focused
@@ -149,7 +157,7 @@ final class TerminalPaneCardView: NSView {
             : background
         header.layer?.backgroundColor = headerBackground.cgColor
         layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = enabled ? 0.08 : 0
+        layer?.shadowOpacity = enabled && decorated ? 0.08 : 0
         layer?.shadowRadius = 12
         layer?.shadowOffset = CGSize(width: 0, height: -3)
         CATransaction.commit()
@@ -178,6 +186,31 @@ final class TerminalPaneCardView: NSView {
         needsLayout = true
     }
 
+    /// Prepares the layer for a transition of the host. The layer clips its
+    /// content, and the background of the surface fills the area that the
+    /// content does not cover. The shadow has the final shape, so remove it.
+    func beginTransition() {
+        guard let layer else { return }
+        layer.masksToBounds = true
+        layer.cornerRadius = surface.layer?.cornerRadius ?? 0
+        // The surface keeps a translucent background clear, so that the
+        // alpha applies one time. Use the same color.
+        layer.backgroundColor = surface.layer?.backgroundColor
+        layer.shadowOpacity = 0
+    }
+
+    /// Restores the layer after a transition.
+    func endTransition() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.masksToBounds = false
+        layer?.cornerRadius = 0
+        layer?.backgroundColor = nil
+        CATransaction.commit()
+        appliedState = nil
+        refreshAppearance()
+    }
+
     override func layout() {
         super.layout()
         surface.frame = bounds
@@ -189,7 +222,8 @@ final class TerminalPaneCardView: NSView {
                                height: max(content.topPadding + content.padding, bounds.height - height))
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: cardsEnabled ? 14 : 0, cornerHeight: cardsEnabled ? 14 : 0, transform: nil)
+        let radius = cardsEnabled ? paneStyle.cornerRadius : 0
+        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
         CATransaction.commit()
         let compact = bounds.width < 310
         let controlsWidth: CGFloat = focused ? (compact ? 32 : 116) : 0

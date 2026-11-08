@@ -15,6 +15,8 @@ struct ContentView: View {
     private var paneCardsBackdrop = GlobalAppearanceSettings().paneCardsBackdrop
     @AppStorage(GlobalAppearanceSettings.terminalPaddingKey)
     private var terminalPadding = GlobalAppearanceSettings().terminalPadding
+    @AppStorage(GlobalAppearanceSettings.paneStyleKey)
+    private var paneStyle = GlobalAppearanceSettings().paneStyle
     @Binding var document: TerminalDocument
     /// nil for untitled windows; document metadata is only persisted for
     /// file-backed sessions so that closing an untitled window never
@@ -62,7 +64,8 @@ struct ContentView: View {
             appearanceSettings: GlobalAppearanceSettings(
                 paneCardsEnabled: paneCardsEnabled,
                 paneCardsBackdrop: paneCardsBackdrop,
-                terminalPadding: terminalPadding
+                terminalPadding: terminalPadding,
+                paneStyle: paneStyle
             )
         )
             .background(WindowTabbingConfigurator(

@@ -26,6 +26,14 @@ enum TerminalPaneDirection {
     case right
 }
 
+/// The change of the pane tree that the host animates at the next rebuild.
+enum TerminalPaneTransition {
+    /// A split added this pane. It grows from the edge in this direction.
+    case added(UUID, TerminalPaneDirection)
+    /// A close removed this pane. It shrinks to the edge in this direction.
+    case removed(UUID, TerminalPaneDirection)
+}
+
 @Observable
 final class TerminalPaneNode: Identifiable {
     enum Content {
@@ -50,6 +58,8 @@ final class TerminalPaneWorkspace {
     private(set) var zoomedControllerID: UUID?
     @ObservationIgnored private let startsProcesses: Bool
     @ObservationIgnored weak var hostView: TerminalPaneHostView?
+    /// The host reads and clears this value when it rebuilds the views.
+    @ObservationIgnored var pendingTransition: TerminalPaneTransition?
     /// The host sets this value from SwiftUI. The title bar also reads it.
     @ObservationIgnored var appearanceSettings = GlobalAppearanceSettings()
     @ObservationIgnored private var processTask: Task<Void, Never>?
@@ -148,6 +158,9 @@ final class TerminalPaneWorkspace {
         focusedControllerID = newController.id
         if zoomedControllerID != nil {
             zoomedControllerID = newController.id
+            pendingTransition = nil
+        } else {
+            pendingTransition = .added(newController.id, direction)
         }
         revision += 1
     }
@@ -196,7 +209,19 @@ final class TerminalPaneWorkspace {
     /// Removes a pane. Returns false when it is the only pane in the window.
     @discardableResult
     func close(_ controller: TerminalSessionController) -> Bool {
-        guard paneCount > 1, remove(controller, from: root) else { return false }
+        // A pane can close two times, for example when the user closes it
+        // and then its process exits. The second close does nothing.
+        guard paneCount > 1, contains(controller) else { return false }
+        let edge = zoomedControllerID == nil && hostView?.transitionsAllowed == true
+            ? removalEdge(for: controller, in: root) : nil
+        if edge != nil {
+            hostView?.prepareRemovalTransition(for: controller)
+        }
+        guard remove(controller, from: root) else {
+            if edge != nil { hostView?.cancelTransition() }
+            return false
+        }
+        pendingTransition = edge.map { .removed(controller.id, $0) }
         controller.terminate()
         if zoomedControllerID == controller.id || paneCount == 1 {
             zoomedControllerID = nil
@@ -287,7 +312,7 @@ final class TerminalPaneWorkspace {
         }
     }
 
-    private func contains(_ controller: TerminalSessionController) -> Bool {
+    func contains(_ controller: TerminalSessionController) -> Bool {
         controllers.contains { $0 === controller }
     }
 
@@ -345,6 +370,22 @@ final class TerminalPaneWorkspace {
         return remove(controller, from: first) || remove(controller, from: second)
     }
 
+    /// The outer edge of the pane in its parent split: the edge away from
+    /// the sibling that takes its space.
+    private func removalEdge(
+        for controller: TerminalSessionController,
+        in node: TerminalPaneNode
+    ) -> TerminalPaneDirection? {
+        guard case .split(let orientation, let first, let second) = node.content else { return nil }
+        if isTerminal(controller, in: first) {
+            return orientation == .vertical ? .left : .up
+        }
+        if isTerminal(controller, in: second) {
+            return orientation == .vertical ? .right : .down
+        }
+        return removalEdge(for: controller, in: first) ?? removalEdge(for: controller, in: second)
+    }
+
     private func promote(_ survivor: TerminalPaneNode, into node: TerminalPaneNode) {
         if case .split = survivor.content {
             hostView?.transferDividerPosition(from: survivor.id, to: node.id)
@@ -400,6 +441,9 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
     /// False when the settings turn off the cards, when the window has one
     /// pane, or when the window is too small for the card decorations.
     private(set) var cardsEnabled = false
+    /// The pane style of the views on screen. The settings can change
+    /// before the views apply it.
+    private(set) var appliedPaneStyle = GlobalAppearanceSettings.PaneStyle.comfortable
     private var appearanceObserver: NSObjectProtocol?
     private var displayedRevision = -1
     private var isRebuilding = false
@@ -409,17 +453,41 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
     private var pendingDividerTransfers: [(from: UUID, to: UUID)] = []
     private var unzoomedPaneFrames: [UUID: CGRect] = [:]
     private var needsDividerRestore = false
+    /// The view of the pane tree.
+    private var rootView: NSView?
+    /// Shows the card of a closed pane while it shrinks. It is above the
+    /// pane tree and takes no clicks.
+    private let transitionOverlay = TerminalTransitionOverlayView(frame: .zero)
+    /// The card frames in host coordinates before a close. The workspace
+    /// records them before it changes the tree.
+    private var preparedStartFrames: [UUID: CGRect]?
+    private var preparedClosedCard: TerminalPaneCardView?
+    /// The transition that starts when the host draws. AppKit attaches the
+    /// layers of new views to the layer tree in the display pass, after the
+    /// layout pass that makes the views. An animation on a layer that is not
+    /// attached has no effect.
+    private var scheduledTransition: (transition: TerminalPaneTransition, startFrames: [UUID: CGRect])?
+    /// The cards that a transition animates now.
+    private var animatingCards: [TerminalPaneCardView] = []
+    /// The card of the closed pane, in the overlay, until it has shrunk.
+    private var closedCard: TerminalPaneCardView?
+    private var transitionGeneration = 0
+    static let transitionDuration: CFTimeInterval = 0.22
 
     init(workspace: TerminalPaneWorkspace, document: TerminalDocument) {
         self.workspace = workspace
         self.document = document
         super.init(frame: .zero)
+        // The transitions convert rectangles through the layer tree.
+        wantsLayer = true
         workspace.hostView = self
         if let fractions = workspace.adoptPendingPaneTree() {
             dividerFractions = fractions
             needsDividerRestore = !fractions.isEmpty
         }
         addSubview(backdropView)
+        transitionOverlay.autoresizingMask = [.width, .height]
+        addSubview(transitionOverlay)
         appearanceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil, queue: .main
@@ -456,9 +524,19 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
+        if newSize != frame.size { stopTransitionAnimations() }
         super.setFrameSize(newSize)
         // A smaller window can have no space for the card decorations.
         updateCardMetrics()
+    }
+
+    override func viewWillDraw() {
+        super.viewWillDraw()
+        // The display pass has attached the layers of the new cards.
+        if let scheduled = scheduledTransition {
+            scheduledTransition = nil
+            runTransition(scheduled.transition, from: scheduled.startFrames)
+        }
     }
 
     override func viewDidMoveToWindow() {
@@ -469,6 +547,7 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
     override func layout() {
         super.layout()
         backdropView.frame = bounds
+        transitionOverlay.frame = bounds
         rootView?.frame = contentFrame
         if needsDividerRestore, !bounds.isEmpty {
             needsDividerRestore = false
@@ -476,13 +555,9 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
         }
     }
 
-    private var rootView: NSView? {
-        subviews.first { $0 !== backdropView }
-    }
-
     private var contentFrame: NSRect {
         guard cardsEnabled else { return bounds }
-        let spacing = GlobalAppearanceSettings.cardSpacing
+        let spacing = appliedPaneStyle.spacing
         return bounds.insetBy(dx: min(spacing, bounds.width / 2), dy: min(spacing, bounds.height / 2))
     }
 
@@ -504,7 +579,7 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
     private func refreshBackdrop() {
         let theme = workspace.focusedController?.effectiveTheme ?? .fallback
         backdropView.update(
-            visible: cardsEnabled,
+            visible: cardsEnabled && appliedPaneStyle.showsDecorations,
             backdrop: workspace.appearanceSettings.paneCardsBackdrop,
             appearance: ResolvedWorkspaceAppearance(theme: theme),
             opacity: workspace.controllers.map(\.effectiveBackgroundOpacity).min() ?? 1
@@ -533,17 +608,29 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
         // The host has no size before its first layout. Use the settings
         // until then, so that a new tree does not change its metrics twice.
         guard !bounds.isEmpty else { return true }
-        let spacing = GlobalAppearanceSettings.cardSpacing * 2
+        let spacing = paneStyle.spacing * 2
         let minimum = minimumContentSize(cards: true)
         return minimum.width + spacing <= bounds.width && minimum.height + spacing <= bounds.height
     }
 
+    /// The pane style in the settings.
+    private var paneStyle: GlobalAppearanceSettings.PaneStyle {
+        workspace.appearanceSettings.paneStyle
+    }
+
     private func updateCardMetrics() {
         let wanted = wantsCards()
-        guard wanted != cardsEnabled else { return }
+        let style = paneStyle
+        guard wanted != cardsEnabled || style != appliedPaneStyle else { return }
+        // The frames change, so the animations have the wrong end values.
+        stopTransitionAnimations()
         saveDividerPositions()
         cardsEnabled = wanted
-        for split in splitViews.values { split.cardsEnabled = wanted }
+        appliedPaneStyle = style
+        for split in splitViews.values {
+            split.cardsEnabled = wanted
+            split.paneStyle = style
+        }
         for card in paneViews.values { card.cardsEnabled = wanted }
         refreshBackdrop()
         workspace.updateWindowTransparency()
@@ -553,6 +640,15 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
 
     private func rebuild() {
         isRebuilding = true
+        let transition = workspace.pendingTransition
+        workspace.pendingTransition = nil
+        // The rebuild discards the cards, so do not restore their appearance.
+        stopTransitionAnimations(restoresCards: false)
+        let startFrames = transition != nil && transitionsAllowed
+            ? (preparedStartFrames ?? currentCardFrames()) : nil
+        let closing = preparedClosedCard
+        preparedStartFrames = nil
+        preparedClosedCard = nil
         saveDividerPositions()
         for transfer in pendingDividerTransfers {
             dividerFractions[transfer.to] = dividerFractions.removeValue(forKey: transfer.from)
@@ -561,7 +657,7 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
         let activeSplitIDs = splitNodeIDs(in: workspace.root)
         dividerFractions = dividerFractions.filter { activeSplitIDs.contains($0.key) }
         if workspace.zoomedControllerID != nil, !paneViews.isEmpty, !splitViews.isEmpty {
-            unzoomedPaneFrames = paneViews.mapValues { $0.convert($0.bounds, to: self) }
+            unzoomedPaneFrames = currentCardFrames()
         }
         // Removing a focused terminal does not always make AppKit resign it.
         // Clear the first responder first so the old pane sends focus-out.
@@ -570,35 +666,216 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
            terminal.isDescendant(of: self) {
             window?.makeFirstResponder(nil)
         }
+        // Move the card of the closed pane to the overlay. Do not call
+        // removeFromSuperview() first: addSubview() alone keeps the terminal
+        // in the window, so that the card continues to show its content.
+        if case .removed(let id, _)? = transition, let closing, let frame = startFrames?[id] {
+            closing.frame = frame
+            closing.autoresizingMask = []
+            transitionOverlay.addSubview(closing)
+            closedCard = closing
+        }
         rootView?.removeFromSuperview()
         paneViews.removeAll()
         splitViews.removeAll()
         // Set the metrics before the new views exist. The old tree then keeps
         // its metrics, and the new tree gets its final layout at once.
         cardsEnabled = wantsCards()
-        let rootView: NSView
+        appliedPaneStyle = paneStyle
+        let newRoot: NSView
         if let zoomedID = workspace.zoomedControllerID,
            let controller = workspace.controllers.first(where: { $0.id == zoomedID }) {
-            rootView = makeTerminalView(for: controller)
+            newRoot = makeTerminalView(for: controller)
         } else {
-            rootView = makeView(for: workspace.root)
+            newRoot = makeView(for: workspace.root)
             needsDividerRestore = !dividerFractions.isEmpty
             unzoomedPaneFrames.removeAll()
         }
-        rootView.frame = contentFrame
-        rootView.autoresizingMask = [.width, .height]
-        addSubview(rootView, positioned: .above, relativeTo: backdropView)
+        newRoot.frame = contentFrame
+        newRoot.autoresizingMask = [.width, .height]
+        addSubview(newRoot, positioned: .above, relativeTo: backdropView)
+        rootView = newRoot
         isRebuilding = false
         refreshAppearance()
         if needsDividerRestore, !bounds.isEmpty {
-            rootView.layoutSubtreeIfNeeded()
+            newRoot.layoutSubtreeIfNeeded()
             restoreDividerPositions(in: workspace.root)
             needsDividerRestore = false
+        }
+        if let transition, let startFrames {
+            // SwiftUI calls this method in the layout pass. Start the
+            // animations in the display pass that follows.
+            scheduledTransition = (transition, startFrames)
+            needsDisplay = true
+            // If the window does not draw in this cycle, do not keep the
+            // card of the closed pane.
+            let generation = transitionGeneration
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.transitionGeneration == generation,
+                      self.scheduledTransition != nil else { return }
+                self.stopTransitionAnimations()
+            }
         }
 
         // Reattaching a terminal view clears AppKit's first responder. Ask
         // for focus after the new split hierarchy is in the window.
         workspace.focusedController?.requestFocus()
+    }
+
+    // MARK: Transitions
+
+    /// Records the card frames before the workspace removes a pane. The
+    /// next rebuild animates from these frames.
+    func prepareRemovalTransition(for controller: TerminalSessionController) {
+        stopTransitionAnimations()
+        preparedStartFrames = currentCardFrames()
+        preparedClosedCard = paneViews[controller.id]
+    }
+
+    /// Forgets a prepared transition and stops the current transition.
+    func cancelTransition() {
+        preparedStartFrames = nil
+        preparedClosedCard = nil
+        stopTransitionAnimations()
+    }
+
+    /// True from the rebuild that starts a transition until the transition
+    /// ends.
+    var isRunningTransition: Bool {
+        scheduledTransition != nil || !animatingCards.isEmpty || closedCard != nil
+    }
+
+    /// False when nobody can see the animation: the window is not on the
+    /// screen (for example, a tab that is not selected), a pane is zoomed,
+    /// or Reduce Motion is on.
+    var transitionsAllowed: Bool {
+        guard let window, window.isVisible, window.occlusionState.contains(.visible) else { return false }
+        return !bounds.isEmpty && workspace.zoomedControllerID == nil
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    private func currentCardFrames() -> [UUID: CGRect] {
+        paneViews.mapValues { $0.convert($0.bounds, to: self) }
+    }
+
+    /// The zero-size rectangle at one edge of a rectangle, in host
+    /// coordinates. The host is not flipped, thus "up" is the maximum Y.
+    static func edgeRect(of rect: CGRect, at edge: TerminalPaneDirection) -> CGRect {
+        switch edge {
+        case .right: CGRect(x: rect.maxX, y: rect.minY, width: 0, height: rect.height)
+        case .left: CGRect(x: rect.minX, y: rect.minY, width: 0, height: rect.height)
+        case .up: CGRect(x: rect.minX, y: rect.maxY, width: rect.width, height: 0)
+        case .down: CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: 0)
+        }
+    }
+
+    /// Animates the cards from their earlier frames to their frames in the
+    /// new tree. Only the layers move: each terminal has its final size
+    /// before the animation starts, so the shell gets one resize.
+    private func runTransition(_ transition: TerminalPaneTransition, from startFrames: [UUID: CGRect]) {
+        var moves: [(card: TerminalPaneCardView, from: CGRect, to: CGRect)] = []
+        for (id, card) in paneViews {
+            let final = card.convert(card.bounds, to: self)
+            let start: CGRect
+            if case .added(let addedID, let edge) = transition, addedID == id {
+                start = Self.edgeRect(of: final, at: edge)
+            } else if let old = startFrames[id] {
+                start = old
+            } else {
+                continue
+            }
+            if start != final { moves.append((card, start, final)) }
+        }
+        if case .removed(let id, let edge) = transition, let closedCard, let old = startFrames[id] {
+            moves.append((closedCard, old, Self.edgeRect(of: old, at: edge)))
+        }
+        guard !moves.isEmpty else {
+            stopTransitionAnimations()
+            return
+        }
+        transitionGeneration += 1
+        let generation = transitionGeneration
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for move in moves { move.card.beginTransition() }
+        CATransaction.commit()
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            MainActor.assumeIsolated { self?.finishTransition(generation) }
+        }
+        for move in moves {
+            animate(move.card, from: move.from, to: move.to, holdsEnd: move.card === closedCard)
+            if move.card !== closedCard { animatingCards.append(move.card) }
+        }
+        CATransaction.commit()
+    }
+
+    /// Adds the animations of one card. The rectangles are in host
+    /// coordinates. The content stays at the size of the view, and its top
+    /// left corner stays at the top left corner of the card.
+    private func animate(_ card: TerminalPaneCardView, from start: CGRect, to end: CGRect, holdsEnd: Bool) {
+        guard let layer = card.layer, let from = layerRect(start, for: card),
+              let to = layerRect(end, for: card) else { return }
+        let size = card.bounds.size
+        let anchor = layer.anchorPoint
+        func position(_ rect: CGRect) -> CGPoint {
+            CGPoint(x: rect.minX + anchor.x * rect.width, y: rect.minY + anchor.y * rect.height)
+        }
+        func bounds(_ rect: CGRect) -> CGRect {
+            CGRect(x: 0, y: card.isFlipped ? 0 : size.height - rect.height, width: rect.width, height: rect.height)
+        }
+        let timing = CAMediaTimingFunction(name: .easeOut)
+        for (key, fromValue, toValue) in [
+            ("position", NSValue(point: position(from)), NSValue(point: position(to))),
+            ("bounds", NSValue(rect: bounds(from)), NSValue(rect: bounds(to)))
+        ] {
+            let animation = CABasicAnimation(keyPath: key)
+            animation.fromValue = fromValue
+            animation.toValue = toValue
+            animation.duration = Self.transitionDuration
+            animation.timingFunction = timing
+            if holdsEnd {
+                animation.fillMode = .forwards
+                animation.isRemovedOnCompletion = false
+            }
+            layer.add(animation, forKey: "paneTransition." + key)
+        }
+    }
+
+    /// Converts a rectangle in host coordinates to the coordinates of the
+    /// frame of the card layer. A view without a layer (NSSplitView) puts
+    /// the layers of its subviews in the layer of the nearest ancestor that
+    /// has a layer. AppKit can attach the layer later, so do not use the
+    /// superlayer. The ancestor layer uses the coordinates of its view.
+    func layerRect(_ rect: CGRect, for card: NSView) -> CGRect? {
+        var ancestor = card.superview
+        while let view = ancestor, view.layer == nil { ancestor = view.superview }
+        guard let ancestor else { return nil }
+        return convert(rect, to: ancestor)
+    }
+
+    private func finishTransition(_ generation: Int) {
+        guard generation == transitionGeneration else { return }
+        stopTransitionAnimations()
+    }
+
+    /// Stops the scheduled transition and the animations. The cards go to
+    /// their final frames, and the card of the closed pane goes away.
+    private func stopTransitionAnimations(restoresCards: Bool = true) {
+        transitionGeneration += 1
+        scheduledTransition = nil
+        for card in animatingCards {
+            card.layer?.removeAnimation(forKey: "paneTransition.position")
+            card.layer?.removeAnimation(forKey: "paneTransition.bounds")
+            if restoresCards { card.endTransition() }
+        }
+        animatingCards.removeAll()
+        if let closedCard {
+            closedCard.layer?.removeAllAnimations()
+            closedCard.removeFromSuperview()
+            self.closedCard = nil
+        }
     }
 
     func selectSplit(in direction: TerminalPaneDirection) {
@@ -633,6 +910,7 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
     }
 
     func equalizeSplits() {
+        stopTransitionAnimations()
         equalizeSplits(in: rootView)
     }
 
@@ -642,6 +920,7 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
               let splitView = nearestSplitView(for: pane, direction: direction) else {
             return
         }
+        stopTransitionAnimations()
 
         let movesAlongHorizontalAxis = direction == .left || direction == .right
         let cellSize = terminalCellSize(for: focused, horizontal: movesAlongHorizontalAxis)
@@ -673,6 +952,7 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
             let splitView = TerminalWorkspaceSplitView(frame: .zero)
             splitView.paneNode = node
             splitView.cardsEnabled = cardsEnabled
+            splitView.paneStyle = appliedPaneStyle
             splitView.isVertical = orientation == .vertical
             splitView.dividerStyle = .thin
             splitView.delegate = self
@@ -829,7 +1109,7 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
         case .split(let orientation, let first, let second):
             let firstSize = minimumSize(of: first, cards: cards)
             let secondSize = minimumSize(of: second, cards: cards)
-            let divider = TerminalWorkspaceSplitView.dividerThickness(cardsEnabled: cards)
+            let divider = TerminalWorkspaceSplitView.dividerThickness(cardsEnabled: cards, style: paneStyle)
             if orientation == .vertical {
                 return NSSize(width: firstSize.width + divider + secondSize.width,
                               height: max(firstSize.height, secondSize.height))
@@ -880,4 +1160,10 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
         guard let limits = dividerLimits(in: splitView) else { return proposedMaximumPosition }
         return max(min(proposedMaximumPosition, limits.upperBound), limits.lowerBound)
     }
+}
+
+/// Shows the card of a closed pane while it shrinks. The closed pane must
+/// not get clicks or focus, so this view and its subviews take no clicks.
+final class TerminalTransitionOverlayView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

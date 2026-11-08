@@ -570,8 +570,11 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     private func closePaneOrWindow() {
-        if workspace?.close(self) == true {
-            return
+        if let workspace {
+            if workspace.close(self) { return }
+            // After a close, the card of this pane can stay in the window
+            // while it shrinks. Close the window only for its last pane.
+            guard workspace.contains(self) else { return }
         }
         surface?.window?.close()
     }
@@ -858,6 +861,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     func requestClose() {
         guard let window = surface?.window else { return }
+        // A pane that the workspace removed is closed already.
+        if let workspace, !workspace.contains(self) { return }
         guard let workspace, workspace.paneCount > 1 else {
             window.performClose(nil)
             return

@@ -318,6 +318,8 @@ struct GeneralSettingsView: View {
     private var paneCardsBackdrop = GlobalAppearanceSettings().paneCardsBackdrop
     @AppStorage(GlobalAppearanceSettings.terminalPaddingKey)
     private var terminalPadding = GlobalAppearanceSettings().terminalPadding
+    @AppStorage(GlobalAppearanceSettings.paneStyleKey)
+    private var paneStyle = GlobalAppearanceSettings().paneStyle
     @EnvironmentObject private var profiles: ProfileStore
     @ObservedObject private var windowGroups: WindowGroupStore
     @AppStorage("newTabsUseCurrentDirectory") private var newTabsUseCurrentDirectory = true
@@ -386,12 +388,19 @@ struct GeneralSettingsView: View {
             }
             Section("Appearance") {
                 Toggle("Show terminal cards", isOn: $paneCardsEnabled)
+                Picker("Pane style:", selection: $paneStyle) {
+                    ForEach(GlobalAppearanceSettings.PaneStyle.allCases, id: \.self) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                .disabled(!paneCardsEnabled)
+                .help("Compact keeps the title bar of each pane, but removes the space and the rounded corners around the panes")
                 Picker("Background:", selection: $paneCardsBackdrop) {
                     ForEach(GlobalAppearanceSettings.Backdrop.allCases, id: \.self) { backdrop in
                         Text(backdrop.title).tag(backdrop)
                     }
                 }
-                .disabled(!paneCardsEnabled)
+                .disabled(!paneCardsEnabled || paneStyle == .compact)
                 Picker("Padding:", selection: $terminalPadding) {
                     ForEach(GlobalAppearanceSettings.TerminalPadding.allCases, id: \.self) { padding in
                         Text(padding.title).tag(padding)

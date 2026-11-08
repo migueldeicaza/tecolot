@@ -22,6 +22,21 @@ struct GlobalAppearanceSettingsTests {
         #expect(Padding(rawValue: "none") == .off)
     }
 
+    @MainActor
+    @Test func paneStyleDefaultsAndMetrics() {
+        typealias Style = GlobalAppearanceSettings.PaneStyle
+        #expect(GlobalAppearanceSettings().paneStyle == .comfortable)
+        // UserDefaults keeps these raw values.
+        #expect(Style.allCases.map(\.rawValue) == ["comfortable", "compact"])
+        #expect(Style(rawValue: "invalid") == nil)
+        #expect(Style.allCases.map(\.showsDecorations) == [true, false])
+        #expect(Style.allCases.map(\.spacing) == [12, 0])
+        #expect(Style.allCases.map(\.cornerRadius) == [14, 0])
+        #expect(TerminalWorkspaceSplitView.dividerThickness(cardsEnabled: true, style: .comfortable) == 12)
+        #expect(TerminalWorkspaceSplitView.dividerThickness(cardsEnabled: true, style: .compact) == 1)
+        #expect(TerminalWorkspaceSplitView.dividerThickness(cardsEnabled: false, style: .comfortable) == 1)
+    }
+
     @Test func topPaddingKeepsTheProgressBarStripWithoutCards() {
         typealias Padding = GlobalAppearanceSettings.TerminalPadding
         #expect(Padding.allCases.map { $0.topPoints(cardsEnabled: false) } == [2, 2, 8, 12])
