@@ -419,7 +419,11 @@ struct PersistentPaneTests {
         // context menu when Allow Mouse Reporting is off.
         let point = NSPoint(x: 20, y: 20)
         let rightClick = try mouseEvent(.rightMouseDown, in: window, at: point)
+        // The menu focuses its pane, as text input services use the
+        // first responder.
+        window.makeFirstResponder(nil)
         #expect(view.menu(for: rightClick) != nil)
+        #expect(window.firstResponder === view)
         session.send(text: "printf '\\033[?1000h'; cat -v\r")
         try await wait("mouse reporting") { session.state.mouseReporting }
         #expect(view.menu(for: rightClick) == nil)

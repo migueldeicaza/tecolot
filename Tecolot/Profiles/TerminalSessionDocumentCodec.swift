@@ -68,8 +68,10 @@ public enum TerminalSessionDocumentCodec {
     }
 
     /// The text that the pane shows for `content`: its last `limit` lines,
-    /// with the control characters (other than line ends) replaced, as
-    /// the file is not trusted.
+    /// with tabs expanded to spaces (8-column stops) and the other control
+    /// characters (other than line ends) replaced, as the file is not
+    /// trusted. The result only has text and line ends, which is what
+    /// `ScrollbackFile.validate` accepts for persistent panes.
     public static func replayText(for content: String, limit: Int) -> String? {
         guard limit > 0 else { return nil }
         // "\r\n" is one Character: split on the scalars.
@@ -77,14 +79,35 @@ public enum TerminalSessionDocumentCodec {
         if lines.last?.isEmpty == true { lines.removeLast() }
         guard !lines.isEmpty else { return nil }
         let printable = lines.suffix(limit).map { line in
-            String(String.UnicodeScalarView(line.compactMap { scalar -> Unicode.Scalar? in
-                if scalar == "\r" { return nil }
-                if scalar == "\t" { return scalar }
-                return scalar.value < 0x20 || (0x7F ... 0x9F).contains(scalar.value) ? "\u{FFFD}" : scalar
-            }))
+            var output = String.UnicodeScalarView()
+            var column = 0
+            for scalar in line {
+                switch scalar {
+                case "\r":
+                    continue
+                case "\t":
+                    let spaces = tabWidth - column % tabWidth
+                    output.append(contentsOf: repeatElement(" ", count: spaces))
+                    column += spaces
+                case _ where scalar.value < 0x20 || (0x7F ... 0x9F).contains(scalar.value):
+                    output.append("\u{FFFD}")
+                    column += 1
+                default:
+                    output.append(scalar)
+                    // Combining marks take no column; this does not
+                    // measure wide characters.
+                    if scalar.properties.generalCategory != .nonspacingMark
+                        && scalar.properties.generalCategory != .enclosingMark {
+                        column += 1
+                    }
+                }
+            }
+            return String(output)
         }
         return printable.joined(separator: "\n") + "\n"
     }
+
+    private static let tabWidth = 8
 
     private static func sourceVersion(in data: Data) throws -> Int {
         guard let object = try? JSONSerialization.jsonObject(with: data),

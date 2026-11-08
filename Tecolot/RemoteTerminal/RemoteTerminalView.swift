@@ -899,6 +899,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         guard event.type == .rightMouseDown
                 || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
               !reportsMouse(event) else { return nil }
+        // Auto Fill and later typing use the active text input client,
+        // and not every menu dispatch goes through rightMouseDown.
+        window?.makeFirstResponder(self)
         return makeContextMenu()
     }
 

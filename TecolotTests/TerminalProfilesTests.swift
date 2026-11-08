@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import SwiftTerm
+import TecolotSessionDirectory
 @testable import Tecolot
 
 final class ProfileColorTests {
@@ -724,9 +725,17 @@ final class TerminalSessionDocumentCodecTests {
     @Test func replayTextKeepsTheLastLinesAndRemovesControls() {
         #expect(TerminalSessionDocumentCodec.replayText(for: "one\ntwo\nthree\n", limit: 2) == "two\nthree\n")
         #expect(TerminalSessionDocumentCodec.replayText(for: "a\u{1B}]52;c;x\u{7}\tb\r\n", limit: 10)
-                == "a\u{FFFD}]52;c;x\u{FFFD}\tb\n")
+                == "a\u{FFFD}]52;c;x\u{FFFD}      b\n")
+        #expect(TerminalSessionDocumentCodec.replayText(for: "\ta\tbc\t\nabcdefgh\tx\n", limit: 10)
+                == "        a       bc      \nabcdefgh        x\n")
         #expect(TerminalSessionDocumentCodec.replayText(for: "text", limit: 0) == nil)
         #expect(TerminalSessionDocumentCodec.replayText(for: "\n", limit: 10) == "\n")
+    }
+
+    /// Persistent panes validate the replay before the helper shows it.
+    @Test func replayTextWithTabsPassesTheScrollbackValidator() throws {
+        let text = try #require(TerminalSessionDocumentCodec.replayText(for: "a\tb\r\n\u{1B}[1mc\n", limit: 10))
+        try ScrollbackFile.validate(text)
     }
 }
 
