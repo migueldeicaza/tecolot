@@ -14,6 +14,7 @@
 //
 
 import AppKit
+import os
 import SwiftTerm
 import TecolotSessionClient
 import TecolotWire
@@ -138,10 +139,31 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         sendGridSize(columns: grid.columns, rows: grid.rows)
     }
 
+    private struct ConnectionDisplay: Equatable {
+        var connected: Bool
+        var exited: Bool
+    }
+
     private func observe(_ session: RemoteSession) {
-        session.onChange = { [weak self] change in
+        // The banner reads the connection and the exit of the session.
+        // Refresh it only when they change, not at each frame.
+        let shownConnection = OSAllocatedUnfairLock<ConnectionDisplay?>(initialState: nil)
+        session.onChange = { [weak self, weak session] change in
             self?.requestRedraw()
-            DispatchQueue.main.async { [weak self] in self?.sessionController?.refreshRemoteConnectionDisplay() }
+            if let session {
+                let state = session.state
+                let display = ConnectionDisplay(connected: state.connected, exited: state.exitStatus != nil)
+                let changed = shownConnection.withLock { shown in
+                    defer { shown = display }
+                    return shown != display
+                }
+                if changed {
+                    DispatchQueue.main.async { [weak self] in self?.sessionController?.refreshRemoteConnectionDisplay() }
+                }
+            }
+            if change.contains(.output) {
+                DispatchQueue.main.async { [weak self] in self?.sessionController?.noteOutputActivity() }
+            }
             if !change.isDisjoint(with: [.geometry, .viewport, .buffer]) {
                 DispatchQueue.main.async { self?.scheduleScrollerUpdate() }
             }
@@ -362,9 +384,20 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
             searchOrigin = origin
             start = origin
         }
+        var from = start
+        if from.column < 0 {
+            // The wire has no column before 0, and the helper takes only a
+            // match after the start. Start at the end of the line above; at
+            // the first line, start at the end of the buffer: the search
+            // wraps to the first line.
+            let end = min(state.columns, 65_535)
+            from = from.line > state.firstLine
+                ? (from.line - 1, end)
+                : (max(state.firstLine, state.endLine - 1), end)
+        }
         searchGeneration += 1
         let generation = searchGeneration
-        session.search(text, options: options, from: (start.line, max(0, start.column))) { result in
+        session.search(text, options: options, from: from) { result in
             DispatchQueue.main.async { [weak self] in
                 guard let self, generation == self.searchGeneration else { return }
                 self.showSearchResult(result)
@@ -1117,10 +1150,33 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 }
 
-extension RemoteTerminalView: TerminalSurface {
+extension RemoteTerminalView: TerminalPaneSurface {
     var gridDimensions: (cols: Int, rows: Int) {
         let grid = gridSize
         return (grid.columns, grid.rows)
+    }
+
+    func applyReset(_ action: ResetAction) {
+        session.reset(action)
+    }
+
+    func runFindAction(_ action: NSTextFinder.Action) {
+        performFind(action)
+    }
+
+    func sendTypedText(_ text: String) {
+        guard remoteInputEnabled else { return }
+        session.send(bytes: Array(text.utf8))
+    }
+
+    func scrollRows(by rows: Int) {
+        session.scroll(by: rows)
+    }
+
+    func jumpToPrompt(upward: Bool) -> Bool {
+        // The helper has the prompt marks; the scroll happens when it answers.
+        scrollToPrompt(upward: upward)
+        return true
     }
 }
 

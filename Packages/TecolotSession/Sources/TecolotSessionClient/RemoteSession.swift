@@ -102,6 +102,9 @@ public struct RemoteSessionChange: OptionSet, Sendable {
     public static let buffer = RemoteSessionChange(rawValue: 1 << 6)
     /// Image pixels arrived, or the Kitty state changed.
     public static let images = RemoteSessionChange(rawValue: 1 << 7)
+    /// A frame changed rows: the session wrote output. A fetch of
+    /// scrollback rows sets only `rows`.
+    public static let output = RemoteSessionChange(rawValue: 1 << 8)
 }
 
 public final class RemoteSession: @unchecked Sendable {
@@ -301,7 +304,9 @@ public final class RemoteSession: @unchecked Sendable {
 
     private func receive(_ data: ImageDataMessage, request: UInt64?) {
         guard let request, imageRequests[request] == data.imageID else { return }
-        guard data.width > 0, data.height > 0 else {
+        // Width 0 means that the helper does not have the image. Refuse a
+        // size that is too large to allocate.
+        guard data.hasAcceptableSize else {
             imageRequests[request] = nil
             partialImages[data.imageID] = nil
             inner.withLock { $0.images.markUnavailable(data.imageID) }
@@ -461,6 +466,9 @@ public final class RemoteSession: @unchecked Sendable {
                     searchRequests.removeValue(forKey: request)?(SearchResultMessage(found: false, problem: problem))
                     promptRequests.removeValue(forKey: request)?(nil)
                     pasteRequests[request] = nil
+                    // Free the slot of a failed row fetch. The next prefetch
+                    // asks for the chunk again.
+                    pendingFetches = pendingFetches.filter { $0.value != request }
                     if let image = imageRequests.removeValue(forKey: request) {
                         partialImages[image] = nil
                         inner.withLock { $0.images.markUnavailable(image) }
@@ -479,6 +487,16 @@ public final class RemoteSession: @unchecked Sendable {
         var change: RemoteSessionChange = []
         var events: [RemoteSessionEvent] = []
         var neededImages: [UInt64] = []
+        // The helper holds the next frame until the ack returns its credit:
+        // send the ack also when the frame does not decode.
+        var acknowledged = false
+        func acknowledge() {
+            guard !acknowledged else { return }
+            acknowledged = true
+            channel.send(FrameAckMessage(sequence: frame.sequence))
+            channel.flushPending()
+        }
+        defer { acknowledge() }
         try inner.withLock { inner in
             if inner.preloaded {
                 // The first frame of the helper replaces the preloaded rows.
@@ -500,7 +518,7 @@ public final class RemoteSession: @unchecked Sendable {
             }
             if !frame.changedRows.isEmpty {
                 let lines = try inner.cache.store(frame.changedRows)
-                change.insert(.rows)
+                change.formUnion([.rows, .output])
                 neededImages = Self.imageIDs(in: inner, lines: lines)
             }
             if let paragraphRows = frame.maximumBidiParagraphRows, paragraphRows != state.maximumBidiParagraphRows {
@@ -559,9 +577,7 @@ public final class RemoteSession: @unchecked Sendable {
             let margin = Int64(state.rows * (prefetchScreens + 1))
             inner.cache.evict(keeping: top - margin ..< top + Int64(state.rows) + margin)
         }
-        // The helper holds the next frame until this ack returns its credit.
-        channel.send(FrameAckMessage(sequence: frame.sequence))
-        channel.flushPending()
+        acknowledge()
         if !neededImages.isEmpty { requestImagesOnQueue(neededImages) }
         for event in events { onEvent?(event) }
         if change.contains(.buffer) || change.contains(.geometry) { prefetch() }
@@ -571,18 +587,27 @@ public final class RemoteSession: @unchecked Sendable {
     private func apply(_ rows: RowsMessage, request: UInt64?) throws {
         var changed = false
         var neededImages: [UInt64] = []
-        try inner.withLock { inner in
-            guard rows.buffer == inner.cache.buffer else { return }
-            let first = inner.state.firstLine
-            let records = rows.records.filter { Int64(clamping: $0.line) >= first }
-            let lines = try inner.cache.store(records)
-            changed = !lines.isEmpty
-            neededImages = Self.imageIDs(in: inner, lines: lines)
+        let finishFetch = {
+            if rows.final, let request {
+                self.pendingFetches = self.pendingFetches.filter { $0.value != request }
+            }
         }
+        do {
+            try inner.withLock { inner in
+                guard rows.buffer == inner.cache.buffer else { return }
+                let first = inner.state.firstLine
+                let records = rows.records.filter { Int64(clamping: $0.line) >= first }
+                let lines = try inner.cache.store(records)
+                changed = !lines.isEmpty
+                neededImages = Self.imageIDs(in: inner, lines: lines)
+            }
+        } catch {
+            // Free the fetch slot also when the rows do not decode.
+            finishFetch()
+            throw error
+        }
+        finishFetch()
         if !neededImages.isEmpty { requestImagesOnQueue(neededImages) }
-        if rows.final, let request {
-            pendingFetches = pendingFetches.filter { $0.value != request }
-        }
         if changed { onChange?(.rows) }
         if rows.final { prefetch() }
     }

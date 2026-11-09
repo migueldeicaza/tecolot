@@ -114,6 +114,13 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// A restored persistent pane whose session ended starts a new session
     /// from this.
     @ObservationIgnored var pendingSessionRestore: PaneRestoration?
+    /// The saved state that a pane of a restored tab came from. A pane that
+    /// never gets a view (a hidden pane of a tab that comes back zoomed)
+    /// saves this state again at quit.
+    @ObservationIgnored private(set) var presetRestoration: PaneRestoration?
+    /// The saved text file of a restored local pane, until its shell starts.
+    @ObservationIgnored var restoredTextFile: Data?
+    var hasStartedShell: Bool { didStartProcess }
     /// The session of a restored remote pane. When it ended, the bridge
     /// starts a new session from its saved state.
     @ObservationIgnored var remoteRestoreSessionID: String?
@@ -141,7 +148,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     private(set) var hasActivity = false
 
     /// The terminal view of this pane, local or persistent.
-    var surface: (NSView & TerminalSurface)? {
+    var surface: (NSView & TerminalPaneSurface)? {
         terminal ?? persistentView
     }
 
@@ -209,6 +216,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     func presetRestore(_ restoration: PaneRestoration) {
         guard !didResolveLaunch else { return }
         didResolveLaunch = true
+        presetRestoration = restoration
         let pane = restoration.pane
         profile = pane.profileID.flatMap { AppModel.shared.profiles.profile(withID: $0) }
             ?? AppModel.shared.profiles.defaultProfile
@@ -368,11 +376,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if newOpacity < 1.0 {
             updateWindowTransparency()
         }
-        if let terminal {
-            terminal.backgroundOpacity = CGFloat(newOpacity)
-        } else {
-            persistentView?.backgroundOpacity = CGFloat(newOpacity)
-        }
+        surface.backgroundOpacity = CGFloat(newOpacity)
         (surface.superview as? TerminalSessionContainerView)?.updatePaddingColor()
         surface.requestRedraw()
         if newOpacity >= 1.0 {
@@ -416,7 +420,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     @MainActor
-    func makeTerminalView(document: TerminalDocument) -> NSView & TerminalSurface {
+    func makeTerminalView(document: TerminalDocument) -> NSView & TerminalPaneSurface {
         if let terminal {
             terminal.removeFromSuperview()
             attach(to: terminal)
@@ -592,41 +596,22 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     func exportBuffer() {
-        if let persistentView {
-            persistentView.bufferText { [weak self] text in
-                self?.saveData { Data(text.utf8) }
-            }
-            return
-        }
-        saveData {
-            self.terminal?.getBufferAsData() ?? Data()
+        surface?.bufferText { [weak self] text in
+            self?.saveData { Data(text.utf8) }
         }
     }
 
     func exportSelection() {
-        if let persistentView {
-            persistentView.selectedText { [weak self] text in
-                guard let text else { return }
-                self?.saveData { Data(text.utf8) }
-            }
-            return
-        }
-        saveData {
-            guard let selection = self.terminal?.getSelection() else { return Data() }
-            return selection.data(using: .utf8) ?? Data()
+        surface?.selectedText { [weak self] text in
+            guard let text else { return }
+            self?.saveData { Data(text.utf8) }
         }
     }
 
     func printBuffer() {
-        if let persistentView {
-            persistentView.bufferText { [weak self] text in
-                self?.printText(text)
-            }
-            return
+        surface?.bufferText { [weak self] text in
+            self?.printText(text)
         }
-        guard let data = terminal?.getBufferAsData(),
-              let text = String(data: data, encoding: .utf8) else { return }
-        printText(text)
     }
 
     private func printText(_ text: String) {
@@ -655,91 +640,44 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     private func scrollToPrompt(searchingUpward: Bool) -> Bool {
-        if let persistentView {
-            // The helper has the prompt marks; the scroll happens when it answers.
-            persistentView.scrollToPrompt(upward: searchingUpward)
-            return true
-        }
-        guard let view = terminal else { return false }
-        let row = searchingUpward
-            ? view.previousSemanticPromptRow()
-            : view.nextSemanticPromptRow()
-        guard let row else { return false }
-        view.scrollTo(row: row)
-        return true
+        surface?.jumpToPrompt(upward: searchingUpward) ?? false
     }
 
     func softReset() {
-        if let persistentView {
-            persistentView.session.reset(.soft)
-            return
-        }
-        terminal?.softReset()
+        surface?.applyReset(.soft)
     }
 
     func hardReset() {
-        if let persistentView {
-            persistentView.session.reset(.hard)
-            return
-        }
-        terminal?.resetToInitialState()
+        surface?.applyReset(.hard)
     }
 
     /// Clears the screen and the scrollback without sending data to the program.
     func clearToStart() {
-        if let persistentView {
-            persistentView.session.reset(.clearToStart)
-            return
-        }
-        guard let terminal else { return }
-        TerminalClearAction.perform(on: terminal)
+        surface?.applyReset(.clearToStart)
     }
 
     /// Runs a Find menu action in this pane.
     func performFind(_ action: NSTextFinder.Action) {
-        if let persistentView {
-            persistentView.performFind(action)
-            return
-        }
-        let item = NSMenuItem()
-        item.tag = action.rawValue
-        terminal?.performTextFinderAction(item)
+        surface?.runFindAction(action)
     }
 
     /// Sends text to the program as if the user typed it.
     func sendLiteralText(_ text: String) {
-        if let persistentView {
-            guard persistentView.remoteInputEnabled else { return }
-            persistentView.session.send(bytes: Array(text.utf8))
-            return
-        }
-        terminal?.send(txt: text)
+        surface?.sendTypedText(text)
     }
 
     var allowMouseReporting: Bool {
-        get { terminal?.allowMouseReporting ?? persistentView?.allowMouseReporting ?? false }
-        set {
-            if let persistentView {
-                persistentView.allowMouseReporting = newValue
-                return
-            }
-            terminal?.allowMouseReporting = newValue
-        }
+        get { surface?.allowMouseReporting ?? false }
+        set { surface?.allowMouseReporting = newValue }
     }
 
     var optionAsMetaKey: Bool {
-        get { terminal?.optionAsMetaKey ?? persistentView?.optionAsMetaKey ?? false }
-        set {
-            if let persistentView {
-                persistentView.optionAsMetaKey = newValue
-                return
-            }
-            terminal?.optionAsMetaKey = newValue
-        }
+        get { surface?.optionAsMetaKey ?? false }
+        set { surface?.optionAsMetaKey = newValue }
     }
 
     var useMetalRenderer: Bool {
-        get { persistentView?.isUsingMetalRenderer ?? terminal?.isUsingMetalRenderer ?? false }
+        get { surface?.isUsingMetalRenderer ?? false }
         set {
             UserDefaults.standard.set(newValue, forKey: "useMetalRenderer")
             TerminalSessionRegistry.shared.setUseMetalRenderer(newValue)
@@ -747,34 +685,21 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     func setUseMetalRenderer(_ enabled: Bool) {
-        if let persistentView {
-            do {
-                try persistentView.setUseMetal(enabled)
-            } catch {
-                print("METAL TOGGLE FAILED: \(error)")
-            }
-            persistentView.requestRedraw()
-            return
-        }
-        guard let terminal else { return }
+        guard let surface else { return }
         do {
-            try terminal.setUseMetal(enabled)
+            try surface.setUseMetal(enabled)
         } catch {
             print("METAL TOGGLE FAILED: \(error)")
         }
-        terminal.requestRedraw()
+        surface.requestRedraw()
     }
 
     var usePerFrameMetalBuffering: Bool {
-        get { (persistentView?.metalBufferingMode ?? terminal?.metalBufferingMode) == .perFrameAggregated }
+        get { surface?.metalBufferingMode == .perFrameAggregated }
         set {
-            if let persistentView {
-                persistentView.metalBufferingMode = newValue ? .perFrameAggregated : .perRowPersistent
-                return
-            }
-            guard let terminal else { return }
-            terminal.metalBufferingMode = newValue ? .perFrameAggregated : .perRowPersistent
-            terminal.requestRedraw()
+            guard let surface else { return }
+            surface.metalBufferingMode = newValue ? .perFrameAggregated : .perRowPersistent
+            surface.requestRedraw()
         }
     }
 
@@ -790,18 +715,13 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         surface?.selectionActive ?? false
     }
 
-    /// The font of the pane's view, local or persistent.
-    private var surfaceFont: NSFont? {
-        terminal?.font ?? persistentView?.font
-    }
-
     func biggerFont() {
-        guard let size = surfaceFont?.pointSize, size < 72 else { return }
+        guard let size = surface?.font.pointSize, size < 72 else { return }
         setFontSize(size + 1)
     }
 
     func smallerFont() {
-        guard let size = surfaceFont?.pointSize, size > 5 else { return }
+        guard let size = surface?.font.pointSize, size > 5 else { return }
         setFontSize(size - 1)
     }
 
@@ -813,13 +733,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// Changes only the size, keeping the profile's font family. A
     /// persistent view sends its new grid size to the helper.
     private func setFontSize(_ size: CGFloat) {
-        if let persistentView {
-            if size != CGFloat(profile.fontSize) { persistentFontSize = size }
-            persistentView.font = Self.font(persistentView.font, size: size)
-            return
-        }
-        guard let terminal else { return }
-        terminal.font = Self.font(terminal.font, size: size)
+        guard let surface else { return }
+        if persistentView != nil, size != CGFloat(profile.fontSize) { persistentFontSize = size }
+        surface.font = Self.font(surface.font, size: size)
     }
 
     private static func font(_ font: NSFont, size: CGFloat) -> NSFont {
@@ -964,22 +880,11 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     private func sendBindingText(_ text: String) {
-        if let persistentView {
-            guard persistentView.remoteInputEnabled else { return }
-            persistentView.session.send(bytes: Array(text.utf8))
-        } else {
-            terminal?.send(txt: text)
-        }
+        surface?.sendTypedText(text)
     }
 
     private func scroll(by rows: Int) {
-        if let persistentView {
-            persistentView.session.scroll(by: rows)
-            return
-        }
-        guard let terminal else { return }
-        let state = terminal.terminalStateSnapshot()
-        terminal.scrollTo(row: max(0, state.viewportRow + rows))
+        surface?.scrollRows(by: rows)
     }
 
     private func terminalModifiers(for flags: NSEvent.ModifierFlags) -> TerminalKeyModifiers {
@@ -1157,6 +1062,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return
         }
         didStartProcess = true
+        restoredTextFile = nil
 
         restoreBufferIfNeeded(on: terminal)
 
@@ -2283,6 +2189,14 @@ final class TerminalSessionRegistry {
         }
     }
 
+    /// The registered panes of `window` and the panes of its workspace.
+    func allControllers(for window: NSWindow?) -> [TerminalSessionController] {
+        let registered = controllers(for: window)
+        let ids = Set(registered.map(ObjectIdentifier.init))
+        let hidden = (workspace(for: window)?.controllers ?? []).filter { !ids.contains(ObjectIdentifier($0)) }
+        return registered + hidden
+    }
+
     func workspace(for window: NSWindow?) -> TerminalPaneWorkspace? {
         controller(for: window)?.workspace
     }
@@ -2297,9 +2211,12 @@ final class TerminalSessionRegistry {
     /// will use: a pane that waits for its window has not attached yet, and
     /// a pane whose session ended starts again from its saved state.
     func persistentSessionIDsInUse(destination: String? = nil) -> Set<String> {
-        Set(NSApp.windows.flatMap { controllers(for: $0) }
+        // A hidden pane of a restored zoomed tab has no view, so it is not
+        // registered: read the panes of the workspaces too.
+        Set(NSApp.windows.flatMap { allControllers(for: $0) }
             .filter { $0.remoteDestination == destination }
-            .flatMap { [$0.persistentSessionID, $0.remoteRestoreSessionID, $0.remotePendingRestore].compactMap { $0 } })
+            .flatMap { [$0.persistentSessionID, $0.remoteRestoreSessionID, $0.remotePendingRestore,
+                        $0.unshownRestoreSessionID].compactMap { $0 } })
     }
 
     /// The pane that shows the persistent session `id`, if any.

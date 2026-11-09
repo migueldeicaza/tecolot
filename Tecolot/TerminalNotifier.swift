@@ -154,9 +154,13 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
 /// got while no client was attached.
 @MainActor
 final class DetachedSessionNotifications {
-    static let shared = DetachedSessionNotifications()
+    static let shared = DetachedSessionNotifications(backgroundList: directoryList())
 
     private let list: @MainActor () -> [SessionRecord]
+    /// Lists the records off the main thread for the checks that directory
+    /// events start: a list reads and decodes each record and checks each
+    /// helper process.
+    private let backgroundList: (@Sendable () -> [SessionRecord])?
     private let post: @MainActor (SessionNotification, SessionRecord) -> Void
     /// The serial of the last notification of each session.
     private var seen: [String: UInt64] = [:]
@@ -164,10 +168,12 @@ final class DetachedSessionNotifications {
     private var checkScheduled = false
 
     init(list: @escaping @MainActor () -> [SessionRecord] = { PersistentSessions.list() },
+         backgroundList: (@Sendable () -> [SessionRecord])? = nil,
          post: @escaping @MainActor (SessionNotification, SessionRecord) -> Void = {
              TerminalNotifier.shared.notify($0, session: $1)
          }) {
         self.list = list
+        self.backgroundList = backgroundList
         self.post = post
     }
 
@@ -196,9 +202,18 @@ final class DetachedSessionNotifications {
         }
     }
 
+    /// Lists the session directory on the calling thread.
+    static func directoryList() -> (@Sendable () -> [SessionRecord])? {
+        guard let directory = try? PersistentSessions.directory() else { return nil }
+        return { directory.list() }
+    }
+
     /// Shows the notifications that came since the last check.
     func check() {
-        let records = list()
+        show(list())
+    }
+
+    private func show(_ records: [SessionRecord]) {
         for record in records {
             guard let notification = record.notification, notification.serial > seen[record.id] ?? 0 else { continue }
             seen[record.id] = notification.serial
@@ -212,10 +227,22 @@ final class DetachedSessionNotifications {
     private func scheduleCheck() {
         guard !checkScheduled else { return }
         checkScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-            MainActor.assumeIsolated {
-                self?.checkScheduled = false
-                self?.check()
+        guard let backgroundList else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.checkScheduled = false
+                    self?.check()
+                }
+            }
+            return
+        }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            let records = backgroundList()
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.checkScheduled = false
+                    self?.show(records)
+                }
             }
         }
     }

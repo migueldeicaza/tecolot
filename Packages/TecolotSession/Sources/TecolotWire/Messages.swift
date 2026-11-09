@@ -1331,7 +1331,14 @@ public struct ImageDataMessage: WireMessage, Hashable {
         self.bytes = bytes
     }
 
+    /// The largest image (in pixels) that a client accepts: 8192 x 8192, 256 MiB of RGBA.
+    public static let maximumPixels = 8192 * 8192
+
     public var totalBytes: Int { width * height * 4 }
+    /// True when the size is in the range that a client accepts.
+    public var hasAcceptableSize: Bool {
+        width > 0 && height > 0 && width * height <= Self.maximumPixels
+    }
     public var isLast: Bool { offset + bytes.count >= totalBytes }
 
     public init(from reader: inout WireReader) throws(WireError) {

@@ -132,7 +132,14 @@ final class RemoteHosts {
                 }.value
                 guard !stopped else { throw CocoaError(.userCancelled) }
                 let key = resolved.hostKey + " " + resolved.destination
-                if let link = links[key] { completion(.success(link)); return }
+                if let link = links[key] {
+                    // A new pane is a new try: a link that failed connects
+                    // again (as Retry does) before the pane opens on it.
+                    // The link queue runs the two in order.
+                    if case .failed = link.state { link.reconnectNow() }
+                    completion(.success(link))
+                    return
+                }
                 let link = registry.link(configuration: resolved, hostConfiguration: configuration,
                                          askpassServer: prepared.askpass)
                 installCallbacks(on: link)

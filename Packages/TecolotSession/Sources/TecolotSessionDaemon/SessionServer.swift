@@ -47,7 +47,8 @@ public final class SessionServer: @unchecked Sendable {
         let launch = try JSONDecoder().decode(SessionLaunch.self, from: data)
         host = SessionHost(id: id, launch: launch, build: build)
         record = SessionRecord(id: id, pid: getpid(), shellPID: 0, protocolVersion: SessionProtocol.version,
-                               build: build, createdAt: Date(), executable: launch.executable,
+                               build: build, createdAt: SessionDirectory.processStartTime(getpid()) ?? Date(),
+                               executable: launch.executable,
                                workingDirectory: launch.workingDirectory, labels: launch.labels,
                                columns: launch.columns, rows: launch.rows)
         if let linger = ProcessInfo.processInfo.environment["TECOLOT_EXITED_LINGER"].flatMap(TimeInterval.init) {
@@ -58,19 +59,44 @@ public final class SessionServer: @unchecked Sendable {
     /// Starts the child, listens and publishes the record. Reports the
     /// outcome on `readyFD` ("ready <pid>" or "error <message>").
     public func start(readyFD: Int32?) throws {
-        do {
-            try host.start()
-            let listener = try SocketListener(path: directory.socketPath(for: id), queue: host.queue) { [host] fd in
-                host.accept(socket: fd)
+        // Set the callbacks before the child starts: a child that exits at
+        // once must still mark the record as exited.
+        installHostCallbacks()
+        // The host queue reads and writes `record` from the callbacks. Do
+        // the start on that queue so that the two never overlap.
+        let started: Result<Void, Error> = host.queue.sync {
+            do {
+                try host.start()
+                let listener = try SocketListener(path: directory.socketPath(for: id), queue: host.queue) { [host] fd in
+                    host.accept(socket: fd)
+                }
+                self.listener = listener
+                record.shellPID = host.shellPID
+                try directory.writeRecord(record)
+                listener.start()
+                installSignalHandlers()
+                let upkeep = DispatchSource.makeTimerSource(queue: host.queue)
+                upkeep.schedule(deadline: .now() + .seconds(3600), repeating: .seconds(3600))
+                upkeep.setEventHandler { [weak self] in self?.touchFiles() }
+                upkeepTimer = upkeep
+                upkeep.resume()
+                return .success(())
+            } catch {
+                return .failure(error)
             }
-            self.listener = listener
-            record.shellPID = host.shellPID
-            try directory.writeRecord(record)
-            listener.start()
-        } catch {
+        }
+        if case .failure(let error) = started {
             Self.report(readyFD, "error \(error)")
             throw error
         }
+        if !Self.report(readyFD, "ready \(getpid())") {
+            // The process that started us stopped waiting (it timed out or
+            // ended). No pane will show this session: end it.
+            host.queue.async { [weak self] in self?.shutdown() }
+        }
+    }
+
+    private func installHostCallbacks() {
         host.onMetadataChange = { [weak self] title, directory in
             guard let self else { return }
             record.title = title
@@ -117,13 +143,6 @@ public final class SessionServer: @unchecked Sendable {
             writeRecordNow()
             exitWhenAppropriate()
         }
-        installSignalHandlers()
-        let upkeep = DispatchSource.makeTimerSource(queue: host.queue)
-        upkeep.schedule(deadline: .now() + .seconds(3600), repeating: .seconds(3600))
-        upkeep.setEventHandler { [weak self] in self?.touchFiles() }
-        upkeepTimer = upkeep
-        upkeep.resume()
-        Self.report(readyFD, "ready \(getpid())")
     }
 
     /// Runs the dispatch main loop forever.
@@ -256,11 +275,15 @@ public final class SessionServer: @unchecked Sendable {
         host.queue.async { exit(0) }
     }
 
-    static func report(_ fd: Int32?, _ message: String) {
-        guard let fd, fd >= 0 else { return }
+    /// Writes `message` to `fd` and closes it. Returns false when the
+    /// reader is gone (the write fails).
+    @discardableResult
+    static func report(_ fd: Int32?, _ message: String) -> Bool {
+        guard let fd, fd >= 0 else { return true }
         UnixSocket.setNoSignalOnBrokenPipe(fd)
         let line = Array((message + "\n").utf8)
-        _ = line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+        let written = line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
         close(fd)
+        return written == line.count
     }
 }

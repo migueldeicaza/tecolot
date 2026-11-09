@@ -316,6 +316,54 @@ struct RestoreStoreTests {
         }
     }
 
+    /// A tab that comes back zoomed makes a view only for the zoomed pane.
+    /// The hidden panes did not start: a save keeps the state that they
+    /// came from (their text and their session), not nothing.
+    @Test func hiddenPanesOfAZoomedTabKeepTheirState() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try DurableStateDirectory.makePrivateDirectory(directory)
+        let shown = pane(.local)
+        let hidden = pane(.local)
+        let persistent = pane(.persistent, session: "zoomed1")
+        let header = ScrollbackHeader(paneID: hidden.id.uuidString, savedAt: Date(), columns: 80, rows: 1)
+        let rows = [ScrollbackRow(isWrapped: false, cells: "hidden text".utf8.map { WireCell(.ascii($0)) })]
+        let file = try ScrollbackFile.encode(rows, header: header)
+        let textURL = directory.appendingPathComponent("hidden.text")
+        try file.write(to: textURL)
+        let root = RestorePaneNode.split(.vertical, fraction: 0.5, first: .pane(shown),
+                                         second: .split(.horizontal, fraction: 0.5, first: .pane(hidden),
+                                                        second: .pane(persistent)))
+        func restoration(_ pane: RestorePane, text: URL? = nil, running: Bool = false) -> PaneRestoration {
+            PaneRestoration(pane: pane, savedAt: Date(), macRestarted: false, textURL: text, sessionRunning: running)
+        }
+        var spec = LaunchSpec()
+        spec.restoredTab = RestoredTab(tab: RestoreTab(focusedPaneID: shown.id, zoomedPaneID: shown.id, root: root),
+                                       panes: [shown.id: restoration(shown),
+                                               hidden.id: restoration(hidden, text: textURL),
+                                               persistent.id: restoration(persistent, running: true)])
+        AppModel.shared.setPendingLaunch(spec)
+        let workspace = TerminalPaneWorkspace()
+        let (hostView, window) = host(workspace)
+        defer { workspace.terminateAll(); window.close() }
+        #expect(workspace.zoomedControllerID == shown.id)
+        let hiddenController = try #require(workspace.controllers.first { $0.id == hidden.id })
+        let persistentController = try #require(workspace.controllers.first { $0.id == persistent.id })
+        #expect(hiddenController.isUnshownRestoredPane && persistentController.isUnshownRestoredPane)
+        try await wait("the hidden text") { hiddenController.restoredTextFile != nil }
+
+        var texts: [ScrollbackSnapshot.Pending] = []
+        var caches: [RemoteRowCopy] = []
+        let captured = try #require(RestoreStore.capture(workspace.root, hostView: hostView, limit: 1_000,
+                                                         texts: &texts, caches: &caches))
+        #expect(Set(captured.panes.map(\.id)) == [shown.id, hidden.id, persistent.id])
+        #expect(captured.panes.first { $0.id == persistent.id }?.sessionID == "zoomed1")
+        let hiddenText = try #require(texts.first { $0.paneID == hidden.id })
+        #expect(hiddenText.encode(savedAt: Date()) == file)
+        // Another window cannot attach the session of the hidden pane.
+        #expect(TerminalSessionRegistry.shared.persistentSessionIDsInUse().contains("zoomed1"))
+    }
+
     /// A split of persistent panes is captured and rebuilt with the same sessions.
     @Test func splitLayoutIsCapturedAndRestored() async throws {
         let states = temporaryDirectory()

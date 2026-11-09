@@ -600,10 +600,18 @@ final class RestoreStore {
     /// Reads and deletes the scrollback file of a local pane. Runs on a
     /// background task. A file that does not decode is deleted and reported.
     nonisolated static func takeText(at url: URL) -> (header: ScrollbackHeader, text: String)? {
+        takeTextFile(at: url)?.decoded
+    }
+
+    /// Reads and deletes the text file of a local pane. Returns the bytes
+    /// of the file too, so that a pane that does not start can save them
+    /// again. A file that does not decode is reported.
+    nonisolated static func takeTextFile(at url: URL)
+        -> (data: Data, decoded: (header: ScrollbackHeader, text: String))? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         try? FileManager.default.removeItem(at: url)
         do {
-            return try ScrollbackFile.decode(data)
+            return (data, try ScrollbackFile.decode(data))
         } catch {
             reportInvalidFile(url, error: error, supportedVersion: ScrollbackHeader.currentVersion)
             return nil

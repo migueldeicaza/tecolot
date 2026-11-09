@@ -61,6 +61,33 @@ final class EventLog: @unchecked Sendable {
     }
 }
 
+final class Inbox: Sendable {
+    let items = Mutex<[Envelope]>([])
+    var all: [Envelope] { items.withLock { $0 } }
+}
+
+/// A helper that answers Hello, keeps what the client sends and passes
+/// each message to `handle`.
+func fakeHelper(_ handle: @escaping @Sendable (Envelope, MessageChannel) -> Void) throws
+    -> (MessageChannel, Inbox, RemoteSession) {
+    var fds: [Int32] = [0, 0]
+    guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else { throw POSIXError(.EIO) }
+    let helper = MessageChannel(readFD: fds[1], writeFD: fds[1])
+    let received = Inbox()
+    helper.onMessage = { [unowned helper] envelope in
+        received.items.withLock { $0.append(envelope) }
+        if envelope.kind == .hello {
+            helper.send(HelloReplyMessage(version: SessionProtocol.version, build: "fake", capabilities: [],
+                                          sessionID: "fake"), requestID: envelope.requestID)
+        }
+        handle(envelope, helper)
+    }
+    helper.start()
+    let session = RemoteSession(socket: fds[0], clientName: "test", build: "test")
+    session.start(size: WireGridSize(columns: 40, rows: 10), focused: true)
+    return (helper, received, session)
+}
+
 struct RemoteSessionTests {
     /// A restored pane preloads its saved rows into the session that it
     /// opens. The rows can have the versions of the helper's rows, so the
@@ -293,6 +320,57 @@ struct RemoteSessionTests {
         #expect(result.withLock { $0 }?.problem.isEmpty == false)
         session.close()
         old.close()
+    }
+
+    /// A frame whose row does not decode still returns its credit: the
+    /// helper holds the next frame until the ack comes.
+    @Test func frameWithABadRowIsAcknowledged() async throws {
+        let (helper, received, session) = try fakeHelper { _, _ in }
+        try await eventually("attached") { session.state.connected }
+        helper.send(FrameMessage(sequence: 7, snapshotSequence: 7, buffer: .normal, epoch: 1, firstLine: 0,
+                                 endLine: 10, viewTop: 0, columns: 40, rows: 10,
+                                 cursor: WireCursor(line: 0, column: 0, visible: true, blink: false, style: 0),
+                                 changedRows: [WireRowRecord(line: 0, payload: [0xFF, 0xFF, 0xFF])]))
+        try await eventually("frame ack") {
+            received.all.contains { envelope in
+                envelope.kind == .frameAck && (try? envelope.decode(FrameAckMessage.self))?.sequence == 7
+            }
+        }
+        session.close()
+        helper.close()
+    }
+
+    /// An error reply to a row fetch frees its slot, so that later fetches
+    /// go out.
+    @Test func failedFetchFreesItsSlot() async throws {
+        let (helper, received, session) = try fakeHelper { envelope, helper in
+            guard envelope.kind == .fetchRows else { return }
+            helper.send(ErrorMessage(code: .badRequest, failedKind: envelope.kind, message: "no"),
+                        requestID: envelope.requestID)
+        }
+        try await eventually("attached") { session.state.connected }
+        let fetches = { received.all.filter { $0.kind == .fetchRows }.count }
+        helper.send(FrameMessage(sequence: 1, snapshotSequence: 1, buffer: .normal, epoch: 1, firstLine: 0,
+                                 endLine: 5000, viewTop: 4990, columns: 40, rows: 10,
+                                 cursor: WireCursor(line: 4990, column: 0, visible: true, blink: false, style: 0)))
+        try await eventually("first fetches") { fetches() > 0 }
+        // Each scroll to a new place fetches a new chunk. Without a free
+        // slot for each failed fetch, the fifth place gets no fetch.
+        for top in stride(from: Int64(0), through: 4000, by: 1000) {
+            // Let the error replies arrive.
+            try await Task.sleep(nanoseconds: 100_000_000)
+            let before = fetches()
+            _ = session.scroll(toTop: top)
+            try await eventually("fetch at \(top)") { fetches() > before }
+        }
+        session.close()
+        helper.close()
+    }
+
+    @Test func oversizedImagesAreRefused() {
+        #expect(ImageDataMessage(imageID: 1, width: 8192, height: 8192).hasAcceptableSize)
+        #expect(!ImageDataMessage(imageID: 1, width: 65_535, height: 65_535).hasAcceptableSize)
+        #expect(!ImageDataMessage(imageID: 1, width: 0, height: 10).hasAcceptableSize)
     }
 
     @Test func imagesArriveWithoutAsking() async throws {

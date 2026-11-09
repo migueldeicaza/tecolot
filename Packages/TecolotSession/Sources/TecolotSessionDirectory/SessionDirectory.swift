@@ -143,11 +143,12 @@ public struct SessionDirectory: Sendable {
     /// later. Send a signal to a record's PID only when this is true.
     public static func isHelperRunning(_ record: SessionRecord) -> Bool {
         guard kill(record.pid, 0) == 0, let started = processStartTime(record.pid) else { return false }
-        // The helper creates the record just after it starts. The record keeps whole seconds.
+        // The helper records its own process start time. The record keeps whole seconds.
         return started <= record.createdAt.addingTimeInterval(5)
     }
 
-    static func processStartTime(_ pid: Int32) -> Date? {
+    /// The time the process `pid` started, or nil when it does not run.
+    public static func processStartTime(_ pid: Int32) -> Date? {
         #if canImport(Darwin)
         var info = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
@@ -254,7 +255,16 @@ public struct SessionDirectory: Sendable {
         var status: Int32 = 0
         _ = waitpid(pid, &status, 0)
 
-        let line = try Self.readLine(pipeFDs[0], timeout: timeout)
+        let line: String
+        do {
+            line = try Self.readLine(pipeFDs[0], timeout: timeout)
+        } catch {
+            // A helper that did not read the launch file yet fails to start.
+            // A helper that did read it finds the pipe closed when it reports
+            // and ends the session.
+            unlink(launchPath)
+            throw error
+        }
         if line.hasPrefix("ready") {
             if let record = readRecord(id) { return record }
             throw SessionDirectoryError.helperFailed("no metadata for \(id)")
