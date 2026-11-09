@@ -176,6 +176,9 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     // MARK: Advanced
     /// Accept links set by terminal programs with OSC 8.
     public var linkOsc8: Bool
+    /// Answer DECRQCRA screen checksum requests. Programs can use these
+    /// requests to read the text on the screen, so the default is false.
+    public var screenChecksumReports: Bool
     /// Value for the TERM environment variable
     public var termName: String
     /// Value for TERM_PROGRAM when TERM is xterm-ghostty
@@ -213,6 +216,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.hidePointerWhileTyping = defaults.hidePointerWhileTyping
         self.keyBindings = defaults.keyBindings
         self.linkOsc8 = defaults.linkOsc8
+        self.screenChecksumReports = defaults.screenChecksumReports
         self.termName = defaults.termName
         self.termProgram = defaults.termProgram
         self.termVersion = defaults.termVersion
@@ -265,7 +269,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
                                 titleOverride: String?, titleComponents: Set<TerminalTitleComponent>, shell: ShellCommand,
                                 whenShellExits: ShellExitBehavior, askBeforeClosing: AskBeforeClosing,
                                 optionAsMetaKey: Bool, backspaceSendsControlH: Bool,
-                                hidePointerWhileTyping: Bool, linkOsc8: Bool, termName: String,
+                                hidePointerWhileTyping: Bool, linkOsc8: Bool,
+                                screenChecksumReports: Bool, termName: String,
                                 termProgram: String, termVersion: String,
                                 environmentVariables: [TerminalEnvironmentVariable], bellStyle: BellStyle,
                                 keyBindings: [TerminalKeyBinding]) {
@@ -277,7 +282,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
          titleOverride: nil, titleComponents: [.activeTitle, .workingDirectory], shell: .loginShell,
          whenShellExits: .closeIfExitedCleanly, askBeforeClosing: .onlyIfProcessesRunning,
          optionAsMetaKey: true, backspaceSendsControlH: false, hidePointerWhileTyping: true,
-         linkOsc8: true, termName: "xterm-256color",
+         linkOsc8: true, screenChecksumReports: false, termName: "xterm-256color",
          termProgram: "ghostty", termVersion: "1.3.1",
          environmentVariables: [], bellStyle: .sound, keyBindings: [])
     }
@@ -290,7 +295,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         case columns, rows, scrollbackLines, titleOverride, titleComponents
         case shell, whenShellExits, askBeforeClosing
         case optionAsMetaKey, backspaceSendsControlH, hidePointerWhileTyping, keyBindings
-        case linkOsc8, termName, termProgram, termVersion
+        case linkOsc8, screenChecksumReports, termName, termProgram, termVersion
         case environmentVariables, bellStyle
     }
 
@@ -347,6 +352,10 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         ) ?? defaults.hidePointerWhileTyping
         self.keyBindings = try c.decodeIfPresent ([TerminalKeyBinding].self, forKey: .keyBindings) ?? defaults.keyBindings
         self.linkOsc8 = try c.decodeIfPresent(Bool.self, forKey: .linkOsc8) ?? defaults.linkOsc8
+        self.screenChecksumReports = try c.decodeIfPresent(
+            Bool.self,
+            forKey: .screenChecksumReports
+        ) ?? defaults.screenChecksumReports
         self.termName = try c.decodeIfPresent (String.self, forKey: .termName) ?? defaults.termName
         self.termProgram = try c.decodeIfPresent(String.self, forKey: .termProgram) ?? defaults.termProgram
         self.termVersion = try c.decodeIfPresent(String.self, forKey: .termVersion) ?? defaults.termVersion
@@ -387,6 +396,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode(hidePointerWhileTyping, forKey: .hidePointerWhileTyping)
         try c.encode (keyBindings, forKey: .keyBindings)
         try c.encode(linkOsc8, forKey: .linkOsc8)
+        try c.encode(screenChecksumReports, forKey: .screenChecksumReports)
         try c.encode (termName, forKey: .termName)
         try c.encode(termProgram, forKey: .termProgram)
         try c.encode(termVersion, forKey: .termVersion)

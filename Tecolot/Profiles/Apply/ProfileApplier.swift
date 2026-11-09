@@ -39,6 +39,7 @@ public enum ProfileApplier {
         options.cursorStyle = profile.cursorStyle
         options.termName = profile.termName
         options.enableOsc8Hyperlinks = profile.linkOsc8
+        options.enableRectangularAreaChecksum = profile.screenChecksumReports
         options.featureReport = TerminalFeatureReporting.featureString(linkOsc8: profile.linkOsc8)
         // Kitty clipboard protocol, OSC 5522. The library default denies
         // both directions. The session controller serves the standard
@@ -109,6 +110,7 @@ public enum ProfileApplier {
         #endif
         view.useBrightColors = profile.useBrightColorsForBold
         view.enableOsc8Hyperlinks = profile.linkOsc8
+        view.enableRectangularAreaChecksum = profile.screenChecksumReports
         view.optionAsMetaKey = profile.optionAsMetaKey
         view.backspaceSendsControlH = profile.backspaceSendsControlH
         let cursorStyleParameter: Int
