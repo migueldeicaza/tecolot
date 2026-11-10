@@ -277,6 +277,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// keyboard, scrollback); shell settings only affect future launches
     @MainActor
     func applyProfile(_ newProfile: TerminalProfile) {
+        if profile.screenChecksumReports != newProfile.screenChecksumReports {
+            persistentView?.session.setScreenChecksumReports(newProfile.screenChecksumReports)
+        }
         profile = newProfile
         previewBackgroundOpacity = nil
         applyAppearance()
@@ -1343,7 +1346,8 @@ extension TerminalSessionController {
             attachSessionID = nil
             session.start(size: WireGridSize(columns: profile.columns, rows: profile.rows),
                           focused: false,
-                          scale: Int(((NSScreen.main?.backingScaleFactor ?? 2) * 100).rounded()))
+                          scale: Int(((NSScreen.main?.backingScaleFactor ?? 2) * 100).rounded()),
+                          screenChecksumReports: profile.screenChecksumReports)
             attachPersistentView()
             return view
         } catch {
@@ -1471,7 +1475,8 @@ extension TerminalSessionController {
             // A view that is not laid out yet starts with the profile's size.
             let grid = view.wireGridSize
             let size = grid.columns > 1 && grid.rows > 1 ? grid : WireGridSize(columns: profile.columns, rows: profile.rows)
-            session.start(size: size, focused: view.hasFocus, scale: view.displayScale)
+            session.start(size: size, focused: view.hasFocus, scale: view.displayScale,
+                          screenChecksumReports: profile.screenChecksumReports)
             // The new session needs the theme; the view keeps its other settings.
             applyPersistentAppearance(to: view, colorsOnly: true)
         } catch {
@@ -1582,7 +1587,8 @@ extension TerminalSessionController {
         view.replaceSession(session)
         view.remoteInputEnabled = false
         updateRemoteBanner(state: link.state)
-        session.start(size: view.wireGridSize, focused: view.hasFocus, scale: view.displayScale)
+        session.start(size: view.wireGridSize, focused: view.hasFocus, scale: view.displayScale,
+                      screenChecksumReports: profile.screenChecksumReports)
         applyPersistentAppearance(to: view, colorsOnly: true)
     }
 
@@ -1703,7 +1709,7 @@ extension TerminalSessionController {
             let session = makeRemoteSession(socket: socket)
             persistentView.replaceSession(session)
             session.start(size: persistentView.wireGridSize, focused: persistentView.hasFocus,
-                          scale: persistentView.displayScale)
+                          scale: persistentView.displayScale, screenChecksumReports: profile.screenChecksumReports)
             applyPersistentAppearance(to: persistentView, colorsOnly: true)
         } catch {
             persistentView.showBanner("The session is no longer running.", actionTitle: "Close") { [weak self] in

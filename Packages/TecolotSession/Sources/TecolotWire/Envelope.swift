@@ -41,6 +41,7 @@ public struct MessageKind: RawRepresentable, Hashable, Sendable, CustomStringCon
     public static let search = MessageKind(rawValue: 21)
     public static let findPrompt = MessageKind(rawValue: 22)
     public static let fetchImage = MessageKind(rawValue: 23)
+    public static let setScreenChecksumReports = MessageKind(rawValue: 24)
 
     // Link directory messages.
     public static let linkHello = MessageKind(rawValue: 128)

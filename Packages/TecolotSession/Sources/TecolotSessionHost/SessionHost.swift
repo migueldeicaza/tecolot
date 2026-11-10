@@ -194,6 +194,7 @@ public final class SessionHost: @unchecked Sendable {
         options.termName = launch.termName
         options.cursorStyle = WireMapping.cursorStyle(launch.cursorStyle)
         options.featureReport = launch.featureReport
+        options.enableRectangularAreaChecksum = launch.screenChecksumReports ?? false
         if let limit = launch.kittyGraphicsStorageLimit {
             options.kittyGraphics = KittyGraphicsConfiguration(
                 storageLimitBytesPerScreen: limit,
@@ -409,6 +410,9 @@ public final class SessionHost: @unchecked Sendable {
                                          requestID: envelope.requestID)
             case .clipboardReply: handleClipboardReply(try envelope.decode(ClipboardReplyMessage.self))
             case .setTheme: handleTheme(try envelope.decode(SetThemeMessage.self))
+            case .setScreenChecksumReports:
+                let setting = try envelope.decode(SetScreenChecksumReportsMessage.self)
+                terminal.terminalLock.withLock { terminal.enableRectangularAreaChecksum = setting.enabled }
             case .terminate: terminate(signal: try envelope.decode(TerminateMessage.self).signal)
             case .reset: handleReset(try envelope.decode(ResetMessage.self).action)
             case .search: handleSearch(try envelope.decode(SearchMessage.self), from: client,

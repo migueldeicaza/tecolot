@@ -121,7 +121,7 @@ measure application startup, complete frame latency, or power use.
   sequences.
 - Render emoji, combining characters, grapheme clusters, and bidirectional
   Arabic and Hebrew text.
-- Use Unicode 17 character-width data, 256 colors, and 24-bit color.
+- Use Unicode 18 character-width data, 256 colors, and 24-bit color.
 - Use the Kitty keyboard protocol and X10, SGR, UTF-8, or URxvt mouse reports.
 - Display Sixel images and images that use the iTerm2 or Kitty graphics
   protocol.

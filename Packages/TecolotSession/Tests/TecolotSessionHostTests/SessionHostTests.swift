@@ -1,10 +1,39 @@
 import Foundation
 import Synchronization
 import Testing
+import TecolotSessionDirectory
 import TecolotWire
 @testable import TecolotSessionHost
 
 struct SessionHostScenarioTests {
+    @Test(arguments: [nil, true] as [Bool?])
+    func screenChecksumReportsFollowLaunchAndLiveSettings(launchSetting: Bool?) async throws {
+        let launch = SessionLaunch(executable: "/bin/sh", environment: [], screenChecksumReports: launchSetting)
+        let host = SessionHost(id: "checksum-test", launch: launch, build: "test")
+        let replies = Mutex<[String]>([])
+        host.trace = { event in
+            if case .childInput(let bytes) = event {
+                replies.withLock { $0.append(String(decoding: bytes, as: UTF8.self)) }
+            }
+        }
+        let client = try TestClient(host: host)
+        defer { client.close() }
+        let request = "\u{1b}[1;1;1;1;1;1*y"
+        let disabledReply = "\u{1b}P1!~0000\u{1b}\\"
+        let enabledReply = "\u{1b}P1!~0041\u{1b}\\"
+
+        host.inject("A" + request)
+        #expect(replies.withLock { $0 } == [launchSetting == true ? enabledReply : disabledReply])
+
+        let enabled = launchSetting != true
+        client.channel.send(SetScreenChecksumReportsMessage(enabled: enabled))
+        try await client.wait("checksum setting applied") { _ in
+            host.terminal.terminalLock.withLock { host.terminal.enableRectangularAreaChecksum == enabled }
+        }
+        host.inject(request)
+        #expect(replies.withLock { $0.last } == (enabled ? enabledReply : disabledReply))
+    }
+
     @Test func firstFrameShowsTheScreenWithAttributes() async throws {
         let host = makeHost()
         host.inject("\u{1b}[1;31mhello\u{1b}[0m\r\nworld")

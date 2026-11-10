@@ -162,12 +162,14 @@ public final class RemoteSession: @unchecked Sendable {
 
     /// Says hello and attaches with the view's grid size.
     /// `scale` is the display's device pixels per point, in hundredths.
-    public func start(size: WireGridSize, focused: Bool, viewer: Bool = false, scale: Int = 0) {
+    public func start(size: WireGridSize, focused: Bool, viewer: Bool = false, scale: Int = 0,
+                      screenChecksumReports: Bool? = nil) {
         channel.onMessage = { [weak self] envelope in self?.handle(envelope) }
         channel.onClose = { [weak self] error in self?.channelClosed(error) }
         channel.onDrained = nil
         channel.start()
         channel.send(HelloMessage(build: build, clientName: clientName, clientInstance: clientInstance))
+        if let screenChecksumReports { setScreenChecksumReports(screenChecksumReports) }
         channel.send(AttachMessage(size: size, maximumFramesPerSecond: maximumFramesPerSecond,
                                    viewer: viewer, focused: focused, scale: scale))
     }
@@ -209,6 +211,9 @@ public final class RemoteSession: @unchecked Sendable {
     public func setFocus(_ focused: Bool) { channel.send(FocusMessage(focused: focused)) }
     public func resize(_ size: WireGridSize, scale: Int = 0) { channel.send(ResizeMessage(size: size, scale: scale)) }
     public func setTheme(_ theme: SetThemeMessage) { channel.send(theme) }
+    public func setScreenChecksumReports(_ enabled: Bool) {
+        channel.send(SetScreenChecksumReportsMessage(enabled: enabled))
+    }
     public func terminate(signal: Int32 = 1) { channel.send(TerminateMessage(signal: signal)) }
     public func reset(_ action: ResetAction) { channel.send(ResetMessage(action: action), flags: .required) }
 

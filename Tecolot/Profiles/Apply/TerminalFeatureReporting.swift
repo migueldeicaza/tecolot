@@ -17,11 +17,11 @@ enum TerminalFeatureReporting {
     /// - Lr: left and right margins
     /// - M: SGR mouse reporting
     /// - Sc7: cursor styles 0 through 6
-    /// - U and Uw17: basic Unicode with Unicode 17 width data
+    /// - U and Uw18: basic Unicode with Unicode 18 width data
     /// - Ts3: title stacks and title setting
     /// - B, F, Gs, Sy, H, Sx, and P: bracketed paste, focus reporting,
     ///   strikethrough, synchronized output, hyperlinks, Sixel, and progress
-    static let featureString = "T3CwLrMSc7UUw17Ts3BFGsSyHSxP"
+    static let featureString = "T3CwLrMSc7UUw18Ts3BFGsSyHSxP"
 
     static func featureString(linkOsc8: Bool) -> String {
         linkOsc8 ? featureString : featureString.replacingOccurrences(of: "H", with: "")

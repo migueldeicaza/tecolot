@@ -55,6 +55,7 @@ public struct RemoteSessionLaunch: Codable, Hashable, Sendable {
     public var termName: String
     public var cursorStyle: UInt8
     public var featureReport: String?
+    public var screenChecksumReports: Bool?
     public var theme: SessionTheme?
     public var labels: [String: String]
     public var kittyGraphicsStorageLimit: UInt32?
@@ -70,7 +71,7 @@ public struct RemoteSessionLaunch: Codable, Hashable, Sendable {
                 workingDirectory: String? = nil, columns: Int = 80, rows: Int = 24,
                 cellWidth: Int = 0, cellHeight: Int = 0, scrollback: Int = 100_000,
                 termName: String = "xterm-256color", cursorStyle: UInt8 = 0,
-                featureReport: String? = nil, theme: SessionTheme? = nil,
+                featureReport: String? = nil, screenChecksumReports: Bool? = nil, theme: SessionTheme? = nil,
                 labels: [String: String] = [:], kittyGraphicsStorageLimit: UInt32? = nil,
                 kittyGraphicsLocalMedia: UInt8? = nil, restoreRows: Int? = nil,
                 restoreSessionID: String? = nil) {
@@ -86,6 +87,7 @@ public struct RemoteSessionLaunch: Codable, Hashable, Sendable {
         self.termName = termName
         self.cursorStyle = cursorStyle
         self.featureReport = featureReport
+        self.screenChecksumReports = screenChecksumReports
         self.theme = theme
         self.labels = labels
         self.kittyGraphicsStorageLimit = kittyGraphicsStorageLimit
@@ -133,7 +135,8 @@ public struct RemoteSessionLaunch: Codable, Hashable, Sendable {
                              workingDirectory: directory, columns: columns, rows: rows,
                              cellWidth: cellWidth, cellHeight: cellHeight, scrollback: scrollback,
                              termName: termName, cursorStyle: cursorStyle,
-                             featureReport: featureReport, theme: theme, labels: labels,
+                             featureReport: featureReport, screenChecksumReports: screenChecksumReports,
+                             theme: theme, labels: labels,
                              kittyGraphicsStorageLimit: kittyGraphicsStorageLimit,
                              kittyGraphicsLocalMedia: kittyGraphicsLocalMedia,
                              stateDirectory: DurableStateDirectory.remoteDefault(home: passwd.home).url.path,

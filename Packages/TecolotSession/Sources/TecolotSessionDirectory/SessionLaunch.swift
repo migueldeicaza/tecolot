@@ -59,6 +59,8 @@ public struct SessionLaunch: Codable, Hashable, Sendable {
     /// `CursorStyle` case index (see `WireCursor.style`).
     public var cursorStyle: UInt8
     public var featureReport: String?
+    /// Nil disables screen checksum reports for launches saved by older versions.
+    public var screenChecksumReports: Bool?
     public var theme: SessionTheme?
     /// Free-form values for the session browser (profile name, and so on).
     public var labels: [String: String]
@@ -80,7 +82,7 @@ public struct SessionLaunch: Codable, Hashable, Sendable {
                 environment: [String], workingDirectory: String? = nil,
                 columns: Int = 80, rows: Int = 24, cellWidth: Int = 0, cellHeight: Int = 0,
                 scrollback: Int = 100_000, termName: String = "xterm-256color",
-                cursorStyle: UInt8 = 0, featureReport: String? = nil,
+                cursorStyle: UInt8 = 0, featureReport: String? = nil, screenChecksumReports: Bool? = nil,
                 theme: SessionTheme? = nil, labels: [String: String] = [:],
                 kittyGraphicsStorageLimit: UInt32? = nil, kittyGraphicsLocalMedia: UInt8? = nil,
                 stateDirectory: String? = nil, restoreRows: Int? = nil, replay: String? = nil) {
@@ -97,6 +99,7 @@ public struct SessionLaunch: Codable, Hashable, Sendable {
         self.termName = termName
         self.cursorStyle = cursorStyle
         self.featureReport = featureReport
+        self.screenChecksumReports = screenChecksumReports
         self.theme = theme
         self.labels = labels
         self.kittyGraphicsStorageLimit = kittyGraphicsStorageLimit

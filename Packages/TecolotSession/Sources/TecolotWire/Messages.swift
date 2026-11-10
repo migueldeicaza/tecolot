@@ -727,6 +727,16 @@ public struct SetThemeMessage: WireMessage, Hashable {
     }
 }
 
+public struct SetScreenChecksumReportsMessage: WireMessage, Hashable {
+    public static let kind = MessageKind.setScreenChecksumReports
+    public var enabled: Bool
+
+    public init(enabled: Bool) { self.enabled = enabled }
+
+    public init(from reader: inout WireReader) throws(WireError) { enabled = try reader.bool() }
+    public func encode(to writer: inout WireWriter) { writer.bool(enabled) }
+}
+
 public struct PingMessage: WireMessage, Hashable {
     public static let kind = MessageKind.ping
     public var nonce: UInt64

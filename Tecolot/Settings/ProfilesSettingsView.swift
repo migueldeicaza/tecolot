@@ -551,6 +551,11 @@ struct ProfileSettingsPage: View {
                 }
                 Toggle("Enable OSC 8 links", isOn: binding(\.linkOsc8))
                     .help("Allow terminal programs to set links on text. Turn this off to ignore these links. Tecolot can still detect web addresses in text.")
+                Toggle(isOn: binding(\.screenChecksumReports)) {
+                    Text("Allow programs to read screen contents")
+                    Text("DECRQCRA (Request Checksum of Rectangular Area)")
+                }
+                .help("Answer screen checksum requests. Test tools such as vttest and esctest use them. A program can also use them to read text on the screen, including text from other programs. Keep this off unless you need it.")
                 Picker("Bell:", selection: binding(\.bellStyle)) {
                     ForEach(BellStyle.allCases, id: \.tagName) { style in
                         Text(style.displayName).tag(style)

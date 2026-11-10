@@ -970,7 +970,7 @@ final class TerminalEnvironmentVariableTests {
 
 final class TerminalFeatureReportingTests {
     @Test func featureStringMatchesSwiftTermCapabilities() {
-        #expect(TerminalFeatureReporting.featureString == "T3CwLrMSc7UUw17Ts3BFGsSyHSxP")
+        #expect(TerminalFeatureReporting.featureString == "T3CwLrMSc7UUw18Ts3BFGsSyHSxP")
         #expect(TerminalFeatureReporting.featureString.utf8.allSatisfy { byte in
             (byte >= 0x30 && byte <= 0x39) ||
             (byte >= 0x41 && byte <= 0x5a) ||
@@ -1167,6 +1167,37 @@ final class TecolotShellIntegrationTests {
             terminalProgramVersion: "1"
         )
         #expect(nushellResult.args == nushell.args)
+    }
+}
+
+@Suite("Screen checksum profile setting")
+@MainActor
+struct ScreenChecksumProfileTests {
+    @Test func missingSettingIsOff() throws {
+        let profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(#"{"name":"Old profile"}"#.utf8))
+        #expect(!profile.screenChecksumReports)
+        #expect(!ProfileApplier.terminalOptions(for: profile).enableRectangularAreaChecksum)
+    }
+
+    @Test func enabledSettingSurvivesEncoding() throws {
+        var profile = TerminalProfile(name: "Test")
+        profile.screenChecksumReports = true
+        let data = try JSONEncoder().encode(profile)
+        #expect(try JSONDecoder().decode(TerminalProfile.self, from: data) == profile)
+    }
+
+    @Test func changesApplyToOpenTerminal() {
+        let view = TerminalView(frame: .zero)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let themes = ThemeStore(directory: directory)
+        var profile = TerminalProfile(name: "Test")
+        for enabled in [true, false] {
+            profile.screenChecksumReports = enabled
+            #expect(ProfileApplier.terminalOptions(for: profile).enableRectangularAreaChecksum == enabled)
+            ProfileApplier.apply(profile: profile, themeStore: themes, isDark: true, to: view)
+            #expect(view.enableRectangularAreaChecksum == enabled)
+        }
     }
 }
 
