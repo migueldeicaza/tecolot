@@ -892,7 +892,7 @@ final class TerminalEnvironmentVariableTests {
 
 final class TerminalFeatureReportingTests {
     @Test func featureStringMatchesSwiftTermCapabilities() {
-        #expect(TerminalFeatureReporting.featureString == "T3CwLrMSc7UUw17Ts3BFGsSyHSxP")
+        #expect(TerminalFeatureReporting.featureString == "T3CwLrMSc7UUw18Ts3BFGsSyHSxP")
         #expect(TerminalFeatureReporting.featureString.utf8.allSatisfy { byte in
             (byte >= 0x30 && byte <= 0x39) ||
             (byte >= 0x41 && byte <= 0x5a) ||
