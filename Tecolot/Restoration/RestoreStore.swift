@@ -597,6 +597,7 @@ final class RestoreStore {
         var spec = LaunchSpec()
         spec.profileID = tab.tab.root.panes.first?.profileID
         spec.restoredTab = tab
+        spec.activate = false
         return spec
     }
 

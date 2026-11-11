@@ -25,6 +25,11 @@ struct LaunchSpec {
     var attachSessionID: String?
     /// A saved tab to rebuild, with its splits (restore on relaunch).
     var restoredTab: RestoredTab?
+    /// Bring the app to the front. The windows that open at launch set it
+    /// to false: an app that starts in the background (after a log in, or
+    /// opened by another app) must not take the focus. A launch from the
+    /// Dock or Finder activates the app anyway.
+    var activate = true
 }
 
 @MainActor

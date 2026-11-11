@@ -212,6 +212,14 @@ struct RestoreStoreTests {
         #expect(RestoreStore.removingShownSessions(from: persistentOnly, shown: ["a", "c"]) == nil)
     }
 
+    /// Restored windows do not bring the app to the front: an app that starts
+    /// in the background must not take the focus.
+    @Test func restoredWindowsDoNotActivateTheApp() {
+        let tab = RestoredTab(tab: RestoreTab(root: .pane(pane(.local))), panes: [:])
+        #expect(!RestoreStore.launchSpec(for: tab).activate)
+        #expect(LaunchSpec().activate)
+    }
+
     /// A crash during the restore must not restore the same windows two times.
     @Test func savedStateIsReadOneTime() throws {
         let directory = temporaryDirectory()

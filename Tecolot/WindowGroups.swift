@@ -165,12 +165,17 @@ final class WindowGroupStore: ObservableObject {
     }
 
     @discardableResult
-    func open(_ group: SavedWindowGroup) -> Bool {
+    func open(_ group: SavedWindowGroup, activate: Bool = true) -> Bool {
+        func spec(for tab: SavedTerminalTab) -> LaunchSpec {
+            var spec = launchSpec(for: tab)
+            spec.activate = activate
+            return spec
+        }
         var openedAny = false
         for savedWindow in group.windows {
             guard let firstTab = savedWindow.tabs.first,
                   let firstWindow = WindowOpener.openWindow(
-                    spec: launchSpec(for: firstTab),
+                    spec: spec(for: firstTab),
                     initialFrame: .windowGroup(NSRectFromString(savedWindow.frame))
                   ) else {
                 continue
@@ -180,7 +185,7 @@ final class WindowGroupStore: ObservableObject {
             var openedWindows = [firstWindow]
             for tab in savedWindow.tabs.dropFirst() {
                 if let window = WindowOpener.openTab(
-                    spec: launchSpec(for: tab),
+                    spec: spec(for: tab),
                     targetWindow: firstWindow
                 ) {
                     openedWindows.append(window)

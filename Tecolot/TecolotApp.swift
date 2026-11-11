@@ -46,10 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             // The windows of the last quit come back as they were. AppKit
             // restores no terminal window (see registerWindowIfAvailable).
+            // These windows do not activate the app (LaunchSpec.activate).
             let restored = RestoreStore.shared.restore()
-            if restored {
-                NSApp.activate(ignoringOtherApps: true)
-            }
             guard !hasDocument, !hasTerminalWindow, !restored else { return }
             self?.openStartupWindow()
         }
@@ -108,12 +106,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let rawID = defaults.string(forKey: "startupWindowGroupID"),
            let id = UUID(uuidString: rawID),
            let group = AppModel.shared.windowGroups.group(withID: id),
-           AppModel.shared.windowGroups.open(group) {
-            NSApp.activate(ignoringOtherApps: true)
+           AppModel.shared.windowGroups.open(group, activate: false) {
             return
         }
 
         var spec = LaunchSpec()
+        spec.activate = false
         if defaults.string(forKey: "startupMode") == "profile",
            let rawID = defaults.string(forKey: "startupProfileID") {
             spec.profileID = UUID(uuidString: rawID)

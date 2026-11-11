@@ -103,7 +103,7 @@ enum WindowOpener {
         }
         logFrame(window, stage: "before show", policy: initialDescription)
         document.showWindows()
-        NSApp.activate(ignoringOtherApps: true)
+        if spec.activate { NSApp.activate(ignoringOtherApps: true) }
         window.makeKeyAndOrderFront(nil)
         if removesMoveToActiveSpace {
             DispatchQueue.main.async { [weak window] in
@@ -146,7 +146,7 @@ enum WindowOpener {
             existingWindow.addTabbedWindow(newWindow, ordered: .above)
         }
         document.showWindows()
-        NSApp.activate(ignoringOtherApps: true)
+        if spec.activate { NSApp.activate(ignoringOtherApps: true) }
         newWindow.makeKeyAndOrderFront(nil)
         logFrameAfterDisplay(newWindow, policy: targetWindow == nil ? "profile tab window" : "new tab")
         return newWindow
