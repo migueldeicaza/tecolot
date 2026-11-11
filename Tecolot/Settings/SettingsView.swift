@@ -397,6 +397,7 @@ struct GeneralSettingsView: View {
                     }
                 }
             }
+            CommandLineToolSection()
             Section("Rendering") {
                 Toggle("Use Metal", isOn: metalRendererBinding)
             }

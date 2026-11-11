@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		45CC295C309A6EF6004A9333 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = 45CC295B309A6EF6004A9333 /* ArgumentParser */; };
 		490F324E303671B100A84BCF /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 490F324D303671B100A84BCF /* SwiftTerm */; };
 		4A6A1F111234567800000001 /* Themes in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000003 /* Themes */; };
 		4A6A1F111234567800000002 /* shell-integration in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000004 /* shell-integration */; };
@@ -71,6 +72,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				45CC295C309A6EF6004A9333 /* ArgumentParser in Frameworks */,
 				490F324E303671B100A84BCF /* SwiftTerm in Frameworks */,
 				5A81CE0000000001AAAA0001 /* Sparkle in Frameworks */,
 			);
@@ -148,6 +150,7 @@
 			packageProductDependencies = (
 				490F324D303671B100A84BCF /* SwiftTerm */,
 				5A81CE0000000001AAAA0002 /* Sparkle */,
+				45CC295B309A6EF6004A9333 /* ArgumentParser */,
 			);
 			productName = Tecolot;
 			productReference = 497C9E172E426320008DBCC0 /* Tecolot.app */;
@@ -201,6 +204,7 @@
 			packageReferences = (
 				490F2F093036637800A84BCF /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				5A81CE0000000001AAAA0003 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				45CC295A309A6EF6004A9333 /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 497C9E182E426320008DBCC0 /* Products */;
@@ -544,6 +548,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		45CC295A309A6EF6004A9333 /* XCRemoteSwiftPackageReference "swift-argument-parser" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-argument-parser";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.8.2;
+			};
+		};
 		490F2F093036637800A84BCF /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
@@ -563,6 +575,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		45CC295B309A6EF6004A9333 /* ArgumentParser */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 45CC295A309A6EF6004A9333 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
+			productName = ArgumentParser;
+		};
 		490F324D303671B100A84BCF /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 490F2F093036637800A84BCF /* XCRemoteSwiftPackageReference "SwiftTerm" */;
