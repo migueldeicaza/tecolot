@@ -180,6 +180,38 @@ struct RestoreStoreTests {
         #expect(tree.filter { _ in true } == tree)
     }
 
+    /// A tab whose session a window shows already is not restored, and the
+    /// selected tab stays the same tab, not the same index.
+    @Test func removingShownTabsKeepsTheSelectedTab() throws {
+        let a = RestoreTab(root: .pane(pane(.persistent, session: "a")))
+        let b = RestoreTab(root: .pane(pane(.local)))
+        let c = RestoreTab(root: .pane(pane(.persistent, session: "c")))
+        func window(selected: Int) -> RestoreWindow {
+            RestoreWindow(frame: "{{0, 0}, {800, 600}}", selectedTabIndex: selected, tabs: [a, b, c])
+        }
+
+        // B selected, A removed: B is still selected.
+        let first = try #require(RestoreStore.removingShownSessions(from: window(selected: 1), shown: ["a"]))
+        #expect(first.tabs.map(\.id) == [b.id, c.id])
+        #expect(first.selectedTabIndex == 0)
+
+        // The selected tab is removed: the tab before it is selected.
+        let second = try #require(RestoreStore.removingShownSessions(from: window(selected: 2), shown: ["c"]))
+        #expect(second.tabs.map(\.id) == [a.id, b.id])
+        #expect(second.selectedTabIndex == 1)
+
+        // The first tab is selected and removed: the new first tab is selected.
+        let third = try #require(RestoreStore.removingShownSessions(from: window(selected: 0), shown: ["a"]))
+        #expect(third.selectedTabIndex == 0)
+
+        // Nothing is shown: nothing changes.
+        #expect(RestoreStore.removingShownSessions(from: window(selected: 2), shown: []) == window(selected: 2))
+
+        // Every tab is removed.
+        let persistentOnly = RestoreWindow(frame: "{{0, 0}, {800, 600}}", selectedTabIndex: 0, tabs: [a, c])
+        #expect(RestoreStore.removingShownSessions(from: persistentOnly, shown: ["a", "c"]) == nil)
+    }
+
     /// A crash during the restore must not restore the same windows two times.
     @Test func savedStateIsReadOneTime() throws {
         let directory = temporaryDirectory()

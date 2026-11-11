@@ -230,6 +230,22 @@ struct RemoteSessionTests {
         session.close()
     }
 
+    /// A selection can reach past the cells of a cached row: a row from a
+    /// narrower grid, or an empty row. The text stops at the row's end.
+    @Test func textPastTheEndOfACachedRowIsEmpty() async throws {
+        let host = makeHost(rows: 5, columns: 20)
+        host.inject("short\r\nnext")
+        let session = try connect(host, rows: 5, columns: 20)
+        try await eventually("screen") { screen(session).contains("next") }
+        let top = session.state.displayTop
+        let width = session.withState { _, cache in cache[top]?.cells.count ?? 0 }
+        let past = session.withState { _, cache in cache.text(from: (top, width + 5), to: (top, width + 10)) }
+        #expect(past == "")
+        let spanning = session.withState { _, cache in cache.text(from: (top, width + 5), to: (top + 1, 3)) }
+        #expect(spanning == "\nnext")
+        session.close()
+    }
+
     @Test func floodEndsWithTheLatestScreen() async throws {
         let host = makeHost(rows: 10)
         let session = try connect(host)

@@ -527,17 +527,8 @@ final class RestoreStore {
         let running = Set(PersistentSessions.list().filter { !$0.exited }.map(\.id))
         var used = Set<UUID>()
         var opened = false
-        for var window in state.windows {
-            window.tabs = window.tabs.compactMap { tab in
-                guard let root = tab.root.filter({ pane in
-                    pane.kind != .persistent || !(pane.sessionID.map(shown.contains) ?? false)
-                }) else { return nil }
-                var tab = tab
-                tab.root = root
-                return tab
-            }
-            guard !window.tabs.isEmpty else { continue }
-            window.selectedTabIndex = min(window.selectedTabIndex, window.tabs.count - 1)
+        for window in state.windows {
+            guard let window = Self.removingShownSessions(from: window, shown: shown) else { continue }
             let tabs = window.tabs.map { tab in
                 RestoredTab(tab: tab, panes: Dictionary(tab.root.panes.map { pane in
                     used.insert(pane.id)
@@ -554,21 +545,45 @@ final class RestoreStore {
         return opened
     }
 
+    /// Removes the persistent panes whose session a window shows already,
+    /// and the tabs that have no pane left. Nil when no tab is left. The
+    /// selected tab keeps its place among the tabs that remain; when it is
+    /// gone, the tab before it (or the first) is selected.
+    static func removingShownSessions(from window: RestoreWindow, shown: Set<String>) -> RestoreWindow? {
+        var kept: [RestoreTab] = []
+        var selected = 0
+        for (index, tab) in window.tabs.enumerated() {
+            guard let root = tab.root.filter({ pane in
+                pane.kind != .persistent || !(pane.sessionID.map(shown.contains) ?? false)
+            }) else { continue }
+            if index <= window.selectedTabIndex { selected = kept.count }
+            var tab = tab
+            tab.root = root
+            kept.append(tab)
+        }
+        guard !kept.isEmpty else { return nil }
+        var window = window
+        window.tabs = kept
+        window.selectedTabIndex = selected
+        return window
+    }
+
     private func open(_ saved: RestoreWindow, tabs: [RestoredTab]) -> Bool {
         guard let firstTab = tabs.first,
               let first = WindowOpener.openWindow(spec: Self.launchSpec(for: firstTab),
                                                   initialFrame: .windowGroup(NSRectFromString(saved.frame)))
         else { return false }
         var windows = [first]
-        for tab in tabs.dropFirst() {
+        var selected: NSWindow? = saved.selectedTabIndex == 0 ? first : nil
+        for (index, tab) in tabs.enumerated().dropFirst() {
             // Each tab joins after the last one, so the order stays the same.
+            // A tab that does not open does not shift the selected index.
             if let window = WindowOpener.openTab(spec: Self.launchSpec(for: tab), targetWindow: windows.last) {
                 windows.append(window)
+                if index == saved.selectedTabIndex { selected = window }
             }
         }
-        if windows.indices.contains(saved.selectedTabIndex) {
-            windows[saved.selectedTabIndex].makeKeyAndOrderFront(nil)
-        }
+        selected?.makeKeyAndOrderFront(nil)
         if saved.isFullScreen {
             DispatchQueue.main.async { [weak first] in
                 guard let first, !first.styleMask.contains(.fullScreen) else { return }

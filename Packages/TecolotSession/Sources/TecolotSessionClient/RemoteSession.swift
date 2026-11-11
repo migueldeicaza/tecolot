@@ -211,8 +211,10 @@ public final class RemoteSession: @unchecked Sendable {
     public func setFocus(_ focused: Bool) { channel.send(FocusMessage(focused: focused)) }
     public func resize(_ size: WireGridSize, scale: Int = 0) { channel.send(ResizeMessage(size: size, scale: scale)) }
     public func setTheme(_ theme: SetThemeMessage) { channel.send(theme) }
+    /// Required, so that an older helper that cannot apply the setting
+    /// answers with an `.unsupported` error instead of ignoring it.
     public func setScreenChecksumReports(_ enabled: Bool) {
-        channel.send(SetScreenChecksumReportsMessage(enabled: enabled))
+        channel.send(SetScreenChecksumReportsMessage(enabled: enabled), flags: .required)
     }
     public func terminate(signal: Int32 = 1) { channel.send(TerminateMessage(signal: signal)) }
     public func reset(_ action: ResetAction) { channel.send(ResetMessage(action: action), flags: .required) }

@@ -115,8 +115,11 @@ public struct RowCache: Sendable {
             let from = line == start.line ? start.column : 0
             let to = line == end.line ? end.column : row.cells.count - 1
             var piece = ""
-            if from <= to {
-                for index in max(0, from) ... min(to, row.cells.count - 1) {
+            // A cached row can be narrower than the grid (a row from a
+            // narrower restore cache, or scrollback from before a resize).
+            let lower = max(0, from), upper = min(to, row.cells.count - 1)
+            if lower <= upper {
+                for index in lower ... upper {
                     switch row.cells[index].content {
                     case .null: piece.append(" ")
                     case .ascii(let byte): piece.append(Character(UnicodeScalar(byte)))

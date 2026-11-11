@@ -817,7 +817,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// persistent view sends its new grid size to the helper.
     private func setFontSize(_ size: CGFloat) {
         if let persistentView {
-            if size != CGFloat(profile.fontSize) { persistentFontSize = size }
+            persistentFontSize = size == CGFloat(profile.fontSize) ? nil : size
             persistentView.font = Self.font(persistentView.font, size: size)
             return
         }
@@ -1874,8 +1874,15 @@ extension TerminalSessionController {
                     self?.closePaneOrWindow()
                 }
             }
-        case .error:
-            break
+        case .error(let error):
+            // A helper from an older version cannot turn off DECRQCRA, so
+            // programs in the session can still read the screen.
+            if error.failedKind == .setScreenChecksumReports, error.code == .unsupported,
+               !profile.screenChecksumReports {
+                persistentView?.showBanner(
+                    "This session's helper is older and still lets programs read the screen contents. "
+                        + "Start a new session to apply the setting.")
+            }
         }
     }
 }
