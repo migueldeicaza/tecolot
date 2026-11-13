@@ -15,7 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didEnsureStartupWindow = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSWindow.allowsAutomaticWindowTabbing = true
+        NSWindow.allowsAutomaticWindowTabbing = false
         _ = SecureKeyboardEntry.shared
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
             DetachedSessionNotifications.shared.start()
@@ -23,7 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Do not wait for the activation: an app that starts in the
         // background (after a log in, or opened by another app) must restore
         // its windows, and a quit before the first activation must save them.
-        DispatchQueue.main.async { [weak self] in self?.ensureStartupWindow() }
+        DispatchQueue.main.async { [weak self] in
+            self?.ensureStartupWindow()
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -31,16 +33,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func ensureStartupWindow() {
-        guard !didEnsureStartupWindow else { return }
+        guard !didEnsureStartupWindow else {
+            return
+        }
         didEnsureStartupWindow = true
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
             return
         }
 
-        // Wait until SwiftUI restores its document scenes. A document can
-        // exist before its terminal session registers.
         DispatchQueue.main.async { [weak self] in
-            let hasDocument = !NSDocumentController.shared.documents.isEmpty
             let hasTerminalWindow = NSApp.windows.contains { window in
                 !TerminalSessionRegistry.shared.controllers(for: window).isEmpty
             }
@@ -48,7 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // restores no terminal window (see registerWindowIfAvailable).
             // These windows do not activate the app (LaunchSpec.activate).
             let restored = RestoreStore.shared.restore()
-            guard !hasDocument, !hasTerminalWindow, !restored else { return }
+            guard !hasTerminalWindow, !restored else {
+                return
+            }
             self?.openStartupWindow()
         }
     }
@@ -61,35 +64,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ sender: NSApplication,
         hasVisibleWindows: Bool
     ) -> Bool {
-        guard !hasVisibleWindows else { return true }
-        WindowOpener.openWindow(spec: LaunchSpec())
+        let manager = TerminalWindowManager.shared
+        if
+            hasVisibleWindows, manager.shownWindows().contains(where: {
+                $0.window.isVisible
+            }) {
+            return true
+        }
+        manager.reopenWindow {
+            WindowOpener.openWindow(spec: $0)
+        }
         return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // Before the dialog: it changes the current event and the keys.
-        let savesWindows = WindowRestorationPolicy.savesWindowsForCurrentQuit()
-        let hasLiveProcess = sender.windows.contains { window in
-            TerminalSessionRegistry.shared.controllers(for: window)
-                .contains(where: TerminalClosePolicy.requiresConfirmation)
+        let runningCount = TerminalClosePolicy.runningTaskCount(in: TerminalSessionRegistry.shared.allControllers)
+        let hasLiveProcess = runningCount > 0
+        guard hasLiveProcess else {
+            return saveForTermination(sender)
         }
-        guard hasLiveProcess else { return saveForTermination(sender, savesWindows: savesWindows) }
 
         let alert = NSAlert()
         alert.messageText = "Quit and terminate running processes?"
-        alert.informativeText = "A process is still running."
+        alert.informativeText = TerminalClosePolicy.quitMessage(runningPaneCount: runningCount)
         alert.addButton(withTitle: "Quit")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
-        guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
-        return saveForTermination(sender, savesWindows: savesWindows)
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return .terminateCancel
+        }
+        return saveForTermination(sender)
     }
 
     /// Saves the windows for the next launch, then quits. The writes run on
     /// a background queue; the quit waits for them for at most 3 seconds.
-    private func saveForTermination(_ sender: NSApplication, savesWindows: Bool) -> NSApplication.TerminateReply {
-        guard RestoreStore.shared.isEnabled, RestoreStore.shared.isReady else { return .terminateNow }
-        RestoreStore.shared.saveForTermination(savesWindows: savesWindows) {
+    private func saveForTermination(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard RestoreStore.shared.isEnabled, RestoreStore.shared.isReady else {
+            return .terminateNow
+        }
+        RestoreStore.shared.saveForTermination() {
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
@@ -101,22 +114,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openStartupWindow() {
-        let defaults = UserDefaults.standard
-        if defaults.string(forKey: "startupMode") == "windowGroup",
-           let rawID = defaults.string(forKey: "startupWindowGroupID"),
-           let id = UUID(uuidString: rawID),
-           let group = AppModel.shared.windowGroups.group(withID: id),
-           AppModel.shared.windowGroups.open(group, activate: false) {
-            return
+        TerminalWindowManager.shared.openStartupWindows {
+            WindowOpener.openWindow(spec: $0, initialFrame: .saved)
         }
-
-        var spec = LaunchSpec()
-        spec.activate = false
-        if defaults.string(forKey: "startupMode") == "profile",
-           let rawID = defaults.string(forKey: "startupProfileID") {
-            spec.profileID = UUID(uuidString: rawID)
-        }
-        WindowOpener.openWindow(spec: spec, initialFrame: .saved)
     }
 }
 
@@ -138,7 +138,9 @@ final class SecureKeyboardEntry {
     }
 
     func disableForTermination() {
-        guard enabledByThisApp else { return }
+        guard enabledByThisApp else {
+            return
+        }
         DisableSecureEventInput()
         enabledByThisApp = false
     }
@@ -146,7 +148,9 @@ final class SecureKeyboardEntry {
     private func applyState() {
         UserDefaults.standard.set(isEnabled, forKey: "SecureKeyboardEntry")
         if isEnabled {
-            guard !enabledByThisApp else { return }
+            guard !enabledByThisApp else {
+                return
+            }
             guard EnableSecureEventInput() == noErr else {
                 isEnabled = false
                 return
@@ -167,6 +171,15 @@ struct NewItemCommands: Commands {
             }
             .keyboardShortcut("n", modifiers: [.command])
 
+            Button("New Group") {
+                if let controller = TerminalWindowManager.shared.controller(for: WindowOpener.frontTerminalWindow()) {
+                    controller.newGroup()
+                } else {
+                    WindowOpener.openWindow(spec: LaunchSpec())
+                }
+            }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+
             Button("New Tab") {
                 // Inherits working directory and profile from the current
                 // tab per the General settings
@@ -183,18 +196,14 @@ struct TabSelectionCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .windowArrangement) {
             Menu("Select Tab") {
-                ForEach(1...8, id: \.self) { number in
+                ForEach(1...9, id: \.self) { number in
                     Button("Select Tab \(number)") {
                         selectTab(at: number - 1)
                     }
                     .keyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: [.command])
                 }
-                Divider()
-                Button("Select Last Tab") {
-                    selectLastTab()
-                }
-                .keyboardShortcut("9", modifiers: [.command])
             }
+            .disabled(owner == nil)
 
             Divider()
 
@@ -216,23 +225,19 @@ struct TabSelectionCommands: Commands {
         (commandState.controller?.workspace?.paneCount ?? 0) > 1
     }
 
-    private func selectTab(at index: Int) {
-        guard UserDefaults.standard.bool(forKey: "useCommandDigitsForTabs"),
-              let tabGroup = (NSApp.keyWindow ?? NSApp.mainWindow)?.tabGroup,
-              tabGroup.windows.indices.contains(index) else {
-            return
-        }
-        tabGroup.selectedWindow = tabGroup.windows[index]
+    private var owner: TerminalWindowController? {
+        _ = commandState.window
+        return TerminalWindowCommandTarget.resolve(keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow)?.terminal
     }
 
-    private func selectLastTab() {
-        guard UserDefaults.standard.bool(forKey: "useCommandDigitsForTabs"),
-              let tabGroup = (NSApp.keyWindow ?? NSApp.mainWindow)?.tabGroup,
-              let lastWindow = tabGroup.windows.last else {
+    private func selectTab(at index: Int) {
+        guard UserDefaults.standard.bool(forKey: "useCommandDigitsForTabs"), let owner else {
             return
         }
-        tabGroup.selectedWindow = lastWindow
+        owner.selectNumberedTab(index)
     }
+
+
 }
 
 struct SplitCommands: Commands {
@@ -344,12 +349,6 @@ struct TerminalCommands: Commands {
             .keyboardShortcut("d", modifiers: [.command, .shift])
             .disabled(!isEnabled)
 
-            Button("Close Pane") {
-                controller?.requestClose()
-            }
-            .keyboardShortcut("w", modifiers: [.command])
-            .disabled(!isEnabled)
-
             Button("Terminate Session") {
                 controller?.terminateSession()
             }
@@ -369,8 +368,8 @@ struct TerminalCommands: Commands {
             Divider()
 
             Button("Clear to Start", action: clearScrollback)
-            .keyboardShortcut("k", modifiers: [.command])
-            .disabled(!isEnabled)
+                .keyboardShortcut("k", modifiers: [.command, .control])
+                .disabled(!isEnabled)
 
             Divider()
 
@@ -463,7 +462,9 @@ struct TerminalCommands: Commands {
 
     private func binding(_ keyPath: ReferenceWritableKeyPath<TerminalSessionController, Bool>) -> Binding<Bool> {
         Binding(
-            get: { controller?[keyPath: keyPath] ?? false },
+            get: {
+                controller?[keyPath: keyPath] ?? false
+            },
             set: { newValue in
                 controller?[keyPath: keyPath] = newValue
             }
@@ -479,7 +480,9 @@ struct TerminalCommands: Commands {
     }
 
     private func pasteEscaped() {
-        guard let text = NSPasteboard.general.string(forType: .string) else { return }
+        guard let text = NSPasteboard.general.string(forType: .string) else {
+            return
+        }
         let escaped = "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
         controller?.sendLiteralText(escaped)
     }
@@ -546,28 +549,6 @@ struct TecolotApp: App {
     }
 
     var body: some Scene {
-        DocumentGroup(newDocument: TerminalDocument()) { file in
-            ContentView(document: file.$document, fileURL: file.fileURL)
-                .environmentObject(model.profiles)
-                .environmentObject(model.themes)
-                .environmentObject(model.themeIndex)
-                .environmentObject(model.systemAppearance)
-        }
-        .defaultLaunchBehavior(.suppressed)
-        .windowToolbarStyle(.unifiedCompact)
-        .commands {
-            AppInfoCommands()
-            UpdateCommands()
-            SettingsCommands()
-            NewItemCommands()
-            TabSelectionCommands()
-            SplitCommands()
-            ProfileCommands(profiles: model.profiles)
-            WindowGroupCommands(store: model.windowGroups)
-            TerminalCommands()
-            TerminalPrintCommands()
-        }
-
         Window("Settings", id: SettingsWindowID.value) {
             SettingsView(issueCenter: model.issueCenter, recovery: model.recovery)
                 .environmentObject(model.profiles)
@@ -575,12 +556,26 @@ struct TecolotApp: App {
                 .environmentObject(model.themeIndex)
                 .environmentObject(model.systemAppearance)
         }
+        .defaultLaunchBehavior(.suppressed)
         .defaultSize(width: 820, height: 560)
         .windowResizability(.contentMinSize)
+        .commands {
+            AppInfoCommands()
+            UpdateCommands()
+            SettingsCommands()
+            NewItemCommands()
+            GroupWindowCommands()
+            TabSelectionCommands()
+            SplitCommands()
+            ProfileCommands(profiles: model.profiles)
+            TerminalCommands()
+            TerminalPrintCommands()
+        }
 
         Window("Sessions", id: SessionBrowserWindowID.value) {
             SessionBrowserView()
         }
+        .defaultLaunchBehavior(.suppressed)
         .defaultSize(width: 860, height: 400)
     }
 }

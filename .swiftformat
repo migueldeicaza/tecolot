@@ -1,0 +1,22 @@
+# Keep formatting focused on layout rather than code transformations.
+--min-version 0.64.0
+--swift-version 6.3
+--language-mode 5
+--rules semicolons,braces,elseOnSameLine,indent,wrapArguments,wrapIfStatementBodies,wrapIfExpressionBodies,wrapGuardStatementBodies,wrapLoopBodies,wrapCaseBodies,wrapDoBodies,wrapClosureBodies,wrapFunctionBodies,wrapPropertyBodies
+
+--indent 4
+--tab-width 4
+--smart-tabs disabled
+--xcode-indentation enabled
+--wrap-arguments before-first
+--wrap-parameters before-first
+--wrap-collections before-first
+--wrap-conditions before-first
+--semicolons never
+--allman false
+# Expand closures too, so multiple statements always start below the brace.
+--wrap-closure-bodies always
+
+# Leave dependencies, build output, downloaded content, and scratch files alone.
+--symlinks ignore
+--exclude **/.build,**/build,**/DerivedData,**/Pods,**/Carthage,.codex-build,build-mac,.tools,dist,godot,godot-multi-instance,SwiftGodot,XogotUI,MiniTreeSitterLanguages,Runestone,RunestoneUI,Popovers,RSyncKit

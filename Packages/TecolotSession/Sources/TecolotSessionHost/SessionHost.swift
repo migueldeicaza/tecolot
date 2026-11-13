@@ -23,9 +23,9 @@ import TecolotTransport
 import TecolotWire
 import TecolotSessionDirectory
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #endif
 
 /// State that terminal callbacks record for the session queue.
@@ -49,6 +49,7 @@ struct HostEvents {
     /// clock counts the time that the Mac sleeps.
     var progress: WireProgress?
     var progressVersion: UInt64 = 0
+    var programStatusVersion: UInt64 = 0
     var progressTime = ContinuousClock.Instant.now
     /// When the recent notifications came, for the rate limit.
     var notificationTimes: [ContinuousClock.Instant] = []
@@ -66,13 +67,19 @@ struct HostEvents {
     var scale: Double = 2
     var windowSize = (columns: 80, rows: 24, cellWidth: 0, cellHeight: 0)
 
-    mutating func bumpLatched() { latched &+= 1 }
+    mutating func bumpLatched() {
+        latched &+= 1
+    }
 
     /// Records a notification that came at `now`, unless `limit` came in
     /// the `window` before it.
     mutating func admitNotification(at now: ContinuousClock.Instant, limit: Int, window: Duration) -> Bool {
-        notificationTimes.removeAll { now - $0 >= window }
-        guard notificationTimes.count < limit else { return false }
+        notificationTimes.removeAll {
+            now - $0 >= window
+        }
+        guard notificationTimes.count < limit else {
+            return false
+        }
         notificationTimes.append(now)
         return true
     }
@@ -95,6 +102,7 @@ public enum SessionTraceEvent: Sendable {
 }
 
 public final class SessionHost: @unchecked Sendable {
+    private let programStatus = ProgramStatusTracker()
     /// Development only (tecolot-latency): set before `start()`. Called on
     /// the thread where the event happens.
     public var trace: (@Sendable (SessionTraceEvent) -> Void)?
@@ -126,7 +134,9 @@ public final class SessionHost: @unchecked Sendable {
     private let terminationRequested = Atomic<Bool>(false)
 
     /// True after a client or the owner asked the session to end.
-    public var wasTerminationRequested: Bool { terminationRequested.load(ordering: .relaxed) }
+    public var wasTerminationRequested: Bool {
+        terminationRequested.load(ordering: .relaxed)
+    }
 
     // Session queue state.
     private var clients: [ObjectIdentifier: SessionClient] = [:]
@@ -198,19 +208,41 @@ public final class SessionHost: @unchecked Sendable {
         if let limit = launch.kittyGraphicsStorageLimit {
             options.kittyGraphics = KittyGraphicsConfiguration(
                 storageLimitBytesPerScreen: limit,
-                localMediaPolicy: .init(rawValue: launch.kittyGraphicsLocalMedia ?? 0))
+                localMediaPolicy: .init(rawValue: launch.kittyGraphicsLocalMedia ?? 0)
+            )
         }
         events.withLock {
             $0.windowSize = (options.cols, options.rows, launch.cellWidth, launch.cellHeight)
-            if launch.cellWidth > 0 { $0.cellSize = (launch.cellWidth, launch.cellHeight) }
+            if launch.cellWidth > 0 {
+                $0.cellSize = (launch.cellWidth, launch.cellHeight)
+            }
         }
         terminal = Terminal(delegate: self, options: options)
         process = LocalProcess(delegate: self, dispatchQueue: ptyQueue, directDelivery: false)
         // Notifications: SwiftTerm does not report OSC 9, so read both
         // forms here.
         // OSC 1337 CurrentDir and OSC 633 P;Cwd are directory reports.
-        oscObservation = terminal.observeOscEvents(codes: [9, 777, 633, 1337]) { [weak self] event in
-            guard let self else { return }
+        programStatus.initializeBuffer(terminal)
+        oscObservation = terminal.observeOscEvents(codes: [9, 777, 633, 1337, 133, 7501]) { [weak self] event in
+            guard let self else {
+                return
+            }
+            if event.code == 133, event.payload.first == 65 {
+                programStatus.dropTransient()
+                programStatusDidChange()
+                return
+            }
+            if event.code == 7501 {
+                // Reconcile under the feed lock so a delayed OSC observer cannot
+                // replace a newer state with the records it read before the next feed.
+                let accepted = terminal.terminalLock.withLock {
+                    programStatus.observeReport(event.payload, records: terminal.programStatusRecords, touchReport: false)
+                }
+                if accepted {
+                    programStatusDidChange()
+                }
+                return
+            }
             if event.code == 633 || event.code == 1337 {
                 // OSC 1337 also carries inline images of many megabytes: decode only directory reports.
                 if PaneDirectory.isOtherReport(code: event.code, payload: event.payload) {
@@ -218,18 +250,30 @@ public final class SessionHost: @unchecked Sendable {
                 }
                 return
             }
-            guard let message = NotificationMessage(oscCode: event.code, payload: event.payload) else { return }
+            guard let message = NotificationMessage(oscCode: event.code, payload: event.payload) else {
+                return
+            }
             let admitted = events.withLock { state in
-                guard state.admitNotification(at: .now, limit: Self.notificationLimit,
-                                              window: Self.notificationWindow) else { return false }
+                guard
+                    state.admitNotification(
+                        at: .now, limit: Self.notificationLimit,
+                        window: Self.notificationWindow
+                    )
+                else {
+                    return false
+                }
                 state.edges.append(.notification(message))
                 return true
             }
-            if admitted { signal() }
+            if admitted {
+                signal()
+            }
         }
 
         let source = DispatchSource.makeUserDataOrSource(queue: queue)
-        source.setEventHandler { [weak self] in self?.tick() }
+        source.setEventHandler { [weak self] in
+            self?.tick()
+        }
         tickSource = source
         source.activate()
     }
@@ -245,11 +289,18 @@ public final class SessionHost: @unchecked Sendable {
         if executable.contains("/") {
             return access(executable, X_OK) == 0 ? executable : nil
         }
-        let path = launch.environment.first { $0.hasPrefix("PATH=") }.map { String($0.dropFirst(5)) }
+        let path =
+            launch.environment.first {
+                $0.hasPrefix("PATH=")
+            }.map {
+                String($0.dropFirst(5))
+            }
             ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         for directory in path.split(separator: ":") where !directory.isEmpty {
             let candidate = "\(directory)/\(executable)"
-            if access(candidate, X_OK) == 0 { return candidate }
+            if access(candidate, X_OK) == 0 {
+                return candidate
+            }
         }
         return nil
     }
@@ -259,22 +310,30 @@ public final class SessionHost: @unchecked Sendable {
         guard Self.resolveExecutable(launch) != nil else {
             throw LaunchError(description: "cannot run \(launch.executable)")
         }
-        queue.async { self.updateInfoTimer() }
+        queue.async {
+            self.updateInfoTimer()
+        }
         let theme = launch.theme
         terminal.terminalLock.withLock {
-            if let theme { applyThemeLocked(theme) }
+            if let theme {
+                applyThemeLocked(theme)
+            }
             if launch.cellWidth > 0 {
                 terminal.updatePixelGeometry(cellWidth: launch.cellWidth, cellHeight: launch.cellHeight)
             }
         }
         feedReplayIfNeeded()
-        let result = process.startProcessChecked(executable: launch.executable, args: launch.arguments,
-                                                 environment: launch.environment, execName: launch.argv0,
-                                                 currentDirectory: launch.workingDirectory)
+        let result = process.startProcessChecked(
+            executable: launch.executable, args: launch.arguments,
+            environment: launch.environment, execName: launch.argv0,
+            currentDirectory: launch.workingDirectory
+        )
         if case .failure(let error) = result {
             throw error
         }
-        queue.async { self.started = true }
+        queue.async {
+            self.started = true
+        }
     }
 
     /// Sends a signal to the child process. A second call after the child
@@ -282,10 +341,14 @@ public final class SessionHost: @unchecked Sendable {
     public func terminate(signal: Int32 = SIGHUP) {
         terminationRequested.store(true, ordering: .relaxed)
         let pid = process.shellPid
-        guard pid > 0, process.running else { return }
+        guard pid > 0, process.running else {
+            return
+        }
         kill(pid, signal)
         queue.asyncAfter(deadline: .now() + 3) { [weak self] in
-            guard let self, process.running else { return }
+            guard let self, process.running else {
+                return
+            }
             kill(pid, SIGKILL)
         }
     }
@@ -307,15 +370,21 @@ public final class SessionHost: @unchecked Sendable {
         precondition(channel.queue === queue, "client channels must use the session queue")
         let client = SessionClient(channel: channel)
         channel.onMessage = { [weak self, weak client] envelope in
-            guard let self, let client else { return }
+            guard let self, let client else {
+                return
+            }
             handle(envelope, from: client)
         }
         channel.onDrained = { [weak self, weak client] in
-            guard let self, let client else { return }
+            guard let self, let client else {
+                return
+            }
             pumpBulk(client)
         }
         channel.onClose = { [weak self, weak client] _ in
-            guard let self, let client else { return }
+            guard let self, let client else {
+                return
+            }
             remove(client)
         }
         queue.async {
@@ -339,16 +408,25 @@ public final class SessionHost: @unchecked Sendable {
 
     private func attachmentChanged() {
         let attached = attachedClients
-        events.withLock { $0.hasAttachedClients = !attached.isEmpty }
-        if let owner = sizeOwner, !owner.attached { sizeOwner = nil }
-        if sizeOwner == nil, let next = attached.first(where: { !$0.viewer }) {
+        events.withLock {
+            $0.hasAttachedClients = !attached.isEmpty
+        }
+        if let owner = sizeOwner, !owner.attached {
+            sizeOwner = nil
+        }
+        if
+            sizeOwner == nil, let next = attached.first(where: {
+                !$0.viewer
+            }) {
             sizeOwner = next
             applySize(next.size)
         }
         updateFocus()
         updateInfoTimer()
         onAttachmentChange?(attached.count)
-        if attached.isEmpty { onIdle?() }
+        if attached.isEmpty {
+            onIdle?()
+        }
     }
 
     // MARK: - Messages
@@ -372,55 +450,102 @@ public final class SessionHost: @unchecked Sendable {
                 return
             }
             switch envelope.kind {
-            case .attach: handleAttach(try envelope.decode(AttachMessage.self), from: client)
+            case .attach:
+                handleAttach(try envelope.decode(AttachMessage.self), from: client)
             case .detach:
                 if client.attached {
                     client.attached = false
                     attachmentChanged()
                 }
-            case .resize: handleResize(try envelope.decode(ResizeMessage.self), from: client)
-            case .setViewport: handleViewport(try envelope.decode(SetViewportMessage.self), from: client)
-            case .frameAck: handleAck(try envelope.decode(FrameAckMessage.self), from: client)
-            case .fetchRows: handleFetch(try envelope.decode(FetchRowsMessage.self), from: client,
-                                         requestID: envelope.requestID)
-            case .key: handleKey(try envelope.decode(KeyMessage.self), from: client)
+            case .resize:
+                handleResize(try envelope.decode(ResizeMessage.self), from: client)
+            case .setViewport:
+                handleViewport(try envelope.decode(SetViewportMessage.self), from: client)
+            case .frameAck:
+                handleAck(try envelope.decode(FrameAckMessage.self), from: client)
+            case .fetchRows:
+                handleFetch(
+                    try envelope.decode(FetchRowsMessage.self), from: client,
+                    requestID: envelope.requestID
+                )
+            case .key:
+                handleKey(try envelope.decode(KeyMessage.self), from: client)
             case .text:
                 let text = try envelope.decode(TextMessage.self).text
                 noteInput(from: client)
-                terminal.terminalLock.withLock { _ = terminal.sendHostText(text) }
+                terminal.terminalLock.withLock {
+                    _ = terminal.sendHostText(text)
+                }
                 trace?(.input)
             case .input:
                 let bytes = try envelope.decode(InputMessage.self).bytes
                 noteInput(from: client)
-                terminal.terminalLock.withLock { terminal.sendUserInput(bytes[...]) }
+                terminal.terminalLock.withLock {
+                    terminal.sendUserInput(bytes[...])
+                }
                 trace?(.input)
-            case .mouse: handleMouse(try envelope.decode(MouseMessage.self), from: client)
-            case .paste: handlePaste(try envelope.decode(PasteMessage.self), from: client,
-                                     requestID: envelope.requestID)
+            case .mouse:
+                handleMouse(try envelope.decode(MouseMessage.self), from: client)
+            case .paste:
+                handlePaste(
+                    try envelope.decode(PasteMessage.self), from: client,
+                    requestID: envelope.requestID
+                )
             case .pasteApprove:
                 let approval = try envelope.decode(PasteApproveMessage.self)
                 if let text = pendingPastes.removeValue(forKey: approval.token), approval.approved {
                     noteInput(from: client)
-                    terminal.terminalLock.withLock { _ = terminal.sendHostTextPaste(text, allowUnsafe: true) }
+                    terminal.terminalLock.withLock {
+                        _ = terminal.sendHostTextPaste(text, allowUnsafe: true)
+                    }
                 }
             case .focus:
                 client.focused = try envelope.decode(FocusMessage.self).focused
                 updateFocus()
-            case .getText: handleGetText(try envelope.decode(GetTextMessage.self), from: client,
-                                         requestID: envelope.requestID)
-            case .clipboardReply: handleClipboardReply(try envelope.decode(ClipboardReplyMessage.self))
-            case .setTheme: handleTheme(try envelope.decode(SetThemeMessage.self))
+            case .getText:
+                handleGetText(
+                    try envelope.decode(GetTextMessage.self), from: client,
+                    requestID: envelope.requestID
+                )
+            case .clipboardReply:
+                handleClipboardReply(try envelope.decode(ClipboardReplyMessage.self))
+            case .setFrameRate:
+                let rate = try envelope.decode(SetFrameRateMessage.self).maximumFramesPerSecond
+                if rate == 0, client.maximumFramesPerSecond != 0 {
+                    client.seenActivityFeed = feedSequence.load(ordering: .acquiring)
+                }
+                client.maximumFramesPerSecond = max(0, min(rate, 240))
+                client.needsFrame = true
+                signal()
+            case .clearProgramStatus:
+                programStatus.clearSeen(try envelope.decode(ClearProgramStatusMessage.self).records)
+                programStatusDidChange()
+            case .setTheme:
+                handleTheme(try envelope.decode(SetThemeMessage.self))
             case .setScreenChecksumReports:
                 let setting = try envelope.decode(SetScreenChecksumReportsMessage.self)
-                terminal.terminalLock.withLock { terminal.enableRectangularAreaChecksum = setting.enabled }
-            case .terminate: terminate(signal: try envelope.decode(TerminateMessage.self).signal)
-            case .reset: handleReset(try envelope.decode(ResetMessage.self).action)
-            case .search: handleSearch(try envelope.decode(SearchMessage.self), from: client,
-                                       requestID: envelope.requestID)
-            case .findPrompt: handleFindPrompt(try envelope.decode(FindPromptMessage.self), from: client,
-                                               requestID: envelope.requestID)
-            case .fetchImage: handleFetchImage(try envelope.decode(FetchImageMessage.self), from: client,
-                                               requestID: envelope.requestID)
+                terminal.terminalLock.withLock {
+                    terminal.enableRectangularAreaChecksum = setting.enabled
+                }
+            case .terminate:
+                terminate(signal: try envelope.decode(TerminateMessage.self).signal)
+            case .reset:
+                handleReset(try envelope.decode(ResetMessage.self).action)
+            case .search:
+                handleSearch(
+                    try envelope.decode(SearchMessage.self), from: client,
+                    requestID: envelope.requestID
+                )
+            case .findPrompt:
+                handleFindPrompt(
+                    try envelope.decode(FindPromptMessage.self), from: client,
+                    requestID: envelope.requestID
+                )
+            case .fetchImage:
+                handleFetchImage(
+                    try envelope.decode(FetchImageMessage.self), from: client,
+                    requestID: envelope.requestID
+                )
             default:
                 if envelope.flags.contains(.required) {
                     fail(client, .unsupported, envelope, "unsupported message")
@@ -432,20 +557,27 @@ public final class SessionHost: @unchecked Sendable {
     }
 
     private func fail(_ client: SessionClient, _ code: SessionErrorCode, _ envelope: Envelope, _ message: String) {
-        client.channel.send(ErrorMessage(code: code, failedKind: envelope.kind, message: message),
-                            requestID: envelope.requestID)
+        client.channel.send(
+            ErrorMessage(code: code, failedKind: envelope.kind, message: message),
+            requestID: envelope.requestID
+        )
     }
 
     private func handleHello(_ hello: HelloMessage, from client: SessionClient, requestID: UInt64?) {
         let version = min(hello.maximumVersion, SessionProtocol.version)
         guard version >= hello.minimumVersion, version >= SessionProtocol.minimumVersion else {
-            client.channel.send(ErrorMessage(code: .versionMismatch, failedKind: .hello,
-                                             message: "helper speaks \(SessionProtocol.minimumVersion)...\(SessionProtocol.version)"),
-                                requestID: requestID)
+            client.channel.send(
+                ErrorMessage(
+                    code: .versionMismatch, failedKind: .hello,
+                    message: "helper speaks \(SessionProtocol.minimumVersion)...\(SessionProtocol.version)"
+                ),
+                requestID: requestID
+            )
             client.channel.closeWhenDrained()
             return
         }
         client.negotiatedVersion = version
+        client.capabilities = hello.capabilities
         client.clientInstance = hello.clientInstance
         if !hello.clientInstance.isEmpty {
             let older = attachedClients.filter {
@@ -457,14 +589,18 @@ public final class SessionHost: @unchecked Sendable {
             }
         }
         client.retainMargin = max(0, min(hello.retainMargin, 4096))
-        client.channel.send(HelloReplyMessage(version: version, build: build, capabilities: .helper,
-                                              sessionID: id), requestID: requestID)
+        client.channel.send(
+            HelloReplyMessage(
+                version: version, build: build, capabilities: .helper,
+                sessionID: id
+            ), requestID: requestID
+        )
     }
 
     private func handleAttach(_ attach: AttachMessage, from client: SessionClient) {
         client.size = attach.size
         client.scale = attach.scale
-        client.maximumFramesPerSecond = max(1, min(attach.maximumFramesPerSecond, 240))
+        client.maximumFramesPerSecond = max(0, min(attach.maximumFramesPerSecond, 240))
         client.viewer = attach.viewer
         client.focused = attach.focused
         client.follow = true
@@ -483,6 +619,9 @@ public final class SessionHost: @unchecked Sendable {
         client.seenDirectory = 0
         client.seenColors = 0
         client.seenProgress = 0
+        client.seenProgramStatus = .max
+        client.seenActivityFeed = feedSequence.load(ordering: .acquiring)
+        client.lastStatusKey = nil
         client.seenReverse = nil
         client.lastKitty = nil
         client.sentParagraphRows = nil
@@ -492,7 +631,9 @@ public final class SessionHost: @unchecked Sendable {
             client.lastInput = .now()
         }
         attachmentChanged()
-        if sizeOwner === client { applySize(client.size) }
+        if sizeOwner === client {
+            applySize(client.size)
+        }
         // Replay the exit status for late clients.
         if let status = exitStatus {
             client.channel.send(ProcessExitedMessage(exitCode: status))
@@ -502,8 +643,12 @@ public final class SessionHost: @unchecked Sendable {
 
     private func handleResize(_ resize: ResizeMessage, from client: SessionClient) {
         client.size = resize.size
-        if resize.scale > 0 { client.scale = resize.scale }
-        if sizeOwner === client { applySize(resize.size) }
+        if resize.scale > 0 {
+            client.scale = resize.scale
+        }
+        if sizeOwner === client {
+            applySize(resize.size)
+        }
         client.needsFrame = true
         signal()
     }
@@ -521,8 +666,11 @@ public final class SessionHost: @unchecked Sendable {
     }
 
     private func handleAck(_ ack: FrameAckMessage, from client: SessionClient) {
-        if let index = client.inFlight.firstIndex(where: { $0.sequence == ack.sequence }) {
-            client.inFlight.removeSubrange(0 ... index)
+        if
+            let index = client.inFlight.firstIndex(where: {
+                $0.sequence == ack.sequence
+            }) {
+            client.inFlight.removeSubrange(0...index)
         }
         client.credits = SessionClient.maximumCredits - client.inFlight.count
         signal()
@@ -534,8 +682,12 @@ public final class SessionHost: @unchecked Sendable {
         let now = DispatchTime.now()
         client.boostUntil = now + .milliseconds(100)
         client.lastInput = now
-        guard !client.viewer, sizeOwner !== client else { return }
-        let ownerQuiet = sizeOwner.map { now.uptimeNanoseconds - $0.lastInput.uptimeNanoseconds > 250_000_000 } ?? true
+        guard !client.viewer, sizeOwner !== client else {
+            return
+        }
+        let ownerQuiet = sizeOwner.map {
+            now.uptimeNanoseconds - $0.lastInput.uptimeNanoseconds > 250_000_000
+        } ?? true
         if ownerQuiet {
             sizeOwner = client
             applySize(client.size)
@@ -551,11 +703,13 @@ public final class SessionHost: @unchecked Sendable {
                 terminal.sendUserInput(bytes[...])
                 return
             }
-            let result = terminal.sendHostKey(key: key.key, code: key.code, modifiers: key.modifiers,
-                                              eventType: key.eventType, text: key.text,
-                                              shiftedKey: key.shiftedKey, baseLayoutKey: key.baseLayoutKey,
-                                              composing: key.composing,
-                                              backspaceSendsControlH: key.backspaceSendsControlH)
+            let result = terminal.sendHostKey(
+                key: key.key, code: key.code, modifiers: key.modifiers,
+                eventType: key.eventType, text: key.text,
+                shiftedKey: key.shiftedKey, baseLayoutKey: key.baseLayoutKey,
+                composing: key.composing,
+                backspaceSendsControlH: key.backspaceSendsControlH
+            )
             if result == 0, let text = key.text, !text.isEmpty, key.eventType != 3 {
                 _ = terminal.sendHostText(text)
             }
@@ -563,13 +717,21 @@ public final class SessionHost: @unchecked Sendable {
     }
 
     private func handleMouse(_ mouse: MouseMessage, from client: SessionClient) {
-        guard let action = TerminalMouseAction(rawValue: UInt32(mouse.action)),
-              let button = TerminalMouseButton(rawValue: UInt32(mouse.button)) else { return }
-        if action != .move { noteInput(from: client) }
+        guard
+            let action = TerminalMouseAction(rawValue: UInt32(mouse.action)),
+            let button = TerminalMouseButton(rawValue: UInt32(mouse.button))
+        else {
+            return
+        }
+        if action != .move {
+            noteInput(from: client)
+        }
         terminal.terminalLock.withLock {
-            _ = terminal.sendHostMouse(action: action, button: button, modifiers: UInt32(mouse.modifiers),
-                                       col: mouse.column, row: mouse.row,
-                                       pixelX: mouse.pixelX, pixelY: mouse.pixelY)
+            _ = terminal.sendHostMouse(
+                action: action, button: button, modifiers: UInt32(mouse.modifiers),
+                col: mouse.column, row: mouse.row,
+                pixelX: mouse.pixelX, pixelY: mouse.pixelY
+            )
         }
     }
 
@@ -592,26 +754,38 @@ public final class SessionHost: @unchecked Sendable {
     }
 
     private func updateFocus() {
-        let focused = attachedClients.contains { $0.focused }
-        terminal.terminalLock.withLock { terminal.setTerminalFocus(focused) }
+        let focused = attachedClients.contains {
+            $0.focused
+        }
+        terminal.terminalLock.withLock {
+            terminal.setTerminalFocus(focused)
+        }
     }
 
     private func handleTheme(_ theme: SetThemeMessage) {
-        let sessionTheme = SessionTheme(palette: theme.palette.prefix(16).map(WireRGBCodable.init),
-                                        foreground: WireRGBCodable(theme.foreground),
-                                        background: WireRGBCodable(theme.background),
-                                        cursor: theme.cursor.map(WireRGBCodable.init))
-        terminal.terminalLock.withLock { applyThemeLocked(sessionTheme) }
+        let sessionTheme = SessionTheme(
+            palette: theme.palette.prefix(16).map(WireRGBCodable.init),
+            foreground: WireRGBCodable(theme.foreground),
+            background: WireRGBCodable(theme.background),
+            cursor: theme.cursor.map(WireRGBCodable.init)
+        )
+        terminal.terminalLock.withLock {
+            applyThemeLocked(sessionTheme)
+        }
         signal()
     }
 
     private func applyThemeLocked(_ theme: SessionTheme) {
         if theme.palette.count == 16 {
-            terminal.installPalette(colors: theme.palette.map { WireMapping.color($0.wire) })
+            terminal.installPalette(colors: theme.palette.map {
+                WireMapping.color($0.wire)
+            })
         }
         terminal.foregroundColor = WireMapping.color(theme.foreground.wire)
         terminal.backgroundColor = WireMapping.color(theme.background.wire)
-        terminal.cursorColor = theme.cursor.map { WireMapping.color($0.wire) }
+        terminal.cursorColor = theme.cursor.map {
+            WireMapping.color($0.wire)
+        }
         events.withLock {
             $0.colorsVersion &+= 1
             $0.bumpLatched()
@@ -619,7 +793,9 @@ public final class SessionHost: @unchecked Sendable {
     }
 
     private func handleClipboardReply(_ reply: ClipboardReplyMessage) {
-        guard clipboardReaders.removeValue(forKey: reply.request) != nil else { return }
+        guard clipboardReaders.removeValue(forKey: reply.request) != nil else {
+            return
+        }
         let selection = pendingClipboardSelections.removeValue(forKey: reply.request) ?? "c"
         terminal.terminalLock.withLock {
             terminal.completeClipboardRead(selection: selection, content: reply.allowed ? reply.data : [])
@@ -636,8 +812,9 @@ public final class SessionHost: @unchecked Sendable {
         let feed = feedSequence.load(ordering: .acquiring)
         let (live, needsBuild) = terminal.terminalLock.withLock { () -> (LiveState, Bool) in
             let live = updateNumberingLocked()
-            let stale = searchIndex.feed != feed || searchIndex.epoch != live.epoch ||
-                searchIndex.buffer != live.buffer || searchIndex.columns != live.columns
+            let stale =
+                searchIndex.feed != feed || searchIndex.epoch != live.epoch || searchIndex.buffer != live.buffer
+                    || searchIndex.columns != live.columns
             return (live, stale)
         }
         guard request.buffer == live.buffer else {
@@ -651,14 +828,18 @@ public final class SessionHost: @unchecked Sendable {
                 let done = terminal.terminalLock.withLock { () -> Bool in
                     let current = updateNumberingLocked()
                     let end = min(current.lineCount, ring + 2000)
-                    guard ring < end else { return true }
-                    searchIndex.append(terminal: terminal, ringIndices: ring ..< end) { index in
+                    guard ring < end else {
+                        return true
+                    }
+                    searchIndex.append(terminal: terminal, ringIndices: ring..<end) { index in
                         current.numbering.line(ringIndex: index, trimmed: current.trimmed)
                     }
                     ring = end
                     return false
                 }
-                if done { break }
+                if done {
+                    break
+                }
             }
             searchIndex.finish()
         }
@@ -684,14 +865,18 @@ public final class SessionHost: @unchecked Sendable {
                 epoch = live.epoch
                 let ring = live.numbering.ringIndex(line: line, trimmed: live.trimmed)
                 let start = Int(clamping: request.upward ? ring - 1 : max(ring + 1, 0))
-                let rows = request.upward
-                    ? Array(stride(from: min(start, live.lineCount - 1), through: max(0, start - chunk + 1), by: -1))
-                    : Array(start ..< max(start, min(live.lineCount, start + chunk)))
+                let rows =
+                    request.upward
+                        ? Array(stride(from: min(start, live.lineCount - 1), through: max(0, start - chunk + 1), by: -1))
+                        : Array(start..<max(start, min(live.lineCount, start + chunk)))
                 guard let last = rows.last else {
                     done = true
                     return
                 }
-                if let row = rows.first(where: { terminal.semanticRowKind(at: $0) == .initial }) {
+                if
+                    let row = rows.first(where: {
+                        terminal.semanticRowKind(at: $0) == .initial
+                    }) {
                     found = live.numbering.line(ringIndex: row, trimmed: live.trimmed)
                     done = true
                     return
@@ -700,8 +885,10 @@ public final class SessionHost: @unchecked Sendable {
                 done = request.upward ? last == 0 : last == live.lineCount - 1
             }
         }
-        client.channel.send(PromptResultMessage(found: found != nil, line: UInt64(max(0, found ?? 0))),
-                            requestID: requestID)
+        client.channel.send(
+            PromptResultMessage(found: found != nil, line: UInt64(max(0, found ?? 0))),
+            requestID: requestID
+        )
     }
 
     private func handleReset(_ action: ResetAction) {
@@ -720,7 +907,9 @@ public final class SessionHost: @unchecked Sendable {
             // The scrollback changed under the line numbers.
             forceDiscontinuity = true
         }
-        for client in attachedClients { client.needsFrame = true }
+        for client in attachedClients {
+            client.needsFrame = true
+        }
         signal()
     }
 
@@ -736,7 +925,9 @@ public final class SessionHost: @unchecked Sendable {
             if terminal.cols != columns || terminal.rows != rows {
                 if terminal.cols != columns {
                     forceDiscontinuity = true
-                    if terminal.isCurrentBufferAlternate { normalResizedDuringAlternate = true }
+                    if terminal.isCurrentBufferAlternate {
+                        normalResizedDuringAlternate = true
+                    }
                 }
                 terminal.resize(cols: columns, rows: rows)
                 changed = true
@@ -748,23 +939,33 @@ public final class SessionHost: @unchecked Sendable {
         let scale = sizeOwner?.scale ?? 0
         events.withLock {
             $0.windowSize = (columns, rows, size.cellWidth, size.cellHeight)
-            if size.cellWidth > 0 { $0.cellSize = (size.cellWidth, size.cellHeight) }
-            if scale > 0 { $0.scale = Double(scale) / 100 }
+            if size.cellWidth > 0 {
+                $0.cellSize = (size.cellWidth, size.cellHeight)
+            }
+            if scale > 0 {
+                $0.scale = Double(scale) / 100
+            }
         }
         if changed {
             var window = makeWindowSize()
             process.updateWindowSize(&window)
-            for client in attachedClients { client.needsFrame = true }
+            for client in attachedClients {
+                client.needsFrame = true
+            }
             signal()
             onGridChange?(columns, rows)
         }
     }
 
     private func makeWindowSize() -> winsize {
-        let size = events.withLock { $0.windowSize }
-        return winsize(ws_row: UInt16(clamping: size.rows), ws_col: UInt16(clamping: size.columns),
-                       ws_xpixel: UInt16(clamping: size.columns * size.cellWidth),
-                       ws_ypixel: UInt16(clamping: size.rows * size.cellHeight))
+        let size = events.withLock {
+            $0.windowSize
+        }
+        return winsize(
+            ws_row: UInt16(clamping: size.rows), ws_col: UInt16(clamping: size.columns),
+            ws_xpixel: UInt16(clamping: size.columns * size.cellWidth),
+            ws_ypixel: UInt16(clamping: size.rows * size.cellHeight)
+        )
     }
 
     // MARK: - Frames
@@ -784,17 +985,53 @@ public final class SessionHost: @unchecked Sendable {
     private func tick() {
         dispatchPrecondition(condition: .onQueue(queue))
         drainEdges()
+        let statusVersion = events.withLock {
+            $0.programStatusVersion
+        }
+        let activityFeed = feedSequence.load(ordering: .acquiring)
+        let activityNow = DispatchTime.now()
+        var currentStatus: ProgramStatusMessage?
+        for client in attachedClients where client.capabilities.contains(.programStatus) {
+            let changed = client.seenProgramStatus != statusVersion
+            let output = client.maximumFramesPerSecond == 0 && client.seenActivityFeed != activityFeed
+            guard changed || output else {
+                continue
+            }
+            let status = currentStatus ?? programStatus.snapshot
+            currentStatus = status
+            let key = ProgramStatusDeliveryKey(status)
+            if client.lastStatusKey == key && activityNow < client.nextActivityAt {
+                armFrameTimer(client.nextActivityAt)
+                continue
+            }
+            client.seenProgramStatus = statusVersion
+            client.seenActivityFeed = activityFeed
+            client.nextActivityAt = activityNow + .milliseconds(250)
+            client.lastStatusKey = key
+            var snapshot = status
+            snapshot.outputSerial = activityFeed
+            client.channel.send(snapshot)
+        }
         notifyMetadataIfNeeded()
-        if events.withLock({ $0.reverseVideoProbe }) { probeReverseVideo() }
+        if
+            events.withLock({
+                $0.reverseVideoProbe
+            }) {
+            probeReverseVideo()
+        }
 
         let now = DispatchTime.now()
         let feed = feedSequence.load(ordering: .acquiring)
-        let latched = events.withLock { $0.latched }
+        let latched = events.withLock {
+            $0.latched
+        }
         var candidates: [SessionClient] = []
         var earliest: DispatchTime?
-        for client in attachedClients {
+        for client in attachedClients where client.maximumFramesPerSecond > 0 {
             let pending = client.needsFrame || client.seenFeed != feed || client.seenLatched != latched
-            guard pending else { continue }
+            guard pending else {
+                continue
+            }
             guard client.credits > 0, client.bytesInFlight < SessionClient.byteBudget else {
                 trace?(.waitingForCredit)
                 continue
@@ -806,20 +1043,29 @@ public final class SessionHost: @unchecked Sendable {
             }
             candidates.append(client)
         }
-        if let earliest { armFrameTimer(earliest) }
-        guard !candidates.isEmpty else { return }
+        if let earliest {
+            armFrameTimer(earliest)
+        }
+        guard !candidates.isEmpty else {
+            return
+        }
 
         var outgoing: [(SessionClient, FrameMessage, DefineLinksMessage?)] = []
         var animationDeadline: UInt64?
         terminal.terminalLock.withLock {
-            guard !terminal.synchronizedOutputActive else { return }
+            guard !terminal.synchronizedOutputActive else {
+                return
+            }
             let live = updateNumberingLocked()
-            let snapshot = events.withLock { $0 }
+            let snapshot = events.withLock {
+                $0
+            }
             // Kitty animations advance on SwiftTerm's own timer, which does not
             // tell the helper. Advance them here and come back at the next
             // frame's deadline.
             animationDeadline = terminal.kittyGraphicsAdvanceAnimations(
-                monotonicNanoseconds: DispatchTime.now().uptimeNanoseconds)
+                monotonicNanoseconds: DispatchTime.now().uptimeNanoseconds
+            )
             let kitty = terminal.kittyGraphicsRenderSnapshot()
             for client in candidates {
                 client.seenFeed = feed
@@ -830,10 +1076,14 @@ public final class SessionHost: @unchecked Sendable {
                 client.needsFrame = false
             }
         }
-        if let animationDeadline { armAnimationTimer(animationDeadline) }
+        if let animationDeadline {
+            armAnimationTimer(animationDeadline)
+        }
 
         for (client, frame, linkDefinitions) in outgoing {
-            if let linkDefinitions { client.channel.send(linkDefinitions) }
+            if let linkDefinitions {
+                client.channel.send(linkDefinitions)
+            }
             let bytes = EnvelopeCodec.encode(frame)
             client.channel.sendEncoded(bytes)
             client.inFlight.append((frame.sequence, bytes.count))
@@ -844,7 +1094,9 @@ public final class SessionHost: @unchecked Sendable {
         }
         // Housekeeping after the frames left, so that it does not delay them.
         lineTable.trim()
-        kittyImages.prune(keeping: Set(attachedClients.flatMap { $0.lastKitty?.images.map(\.imageID) ?? [] }))
+        kittyImages.prune(keeping: Set(attachedClients.flatMap {
+            $0.lastKitty?.images.map(\.imageID) ?? []
+        }))
     }
 
     /// Reads the live buffer state and updates the numbering. Hold the lock.
@@ -869,21 +1121,29 @@ public final class SessionHost: @unchecked Sendable {
             wasAlternate = alternate
         }
         if alternate {
-            alternateNumbering.update(terminal: terminal, buffer: buffer, lineCount: lineCount,
-                                      scrollbackRows: 0, force: force)
+            alternateNumbering.update(
+                terminal: terminal, buffer: buffer, lineCount: lineCount,
+                scrollbackRows: 0, force: force
+            )
         } else {
-            normalNumbering.update(terminal: terminal, buffer: buffer, lineCount: lineCount,
-                                   scrollbackRows: scrollbackRows, force: force)
+            normalNumbering.update(
+                terminal: terminal, buffer: buffer, lineCount: lineCount,
+                scrollbackRows: scrollbackRows, force: force
+            )
         }
         let numbering = alternate ? alternateNumbering : normalNumbering
-        return LiveState(alternate: alternate, buffer: alternate ? .alternate : .normal,
-                         columns: terminal.cols, rows: rows, scrollbackRows: scrollbackRows,
-                         lineCount: lineCount, trimmed: buffer.totalLinesTrimmed,
-                         epoch: numbering.epoch, numbering: numbering)
+        return LiveState(
+            alternate: alternate, buffer: alternate ? .alternate : .normal,
+            columns: terminal.cols, rows: rows, scrollbackRows: scrollbackRows,
+            lineCount: lineCount, trimmed: buffer.totalLinesTrimmed,
+            epoch: numbering.epoch, numbering: numbering
+        )
     }
 
-    private func buildFrameLocked(for client: SessionClient, live: LiveState, events: HostEvents,
-                                  kitty: KittyGraphicsRenderSnapshot) -> (SessionClient, FrameMessage, DefineLinksMessage?)? {
+    private func buildFrameLocked(
+        for client: SessionClient, live: LiveState, events: HostEvents,
+        kitty: KittyGraphicsRenderSnapshot
+    ) -> (SessionClient, FrameMessage, DefineLinksMessage?)? {
         let numbering = live.numbering
         let first = numbering.line(ringIndex: 0, trimmed: live.trimmed)
         let end = numbering.line(ringIndex: live.lineCount, trimmed: live.trimmed)
@@ -902,14 +1162,22 @@ public final class SessionHost: @unchecked Sendable {
         /// version. Returns whether the row may need bidi layout.
         @discardableResult
         func sendRow(ring: Int) -> Bool {
-            guard ring >= 0, ring < live.lineCount, let line = terminal.bufferLine(atRow: ring) else { return false }
+            guard ring >= 0, ring < live.lineCount, let line = terminal.bufferLine(atRow: ring) else {
+                return false
+            }
             let lineNumber = numbering.line(ringIndex: ring, trimmed: live.trimmed)
-            let entry = lineTable.row(for: line, ringIndex: ring, columns: live.columns,
-                                      terminal: terminal, links: links, encoder: &lineEncoder)
+            let entry = lineTable.row(
+                for: line, ringIndex: ring, columns: live.columns,
+                terminal: terminal, links: links, encoder: &lineEncoder
+            )
             if client.rowVersions[lineNumber] != entry.version {
                 client.rowVersions[lineNumber] = entry.version
-                changed.append(WireRowRecord(line: UInt64(lineNumber), version: entry.version,
-                                             payload: entry.payload))
+                changed.append(
+                    WireRowRecord(
+                        line: UInt64(lineNumber), version: entry.version,
+                        payload: entry.payload
+                    )
+                )
                 for link in entry.links where !client.sentLinks.contains(link) {
                     client.sentLinks.insert(link)
                     newLinks[link] = links.value(for: link)
@@ -919,31 +1187,41 @@ public final class SessionHost: @unchecked Sendable {
         }
         let topRing = Int(clamping: numbering.ringIndex(line: viewTop, trimmed: live.trimmed))
         var visibleRightToLeft = false
-        for offset in 0 ..< live.rows where sendRow(ring: topRing + offset) {
+        for offset in 0..<live.rows where sendRow(ring: topRing + offset) {
             visibleRightToLeft = true
         }
-        sendParagraphContextLocked(topRing: topRing, live: live, retainMargin: client.retainMargin,
-                                   visibleRightToLeft: visibleRightToLeft, sendRow: sendRow)
+        sendParagraphContextLocked(
+            topRing: topRing, live: live, retainMargin: client.retainMargin,
+            visibleRightToLeft: visibleRightToLeft, sendRow: sendRow
+        )
         client.pruneRows(viewTop: viewTop, rows: live.rows)
 
         let buffer = terminal.buffer
         let cursorRing = live.scrollbackRows + buffer.y
         let cursorLine = numbering.line(ringIndex: cursorRing, trimmed: live.trimmed)
         let style = terminal.options.cursorStyle
-        let cursor = WireCursor(line: UInt64(max(0, cursorLine)), column: min(buffer.x, live.columns - 1),
-                                visible: events.cursorVisible, blink: WireMapping.cursorBlinks(style),
-                                style: WireMapping.cursorStyle(style))
+        let cursor = WireCursor(
+            line: UInt64(max(0, cursorLine)), column: min(buffer.x, live.columns - 1),
+            visible: events.cursorVisible, blink: WireMapping.cursorBlinks(style),
+            style: WireMapping.cursorStyle(style)
+        )
         // Bit 16: swap the arrow keys in right-to-left paragraphs (DECSET 1243).
-        let modes = WireModes(input: terminal.hostInputModes | (terminal.bidiArrowKeySwap ? 1 << 16 : 0),
-                              pointer: terminal.hostPointerModes)
-        let geometry = SessionClient.Geometry(buffer: live.buffer, epoch: live.epoch, first: first, end: end,
-                                              viewTop: viewTop, columns: live.columns, rows: live.rows)
+        let modes = WireModes(
+            input: terminal.hostInputModes | (terminal.bidiArrowKeySwap ? 1 << 16 : 0),
+            pointer: terminal.hostPointerModes
+        )
+        let geometry = SessionClient.Geometry(
+            buffer: live.buffer, epoch: live.epoch, first: first, end: end,
+            viewTop: viewTop, columns: live.columns, rows: live.rows
+        )
 
-        var frame = FrameMessage(sequence: client.sequence + 1, snapshotSequence: feedSequence.load(ordering: .relaxed),
-                                 buffer: live.buffer, epoch: live.epoch, firstLine: UInt64(max(0, first)),
-                                 endLine: UInt64(max(0, end)), viewTop: UInt64(max(0, viewTop)),
-                                 columns: live.columns, rows: live.rows, cursor: cursor,
-                                 changedRows: changed)
+        var frame = FrameMessage(
+            sequence: client.sequence + 1, snapshotSequence: feedSequence.load(ordering: .relaxed),
+            buffer: live.buffer, epoch: live.epoch, firstLine: UInt64(max(0, first)),
+            endLine: UInt64(max(0, end)), viewTop: UInt64(max(0, viewTop)),
+            columns: live.columns, rows: live.rows, cursor: cursor,
+            changedRows: changed
+        )
         var meaningful = !changed.isEmpty || client.lastGeometry != geometry || client.lastCursor != cursor
         if client.lastModes != modes {
             frame.modes = modes
@@ -983,10 +1261,12 @@ public final class SessionHost: @unchecked Sendable {
                     overrides[index] = WireMapping.rgb(color)
                 }
             }
-            frame.colors = WireColorState(foreground: WireMapping.rgb(terminal.foregroundColor),
-                                          background: WireMapping.rgb(terminal.backgroundColor),
-                                          cursor: terminal.cursorColor.map(WireMapping.rgb),
-                                          paletteOverrides: overrides)
+            frame.colors = WireColorState(
+                foreground: WireMapping.rgb(terminal.foregroundColor),
+                background: WireMapping.rgb(terminal.backgroundColor),
+                cursor: terminal.cursorColor.map(WireMapping.rgb),
+                paletteOverrides: overrides
+            )
             client.seenColors = events.colorsVersion
             meaningful = true
         }
@@ -1007,7 +1287,9 @@ public final class SessionHost: @unchecked Sendable {
             client.lastKitty = kittyState
             meaningful = true
         }
-        guard meaningful || client.needsFrame else { return nil }
+        guard meaningful || client.needsFrame else {
+            return nil
+        }
         client.sequence += 1
         client.lastCursor = cursor
         client.lastModes = modes
@@ -1019,8 +1301,10 @@ public final class SessionHost: @unchecked Sendable {
     /// Adds the rows outside the view that belong to the soft-wrapped
     /// paragraphs of the first and last visible rows, when bidi layout may
     /// need them: the client lays out each paragraph as a whole.
-    private func sendParagraphContextLocked(topRing: Int, live: LiveState, retainMargin: Int,
-                                            visibleRightToLeft: Bool, sendRow: (Int) -> Bool) {
+    private func sendParagraphContextLocked(
+        topRing: Int, live: LiveState, retainMargin: Int,
+        visibleRightToLeft: Bool, sendRow: (Int) -> Bool
+    ) {
         let limit = min(max(1, terminal.options.maximumBidiParagraphRows), max(1, retainMargin))
         var above: [Int] = []
         var ring = topRing
@@ -1034,31 +1318,44 @@ public final class SessionHost: @unchecked Sendable {
             below.append(ring)
             ring += 1
         }
-        guard !above.isEmpty || !below.isEmpty else { return }
+        guard !above.isEmpty || !below.isEmpty else {
+            return
+        }
         // Rows that need no bidi layout are drawn the same without them.
         func needsContext(_ rings: [Int], start: Int?) -> Bool {
-            if let start, let state = terminal.bufferLine(atRow: start)?.bidiState,
-               state.supportMode == .implicit, state.fallbackDirection == .rightToLeft {
+            if
+                let start, let state = terminal.bufferLine(atRow: start)?.bidiState,
+                state.supportMode == .implicit, state.fallbackDirection == .rightToLeft {
                 return true
             }
-            if visibleRightToLeft { return true }
+            if visibleRightToLeft {
+                return true
+            }
             return rings.contains { ring in
-                guard let line = terminal.bufferLine(atRow: ring) else { return false }
+                guard let line = terminal.bufferLine(atRow: ring) else {
+                    return false
+                }
                 return lineEncoder.mayNeedBidi(line, columns: live.columns)
             }
         }
         if !above.isEmpty && needsContext(above, start: above.last) {
-            for ring in above { sendRow(ring) }
+            for ring in above {
+                _ = sendRow(ring)
+            }
         }
         if !below.isEmpty && needsContext(below, start: nil) {
-            for ring in below { sendRow(ring) }
+            for ring in below {
+                _ = sendRow(ring)
+            }
         }
     }
 
     /// The Kitty placements that touch the client's rows, with absolute
     /// lines, plus every virtual placement, and the images they use.
-    private func kittyStateLocked(_ kitty: KittyGraphicsRenderSnapshot, live: LiveState,
-                                  viewTop: Int64) -> WireKittyState {
+    private func kittyStateLocked(
+        _ kitty: KittyGraphicsRenderSnapshot, live: LiveState,
+        viewTop: Int64
+    ) -> WireKittyState {
         var placements: [WireKittyPlacement] = []
         var used = Set<UInt32>()
         let bottom = viewTop + Int64(live.rows)
@@ -1067,28 +1364,41 @@ public final class SessionHost: @unchecked Sendable {
             // Rows are relative to the live screen (the helper never scrolls).
             let line = live.numbering.line(ringIndex: live.scrollbackRows + geometry.row, trimmed: live.trimmed)
             if !placement.isVirtual {
-                guard line < bottom, line + Int64(max(1, geometry.rows)) > viewTop else { continue }
+                guard line < bottom, line + Int64(max(1, geometry.rows)) > viewTop else {
+                    continue
+                }
             }
             used.insert(placement.imageId)
             let source = placement.visibleSource
-            placements.append(WireKittyPlacement(
-                token: placement.token, placementID: placement.placementId, kittyID: placement.imageId,
-                sourceX: source.x, sourceY: source.y, sourceWidth: source.width, sourceHeight: source.height,
-                line: placement.isVirtual ? 0 : line, column: geometry.column,
-                columns: geometry.columns, rows: geometry.rows,
-                pixelOffsetX: placement.pixelOffsetX, pixelOffsetY: placement.pixelOffsetY,
-                zIndex: placement.zIndex, isVirtual: placement.isVirtual,
-                insertionOrder: placement.insertionOrder))
+            placements.append(
+                WireKittyPlacement(
+                    token: placement.token, placementID: placement.placementId, kittyID: placement.imageId,
+                    sourceX: source.x, sourceY: source.y, sourceWidth: source.width, sourceHeight: source.height,
+                    line: placement.isVirtual ? 0 : line, column: geometry.column,
+                    columns: geometry.columns, rows: geometry.rows,
+                    pixelOffsetX: placement.pixelOffsetX, pixelOffsetY: placement.pixelOffsetY,
+                    zIndex: placement.zIndex, isVirtual: placement.isVirtual,
+                    insertionOrder: placement.insertionOrder
+                )
+            )
         }
         var images: [WireKittyImage] = []
         for kittyID in used.sorted() {
-            guard let image = kitty.imagesById[kittyID] else { continue }
-            images.append(WireKittyImage(kittyID: kittyID, imageNumber: image.imageNumber,
-                                         imageID: kittyImages.wireID(for: image, alternate: live.alternate),
-                                         width: image.width, height: image.height))
+            guard let image = kitty.imagesById[kittyID] else {
+                continue
+            }
+            images.append(
+                WireKittyImage(
+                    kittyID: kittyID, imageNumber: image.imageNumber,
+                    imageID: kittyImages.wireID(for: image, alternate: live.alternate),
+                    width: image.width, height: image.height
+                )
+            )
         }
-        return WireKittyState(generation: placements.isEmpty ? 0 : kitty.storageGeneration,
-                              images: images, placements: placements)
+        return WireKittyState(
+            generation: placements.isEmpty ? 0 : kitty.storageGeneration,
+            images: images, placements: placements
+        )
     }
 
     /// Sends the pixels of an image in chunks on the bulk queue, so that
@@ -1098,41 +1408,57 @@ public final class SessionHost: @unchecked Sendable {
         if request.imageID < 1 << 32 {
             if let image = rasterImages.image(UInt32(request.imageID)) {
                 pixels = terminal.terminalLock.withLock {
-                    image.rgba.isEmpty ? nil : KittyImageTable.Pixels(width: image.width, height: image.height,
-                                                                       rgba: image.rgba)
+                    image.rgba.isEmpty
+                        ? nil
+                        : KittyImageTable.Pixels(
+                            width: image.width, height: image.height,
+                            rgba: image.rgba
+                        )
                 }
             }
         } else {
             pixels = kittyImages.pixels[request.imageID]
         }
         guard let pixels, pixels.rgba.count == pixels.width * pixels.height * 4 else {
-            client.channel.send(ImageDataMessage(imageID: request.imageID, width: 0, height: 0),
-                                priority: .bulk, requestID: requestID)
+            client.channel.send(
+                ImageDataMessage(imageID: request.imageID, width: 0, height: 0),
+                priority: .bulk, requestID: requestID
+            )
             return
         }
         let chunk = 1 << 20
         var offset = 0
         repeat {
             let end = min(pixels.rgba.count, offset + chunk)
-            client.channel.send(ImageDataMessage(imageID: request.imageID, width: pixels.width, height: pixels.height,
-                                                 offset: offset, bytes: Array(pixels.rgba[offset ..< end])),
-                                priority: .bulk, requestID: requestID)
+            client.channel.send(
+                ImageDataMessage(
+                    imageID: request.imageID, width: pixels.width, height: pixels.height,
+                    offset: offset, bytes: Array(pixels.rgba[offset..<end])
+                ),
+                priority: .bulk, requestID: requestID
+            )
             offset = end
         } while offset < pixels.rgba.count
     }
 
     /// Wakes the frame builder when the next Kitty animation frame is due.
     private func armAnimationTimer(_ deadline: UInt64) {
-        if let current = animationTimerDeadline, current <= deadline, animationTimer != nil { return }
+        if let current = animationTimerDeadline, current <= deadline, animationTimer != nil {
+            return
+        }
         animationTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: DispatchTime(uptimeNanoseconds: deadline), leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             animationTimer?.cancel()
             animationTimer = nil
             animationTimerDeadline = nil
-            for client in attachedClients { client.needsFrame = true }
+            for client in attachedClients {
+                client.needsFrame = true
+            }
             tick()
         }
         animationTimer = timer
@@ -1141,12 +1467,16 @@ public final class SessionHost: @unchecked Sendable {
     }
 
     private func armFrameTimer(_ deadline: DispatchTime) {
-        if let current = frameTimerDeadline, current <= deadline, frameTimer != nil { return }
+        if let current = frameTimerDeadline, current <= deadline, frameTimer != nil {
+            return
+        }
         frameTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: deadline, leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             frameTimer?.cancel()
             frameTimer = nil
             frameTimerDeadline = nil
@@ -1176,19 +1506,27 @@ public final class SessionHost: @unchecked Sendable {
             defer { state.edges.removeAll(keepingCapacity: true) }
             return state.edges
         }
-        guard !edges.isEmpty else { return }
+        guard !edges.isEmpty else {
+            return
+        }
         let attached = attachedClients
         for edge in edges {
             switch edge {
             case .bell:
-                for client in attached { client.channel.send(BellMessage()) }
+                for client in attached {
+                    client.channel.send(BellMessage())
+                }
             case .clipboardCopy(let data):
-                for client in attached { client.channel.send(ClipboardCopyMessage(data: data)) }
+                for client in attached {
+                    client.channel.send(ClipboardCopyMessage(data: data))
+                }
             case .notification(let message):
                 if attached.isEmpty {
                     onDetachedNotification?(message)
                 } else {
-                    for client in attached { client.channel.send(message) }
+                    for client in attached {
+                        client.channel.send(message)
+                    }
                 }
             case .clipboardRead(let request, let selection):
                 let reader = sizeOwner ?? attached.first
@@ -1214,8 +1552,12 @@ public final class SessionHost: @unchecked Sendable {
 
     /// Reports title and directory changes to the owner (for session metadata).
     private func notifyMetadataIfNeeded() {
-        let state = events.withLock { ($0.titleVersion, $0.directoryVersion, $0.title, $0.directory) }
-        guard state.0 != notifiedTitleVersion || state.1 != notifiedDirectoryVersion else { return }
+        let state = events.withLock {
+            ($0.titleVersion, $0.directoryVersion, $0.title, $0.directory)
+        }
+        guard state.0 != notifiedTitleVersion || state.1 != notifiedDirectoryVersion else {
+            return
+        }
         notifiedTitleVersion = state.0
         notifiedDirectoryVersion = state.1
         onMetadataChange?(state.2, state.3)
@@ -1233,7 +1575,9 @@ public final class SessionHost: @unchecked Sendable {
     /// Sends the next chunk of the oldest bulk request when the channel is idle.
     private func pumpBulk(_ client: SessionClient) {
         dispatchPrecondition(condition: .onQueue(queue))
-        guard client.channel.queuedBytes == 0, let request = client.bulk.first else { return }
+        guard client.channel.queuedBytes == 0, let request = client.bulk.first else {
+            return
+        }
         switch request {
         case .fetch(let fetch, let requestID, let next, let end):
             let (message, reached) = buildRowsChunk(fetch, from: next, to: end)
@@ -1248,8 +1592,14 @@ public final class SessionHost: @unchecked Sendable {
 
     /// Encodes rows for a fetch, holding the lock for a bounded time.
     private func buildRowsChunk(_ fetch: FetchRowsMessage, from start: Int64, to end: Int64) -> (RowsMessage, Int64) {
-        let known = Dictionary(fetch.known.map { (Int64(clamping: $0.line), $0.version) },
-                               uniquingKeysWith: { first, _ in first })
+        let known = Dictionary(
+            fetch.known.map {
+                (Int64(clamping: $0.line), $0.version)
+            },
+            uniquingKeysWith: { first, _ in
+                first
+            }
+        )
         let budgetBytes = 64 * 1024
         let deadline = DispatchTime.now() + .milliseconds(2)
         var records: [WireRowRecord] = []
@@ -1284,13 +1634,19 @@ public final class SessionHost: @unchecked Sendable {
                     lineNumber += 1
                     continue
                 }
-                let entry = lineTable.row(for: line, ringIndex: Int(ring), columns: live.columns,
-                                          terminal: terminal, links: links, encoder: &lineEncoder)
+                let entry = lineTable.row(
+                    for: line, ringIndex: Int(ring), columns: live.columns,
+                    terminal: terminal, links: links, encoder: &lineEncoder
+                )
                 if known[lineNumber] == entry.version {
                     Self.appendRange(&confirmed, lineNumber, lineNumber + 1)
                 } else {
-                    records.append(WireRowRecord(line: UInt64(lineNumber), version: entry.version,
-                                                 payload: entry.payload))
+                    records.append(
+                        WireRowRecord(
+                            line: UInt64(lineNumber), version: entry.version,
+                            payload: entry.payload
+                        )
+                    )
                     bytes += entry.payload.count + 12
                 }
                 lineNumber += 1
@@ -1301,14 +1657,18 @@ public final class SessionHost: @unchecked Sendable {
             reached = lineNumber
         }
         lineTable.trim()
-        let message = RowsMessage(snapshotSequence: feedSequence.load(ordering: .relaxed), buffer: buffer,
-                                  epoch: epoch, final: reached >= end, records: records,
-                                  confirmed: confirmed, unavailable: unavailable)
+        let message = RowsMessage(
+            snapshotSequence: feedSequence.load(ordering: .relaxed), buffer: buffer,
+            epoch: epoch, final: reached >= end, records: records,
+            confirmed: confirmed, unavailable: unavailable
+        )
         return (message, reached)
     }
 
     private static func appendRange(_ ranges: inout [WireLineRange], _ start: Int64, _ end: Int64) {
-        guard end > start else { return }
+        guard end > start else {
+            return
+        }
         if let last = ranges.last, Int64(last.start) + Int64(last.count) == start {
             ranges[ranges.count - 1].count += Int(end - start)
         } else {
@@ -1319,16 +1679,22 @@ public final class SessionHost: @unchecked Sendable {
     private func handleGetText(_ request: GetTextMessage, from client: SessionClient, requestID: UInt64?) {
         let text: String = terminal.terminalLock.withLock {
             let live = updateNumberingLocked()
-            guard request.buffer == live.buffer else { return "" }
+            guard request.buffer == live.buffer else {
+                return ""
+            }
             let first = live.numbering.line(ringIndex: 0, trimmed: live.trimmed)
             let lastLine = live.numbering.line(ringIndex: live.lineCount - 1, trimmed: live.trimmed)
             let startLine = max(first, min(Int64(clamping: request.startLine), lastLine))
             let endLine = max(first, min(Int64(clamping: request.endLine), lastLine))
-            guard startLine <= endLine else { return "" }
+            guard startLine <= endLine else {
+                return ""
+            }
             let startRing = Int(live.numbering.ringIndex(line: startLine, trimmed: live.trimmed))
             let endRing = Int(live.numbering.ringIndex(line: endLine, trimmed: live.trimmed))
-            return terminal.getText(start: Position(col: request.startColumn, row: startRing),
-                                    end: Position(col: request.endColumn + 1, row: endRing))
+            return terminal.getText(
+                start: Position(col: request.startColumn, row: startRing),
+                end: Position(col: request.endColumn + 1, row: endRing)
+            )
         }
         client.channel.send(TextResultMessage(text: text), priority: .bulk, requestID: requestID)
     }
@@ -1344,12 +1710,16 @@ public final class SessionHost: @unchecked Sendable {
             infoTimer = nil
             return
         }
-        guard interval != infoTimerInterval || infoTimer == nil else { return }
+        guard interval != infoTimerInterval || infoTimer == nil else {
+            return
+        }
         infoTimer?.cancel()
         infoTimerInterval = interval
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: .seconds(interval), leeway: .milliseconds(200))
-        timer.setEventHandler { [weak self] in self?.publishSessionInfo() }
+        timer.setEventHandler { [weak self] in
+            self?.publishSessionInfo()
+        }
         infoTimer = timer
         timer.resume()
         // A newly attached client receives the current information.
@@ -1360,31 +1730,43 @@ public final class SessionHost: @unchecked Sendable {
 
     private func publishSessionInfo() {
         let pid = process.shellPid
-        let info = SessionInfoMessage(shellPID: pid,
-                                      shellName: (launch.executable as NSString).lastPathComponent,
-                                      foreground: ProcessInspector.foreground(ptyDescriptor: process.childfd),
-                                      hasChildren: ProcessInspector.hasChildren(pid))
-        guard info != lastSessionInfo else { return }
+        let info = SessionInfoMessage(
+            shellPID: pid,
+            shellName: (launch.executable as NSString).lastPathComponent,
+            foreground: ProcessInspector.foreground(ptyDescriptor: process.childfd),
+            hasChildren: ProcessInspector.hasChildren(pid)
+        )
+        guard info != lastSessionInfo else {
+            return
+        }
         lastSessionInfo = info
-        for client in attachedClients { client.channel.send(info) }
+        for client in attachedClients {
+            client.channel.send(info)
+        }
         onSessionInfo?(info)
     }
 
     /// The process ID of the shell, or 0 before it starts.
-    public var shellPID: Int32 { process.shellPid }
+    public var shellPID: Int32 {
+        process.shellPid
+    }
 
     /// The current grid size.
     public var gridSize: (columns: Int, rows: Int) {
-        terminal.terminalLock.withLock { (terminal.cols, terminal.rows) }
+        terminal.terminalLock.withLock {
+            (terminal.cols, terminal.rows)
+        }
     }
 
     /// The current session information (computed now). For tests and `list`.
     public func currentInfo() -> SessionInfoMessage {
         let pid = process.shellPid
-        return SessionInfoMessage(shellPID: pid,
-                                  shellName: (launch.executable as NSString).lastPathComponent,
-                                  foreground: ProcessInspector.foreground(ptyDescriptor: process.childfd),
-                                  hasChildren: ProcessInspector.hasChildren(pid))
+        return SessionInfoMessage(
+            shellPID: pid,
+            shellName: (launch.executable as NSString).lastPathComponent,
+            foreground: ProcessInspector.foreground(ptyDescriptor: process.childfd),
+            hasChildren: ProcessInspector.hasChildren(pid)
+        )
     }
 }
 
@@ -1414,14 +1796,37 @@ extension SessionHost: TerminalDelegate {
         signal()
     }
 
-    public func progressReport(source: Terminal, report: Terminal.ProgressReport) {
+    /// Versions status independently of frame credits and wakes attached clients.
+    private func programStatusDidChange() {
         events.withLock {
-            $0.progress = WireProgress(state: UInt8(report.state.rawValue), progress: report.progress)
-            $0.progressVersion &+= 1
-            $0.progressTime = .now
-            $0.bumpLatched()
+            $0.programStatusVersion &+= 1
         }
         signal()
+    }
+
+    /// Reconciles native program records for both foreground and status-only clients.
+    public func programStatusChanged(source: Terminal, records: [TerminalProgramStatus]) {
+        programStatus.receive(records)
+        programStatusDidChange()
+    }
+
+    public func progressReport(source: Terminal, report: Terminal.ProgressReport) {
+        let progress = WireProgress(state: UInt8(report.state.rawValue), progress: report.progress)
+        let changed = events.withLock { state in
+            state.progressTime = .now
+            guard state.progress != progress else {
+                return false
+            }
+            state.progress = progress
+            state.progressVersion &+= 1
+            state.bumpLatched()
+            return true
+        }
+        guard changed else {
+            return
+        }
+        programStatus.progress(progress)
+        programStatusDidChange()
     }
 
     public func hostCurrentDirectoryUpdated(source: Terminal) {
@@ -1438,36 +1843,50 @@ extension SessionHost: TerminalDelegate {
     public func bell(source: Terminal) {
         events.withLock { state in
             let pending = state.edges.reduce(0) { count, edge in
-                if case .bell = edge { return count + 1 }
+                if case .bell = edge {
+                    return count + 1
+                }
                 return count
             }
-            if pending < 4 { state.edges.append(.bell) } else { state.droppedBells += 1 }
+            if pending < 4 {
+                state.edges.append(.bell)
+            } else {
+                state.droppedBells += 1
+            }
         }
         signal()
     }
 
     public func clipboardCopy(source: Terminal, content: TerminalData) {
         let bytes = [UInt8](content)
-        events.withLock { $0.edges.append(.clipboardCopy(bytes)) }
+        events.withLock {
+            $0.edges.append(.clipboardCopy(bytes))
+        }
         signal()
     }
 
     public func clipboardReadRequest(source: Terminal, selection: String) -> Bool {
         let accepted = events.withLock { state -> Bool in
-            guard state.hasAttachedClients else { return false }
+            guard state.hasAttachedClients else {
+                return false
+            }
             let request = state.nextClipboardRequest
             state.nextClipboardRequest &+= 1
             state.edges.append(.clipboardRead(request, selection))
             return true
         }
-        if accepted { signal() }
+        if accepted {
+            signal()
+        }
         return accepted
     }
 
     public func colorChanged(source: Terminal, idx: Int?) {
         events.withLock {
             if let idx {
-                if idx >= 0 && idx < 256 { $0.paletteOverrides.insert(UInt8(idx)) }
+                if idx >= 0 && idx < 256 {
+                    $0.paletteOverrides.insert(UInt8(idx))
+                }
             } else {
                 $0.reverseVideoProbe = true
             }
@@ -1477,9 +1896,15 @@ extension SessionHost: TerminalDelegate {
         signal()
     }
 
-    public func setForegroundColor(source: Terminal, color: Color) { colorsChanged() }
-    public func setBackgroundColor(source: Terminal, color: Color) { colorsChanged() }
-    public func setCursorColor(source: Terminal, color: Color?) { colorsChanged() }
+    public func setForegroundColor(source: Terminal, color: Color) {
+        colorsChanged()
+    }
+    public func setBackgroundColor(source: Terminal, color: Color) {
+        colorsChanged()
+    }
+    public func setCursorColor(source: Terminal, color: Color?) {
+        colorsChanged()
+    }
 
     private func colorsChanged() {
         events.withLock {
@@ -1506,22 +1931,33 @@ extension SessionHost: TerminalDelegate {
     }
 
     public func cursorStyleChanged(source: Terminal, newStyle: CursorStyle) {
-        events.withLock { $0.bumpLatched() }
+        events.withLock {
+            $0.bumpLatched()
+        }
         signal()
     }
 
     public func bufferActivated(source: Terminal) {
+        if programStatus.bufferActivated(source) {
+            programStatusDidChange()
+        }
         signal()
     }
 
     public func synchronizedOutputChanged(source: Terminal, active: Bool) {
-        if !active { signal() }
+        if !active {
+            signal()
+        }
     }
 
-    public func isProcessTrusted(source: Terminal) -> Bool { true }
+    public func isProcessTrusted(source: Terminal) -> Bool {
+        true
+    }
 
     public func cellSizeInPixels(source: Terminal) -> (width: Int, height: Int)? {
-        events.withLock { $0.cellSize }
+        events.withLock {
+            $0.cellSize
+        }
     }
 
     public func terminalControlBytesForPaste(source: Terminal) -> Set<UInt8> {
@@ -1545,14 +1981,22 @@ extension SessionHost: LocalProcessDelegate {
     }
 
     public func processTerminated(_ source: LocalProcess, exitCode: Int32?) {
-        terminal.terminalLock.withLock { terminal.programStatusProcessExited() }
-        events.withLock { $0.edges.append(.exited(exitCode)) }
+        terminal.terminalLock.withLock {
+            terminal.programStatusProcessExited()
+        }
+        programStatus.processExited()
+        programStatusDidChange()
+        events.withLock {
+            $0.edges.append(.exited(exitCode))
+        }
         signal()
     }
 
     public func processFailedToStart(_ source: LocalProcess, error: LocalProcessError) {
         dataReceived(slice: Array("\r\nProcess launch failed: \(error)\r\n".utf8)[...])
-        events.withLock { $0.edges.append(.exited(nil)) }
+        events.withLock {
+            $0.edges.append(.exited(nil))
+        }
         signal()
     }
 

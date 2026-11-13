@@ -1,17 +1,22 @@
 import AppKit
 
-/// The app-wide card settings. ContentView reads them with @AppStorage and
-/// gives them to the workspace of each window. SettingsView writes them.
+/// The app-wide card settings. Terminal window controllers read these defaults
+/// and give them to each mounted workspace. SettingsView writes them.
 nonisolated struct GlobalAppearanceSettings: Equatable {
     /// UserDefaults keeps the raw values. Do not change them.
     nonisolated enum Backdrop: String, CaseIterable {
+        case chrome
         case gradient
         case desktopBlur
 
         var title: String {
             switch self {
-            case .gradient: "Theme gradient"
-            case .desktopBlur: "Desktop blur"
+            case .chrome:
+                "Window chrome"
+            case .gradient:
+                "Theme gradient"
+            case .desktopBlur:
+                "Desktop blur"
             }
         }
     }
@@ -30,19 +35,27 @@ nonisolated struct GlobalAppearanceSettings: Equatable {
         /// The space on the left, right and bottom sides.
         var points: CGFloat {
             switch self {
-            case .off: 0
-            case .minimal: 2
-            case .wide: 8
-            case .spacious: 12
+            case .off:
+                0
+            case .minimal:
+                2
+            case .wide:
+                8
+            case .spacious:
+                12
             }
         }
 
         var title: String {
             switch self {
-            case .off: "None"
-            case .minimal: "Minimal"
-            case .wide: "Wide"
-            case .spacious: "Spacious"
+            case .off:
+                "None"
+            case .minimal:
+                "Minimal"
+            case .wide:
+                "Wide"
+            case .spacious:
+                "Spacious"
             }
         }
 
@@ -55,7 +68,7 @@ nonisolated struct GlobalAppearanceSettings: Equatable {
         }
     }
 
-    /// The look of the cards when more than one pane shows.
+    /// The spacing and decoration of pane cards, independently of their headers.
     /// UserDefaults keeps the raw values. Do not change them.
     nonisolated enum PaneStyle: String, CaseIterable {
         /// Space around the cards, rounded corners and a shadow.
@@ -66,30 +79,100 @@ nonisolated struct GlobalAppearanceSettings: Equatable {
 
         var title: String {
             switch self {
-            case .comfortable: "Comfortable"
-            case .compact: "Compact"
+            case .comfortable:
+                "Comfortable"
+            case .compact:
+                "Compact"
             }
         }
 
         /// True when the cards have space between them, rounded corners, a
         /// shadow and a backdrop.
-        var showsDecorations: Bool { self == .comfortable }
+        var showsDecorations: Bool {
+            self == .comfortable
+        }
 
         /// The space around the cards and between them.
-        var spacing: CGFloat { showsDecorations ? GlobalAppearanceSettings.cardSpacing : 0 }
+        var spacing: CGFloat {
+            showsDecorations ? GlobalAppearanceSettings.cardSpacing : 0
+        }
+
+        /// Comfortable headers align with the window controls; Compact retains its height.
+        var headerHeight: CGFloat {
+            self == .comfortable ? 36 : 32
+        }
 
         /// The corner radius of a card.
-        var cornerRadius: CGFloat { showsDecorations ? 14 : 0 }
+        var cornerRadius: CGFloat {
+            showsDecorations ? PaneCardGeometry.radius : 0
+        }
     }
 
     static let paneCardsEnabledKey = "paneCardsEnabled"
+    // Keep the shipped key so an existing off preference stays off.
+    static let showPaneHeadersKey = paneCardsEnabledKey
     static let paneCardsBackdropKey = "paneCardsBackdrop"
     static let terminalPaddingKey = "terminalPadding"
     static let paneStyleKey = "paneStyle"
+    static let highlightActivePaneKey = "highlightActivePane"
+    static let paneHighlightColorKey = "paneHighlightColor"
+
+    /// An optional override; absence keeps the live system accent color.
+    nonisolated struct HighlightColor: Codable, Equatable {
+        let red: Double
+        let green: Double
+        let blue: Double
+        let alpha: Double
+
+        /// Rejects damaged preferences instead of passing invalid components to AppKit.
+        static func decode(_ value: String) -> Self? {
+            guard
+                let data = value.data(using: .utf8), let color = try? JSONDecoder().decode(Self.self, from: data),
+                [color.red, color.green, color.blue, color.alpha].allSatisfy({
+                    $0.isFinite && (0...1).contains($0)
+                }) else {
+                return nil
+            }
+            return color
+        }
+
+        var encoded: String {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .sortedKeys
+            return (try? String(data: encoder.encode(self), encoding: .utf8)) ?? ""
+        }
+
+        @MainActor init?(color: NSColor) {
+            guard let rgb = color.usingColorSpace(.sRGB) else {
+                return nil
+            }
+            red = min(1, max(0, rgb.redComponent))
+            green = min(1, max(0, rgb.greenComponent))
+            blue = min(1, max(0, rgb.blueComponent))
+            alpha = min(1, max(0, rgb.alphaComponent))
+        }
+
+        @MainActor var color: NSColor {
+            NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
+        }
+    }
+    /// The legacy property/key now controls headers; PaneStyle controls card decoration.
     var paneCardsEnabled = true
-    var paneCardsBackdrop = Backdrop.gradient
+    var paneCardsBackdrop = Backdrop.chrome
     var terminalPadding = TerminalPadding.minimal
     var paneStyle = PaneStyle.comfortable
+    var highlightActivePane = true
+    var paneHighlightColor: HighlightColor?
+
+    /// Resolve on use so an unset override follows later system accent changes.
+    @MainActor var activePaneColor: NSColor {
+        resolvedActivePaneColor(accent: .controlAccentColor)
+    }
+
+    /// Accepts the current accent rather than persisting a snapshot of it.
+    @MainActor func resolvedActivePaneColor(accent: NSColor) -> NSColor {
+        paneHighlightColor?.color ?? accent
+    }
 
     /// The padding in UserDefaults, for code that has no workspace.
     static var storedTerminalPadding: TerminalPadding {
@@ -97,11 +180,9 @@ nonisolated struct GlobalAppearanceSettings: Equatable {
             .flatMap(TerminalPadding.init(rawValue:)) ?? GlobalAppearanceSettings().terminalPadding
     }
 
-    /// The height of the title bar of a card.
-    static let cardTitlebarHeight: CGFloat = 32
     /// The space around the cards and between them, in the comfortable
     /// style. See PaneStyle.spacing.
-    static let cardSpacing: CGFloat = 12
+    static let cardSpacing: CGFloat = 8
 }
 
 struct ResolvedWorkspaceAppearance {
@@ -111,18 +192,25 @@ struct ResolvedWorkspaceAppearance {
 
     func gradientColors(opacity: Double, reduceTransparency: Bool) -> [NSColor] {
         let alpha = reduceTransparency ? 1 : min(max(opacity, 0), 1)
-        return gradientColors.map { $0.withAlphaComponent(CGFloat(alpha)) }
+        return gradientColors.map {
+            $0.withAlphaComponent(CGFloat(alpha))
+        }
     }
 
     init(theme: TerminalTheme) {
         func color(_ value: ProfileColor) -> NSColor {
-            NSColor(srgbRed: CGFloat(value.red) / 65_535,
-                    green: CGFloat(value.green) / 65_535,
-                    blue: CGFloat(value.blue) / 65_535, alpha: 1)
+            NSColor(
+                srgbRed: CGFloat(value.red) / 65_535,
+                green: CGFloat(value.green) / 65_535,
+                blue: CGFloat(value.blue) / 65_535,
+                alpha: 1
+            )
         }
         let base = color(theme.background)
         let colors = theme.isValid ? [theme.ansi[1], theme.ansi[4], theme.ansi[3]] : [theme.background]
-        gradientColors = colors.map { base.blended(withFraction: 0.14, of: color($0)) ?? base }
+        gradientColors = colors.map {
+            base.blended(withFraction: 0.14, of: color($0)) ?? base
+        }
         tintColor = base.withAlphaComponent(0.55)
         isDark = theme.isDark
     }
@@ -132,6 +220,8 @@ final class TerminalWorkspaceBackdropView: NSView {
     private let effect = NSVisualEffectView()
     private let gradient = CAGradientLayer()
     private let tint = CALayer()
+    private let flat = CALayer()
+    private var exclusions: [CGRect] = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -141,6 +231,7 @@ final class TerminalWorkspaceBackdropView: NSView {
         effect.state = .active
         effect.autoresizingMask = [.width, .height]
         addSubview(effect)
+        layer?.addSublayer(flat)
         layer?.addSublayer(gradient)
         layer?.addSublayer(tint)
         gradient.startPoint = CGPoint(x: 0, y: 1)
@@ -148,31 +239,80 @@ final class TerminalWorkspaceBackdropView: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
 
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
 
     override func layout() {
         super.layout()
         effect.frame = bounds
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        flat.frame = bounds
         gradient.frame = bounds
         tint.frame = bounds
         CATransaction.commit()
     }
 
-    /// True when the backdrop shows the desktop through the window.
-    var showsDesktopBlur: Bool { !isHidden && !effect.isHidden }
+    var paintColor: CGColor? {
+        flat.backgroundColor
+    }
+    var excludedCardFrames: [CGRect] {
+        exclusions
+    }
 
-    func update(visible: Bool, backdrop: GlobalAppearanceSettings.Backdrop,
-                appearance: ResolvedWorkspaceAppearance, opacity: Double = 1) {
+    /// True when the backdrop shows the desktop through the window.
+    var showsDesktopBlur: Bool {
+        !isHidden && !effect.isHidden
+    }
+
+    /// Chrome is painted once around terminals; translucent terminal fills keep their own alpha.
+    func excludeCards(_ frames: [CGRect]) {
+        guard frames != exclusions else {
+            return
+        }
+        exclusions = frames
+        for paint in [flat, gradient, tint] {
+            let path = CGMutablePath()
+            path.addRect(bounds)
+            for frame in frames {
+                path.addPath(PaneCardGeometry.path(in: frame))
+            }
+            let mask = CAShapeLayer()
+            mask.frame = bounds
+            mask.path = path
+            mask.fillRule = .evenOdd
+            paint.mask = mask
+        }
+    }
+
+    /// Respect Reduce Transparency without leaving an empty backdrop behind the chrome.
+    nonisolated static func resolvedBackdrop(_ backdrop: GlobalAppearanceSettings.Backdrop, reduceTransparency: Bool) -> GlobalAppearanceSettings.Backdrop {
+        backdrop == .desktopBlur && reduceTransparency ? .chrome : backdrop
+    }
+
+    func update(
+        visible: Bool,
+        backdrop: GlobalAppearanceSettings.Backdrop,
+        appearance: ResolvedWorkspaceAppearance,
+        opacity: Double = 1,
+        chromeColor: NSColor? = nil
+    ) {
         isHidden = !visible
-        let blur = backdrop == .desktopBlur
-            && !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        let resolved = Self.resolvedBackdrop(backdrop, reduceTransparency: reduceTransparency)
+        let blur = resolved == .desktopBlur
         effect.isHidden = !blur
-        gradient.isHidden = blur
+        gradient.isHidden = resolved != .gradient
         tint.isHidden = !blur
+        let color = chromeColor ?? appearance.tintColor
+        flat.backgroundColor = resolved == .chrome
+            ? (backdrop == .desktopBlur && reduceTransparency ? color.withAlphaComponent(1) : color).cgColor : nil
+        flat.isHidden = resolved != .chrome
         effect.appearance = NSAppearance(named: appearance.isDark ? .darkAqua : .aqua)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -186,25 +326,49 @@ final class TerminalWorkspaceBackdropView: NSView {
 }
 
 final class TerminalWorkspaceSplitView: NSSplitView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        clipsToBounds = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
     /// The split node that this view shows. The host uses it to find the
     /// minimum size of each side.
     var paneNode: TerminalPaneNode?
     var cardsEnabled = true {
-        didSet { if oldValue != cardsEnabled { needsDisplay = true } }
+        didSet {
+            if oldValue != cardsEnabled {
+                needsDisplay = true
+            }
+        }
     }
     var paneStyle = GlobalAppearanceSettings.PaneStyle.comfortable {
-        didSet { if oldValue != paneStyle { needsDisplay = true } }
+        didSet {
+            if oldValue != paneStyle {
+                needsDisplay = true
+            }
+        }
     }
 
     /// True when the divider is a space between cards, not a line.
-    private var showsSpacing: Bool { cardsEnabled && paneStyle.showsDecorations }
+    private var showsSpacing: Bool {
+        cardsEnabled && paneStyle.showsDecorations
+    }
 
     static func dividerThickness(cardsEnabled: Bool, style: GlobalAppearanceSettings.PaneStyle) -> CGFloat {
         cardsEnabled && style.showsDecorations ? style.spacing : 1
     }
 
-    override var dividerThickness: CGFloat { Self.dividerThickness(cardsEnabled: cardsEnabled, style: paneStyle) }
+    override var dividerThickness: CGFloat {
+        Self.dividerThickness(cardsEnabled: cardsEnabled, style: paneStyle)
+    }
     override func drawDivider(in rect: NSRect) {
-        if !showsSpacing { super.drawDivider(in: rect) }
+        if !showsSpacing {
+            super.drawDivider(in: rect)
+        }
     }
 }

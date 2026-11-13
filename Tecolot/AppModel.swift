@@ -2,17 +2,13 @@
 //  AppModel.swift
 //  Tecolot
 //
-//  Application-wide anchor for the profile/theme stores and the handoff of
-//  launch parameters into new windows. The NSDocumentController-based window
-//  creation path cannot carry parameters, so "New Window with Profile" style
-//  commands deposit a consume-once LaunchSpec here that the new session's
-//  controller picks up; every fallback path uses the default profile.
+//  Application-wide anchor for the profile and theme stores.
 //
 import Combine
 import Foundation
 
 /// Parameters for the next session to be created
-struct LaunchSpec {
+nonisolated struct LaunchSpec {
     var profileID: TerminalProfile.ID?
     var workingDirectory: String?
     /// The SSH destination for a remote persistent session.
@@ -41,14 +37,11 @@ final class AppModel {
     let themeIndex: ThemeCatalogIndex
     /// Selects the light or the dark theme of each profile.
     let systemAppearance = SystemAppearance()
-    let windowGroups: WindowGroupStore
     let issueCenter: PersistenceIssueCenter
     let recovery: DataRecoveryCoordinator
     private let preferences: PreferenceMigrator
     private var themeSubscription: AnyCancellable?
-
-    /// Consume-once parameters for the next terminal session
-    private var pendingLaunch: LaunchSpec?
+    private var appearanceSubscriptions: [AnyCancellable] = []
 
     private init() {
         let issueCenter = PersistenceIssueCenter()
@@ -93,11 +86,6 @@ final class AppModel {
         themeSubscription = themes.$themes.sink { newThemes in
             themeIndex.update(themes: newThemes)
         }
-        windowGroups = WindowGroupStore(
-            directory: applicationSupport,
-            issueCenter: issueCenter,
-            backupDirectory: backups
-        )
         let preferences = PreferenceMigrator(
             applicationSupportDirectory: applicationSupport,
             backupDirectory: backups,
@@ -107,12 +95,11 @@ final class AppModel {
         if let legacyMigrationIssue {
             issueCenter.report(legacyMigrationIssue)
         }
-        preferences.migrate(profiles: profiles, windowGroups: windowGroups)
+        preferences.migrate(profiles: profiles)
         recovery = DataRecoveryCoordinator(
             issueCenter: issueCenter,
             profiles: profiles,
             themes: themes,
-            windowGroups: windowGroups,
             preferences: preferences,
             backupDirectory: backups,
             profileStorageDirectory: applicationSupport,
@@ -123,6 +110,32 @@ final class AppModel {
                 )
             }
         )
+        observePaneSettings()
+    }
+
+    /// Applies store edits to panes in both shown and background groups.
+    private func observePaneSettings() {
+        let update = { @MainActor in
+            for controller in TerminalSessionRegistry.shared.allControllers {
+                if let profile = self.profiles.profile(withID: controller.profile.id), profile != controller.profile {
+                    controller.applyProfile(profile)
+                } else {
+                    controller.applyThemeColors()
+                }
+            }
+            TerminalWindowManager.shared.refreshWindows()
+        }
+        for publisher in [
+            profiles.objectWillChange.eraseToAnyPublisher(),
+            themes.objectWillChange.eraseToAnyPublisher(),
+            systemAppearance.objectWillChange.eraseToAnyPublisher()
+        ] {
+            publisher.sink {
+                DispatchQueue.main.async {
+                    update()
+                }
+            }.store(in: &appearanceSubscriptions)
+        }
     }
 
     /// Copies the legacy store once. Do not merge it into an existing store,
@@ -132,12 +145,17 @@ final class AppModel {
         allowExistingEmptyDestination: Bool
     ) -> PersistenceIssue? {
         let fileManager = FileManager.default
-        guard let applicationSupport = fileManager.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else { return nil }
+        guard
+            let applicationSupport = fileManager.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first else {
+            return nil
+        }
         let source = applicationSupport.appendingPathComponent("com.tirania.MacTerminalUI")
-        guard fileManager.fileExists(atPath: source.path) else { return nil }
+        guard fileManager.fileExists(atPath: source.path) else {
+            return nil
+        }
         do {
             if !fileManager.fileExists(atPath: destination.path) {
                 let staging = destination.deletingLastPathComponent().appendingPathComponent(
@@ -166,10 +184,13 @@ final class AppModel {
     }
 
     private static func destinationContainsUserData(_ destination: URL) -> Bool {
-        guard let enumerator = FileManager.default.enumerator(
-            at: destination,
-            includingPropertiesForKeys: [.isRegularFileKey]
-        ) else { return false }
+        guard
+            let enumerator = FileManager.default.enumerator(
+                at: destination,
+                includingPropertiesForKeys: [.isRegularFileKey]
+            ) else {
+            return false
+        }
         for case let url as URL in enumerator {
             if url.pathExtension == "json" {
                 return true
@@ -187,8 +208,9 @@ final class AppModel {
         for sourceChild in children {
             let destinationChild = destination.appendingPathComponent(sourceChild.lastPathComponent)
             let isDirectory = try sourceChild.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
-            if isDirectory,
-               FileManager.default.fileExists(atPath: destinationChild.path) {
+            if
+                isDirectory,
+                FileManager.default.fileExists(atPath: destinationChild.path) {
                 try mergeMissingItems(from: sourceChild, into: destinationChild)
             } else {
                 guard !FileManager.default.fileExists(atPath: destinationChild.path) else {
@@ -205,25 +227,6 @@ final class AppModel {
             in: .userDomainMask
         ).first!
         return base.appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.tirania.Tecolot")
-    }
-
-    func setPendingLaunch(_ spec: LaunchSpec) {
-        pendingLaunch = spec
-    }
-
-    func discardPendingLaunch() {
-        pendingLaunch = nil
-    }
-
-    /// The restored tab of the pending launch, without consuming it.
-    func pendingRestoredTab() -> RestoredTab? {
-        pendingLaunch?.restoredTab
-    }
-
-    /// Returns and clears the pending launch parameters
-    func takePendingLaunch() -> LaunchSpec? {
-        defer { pendingLaunch = nil }
-        return pendingLaunch
     }
 
     /// The profile a new session should use for a given spec

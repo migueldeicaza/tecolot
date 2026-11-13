@@ -42,17 +42,10 @@ enum SettingsPreviewData {
         return index
     }()
 
-    static let windowGroups = WindowGroupStore(
-        directory: directory,
-        issueCenter: issueCenter,
-        backupDirectory: backupDirectory
-    )
-
     static let recovery = DataRecoveryCoordinator(
         issueCenter: issueCenter,
         profiles: profiles,
         themes: themes,
-        windowGroups: windowGroups,
         preferences: PreferenceMigrator(
             defaults: defaults,
             applicationSupportDirectory: directory,
@@ -62,7 +55,9 @@ enum SettingsPreviewData {
         ),
         backupDirectory: backupDirectory,
         profileStorageDirectory: directory,
-        retryLegacyMigration: { nil }
+        retryLegacyMigration: {
+            nil
+        }
     )
 
     static let sampleIssue: PersistenceIssue = {

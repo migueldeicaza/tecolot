@@ -8,14 +8,17 @@ final class TerminalAppIconResolver {
     private var cache: [String: NSImage] = [:]
 
     nonisolated static func identity(forExecutablePath path: String?) -> String? {
-        guard let path, !path.isEmpty else { return nil }
+        guard let path, !path.isEmpty else {
+            return nil
+        }
         let url = URL(fileURLWithPath: path).standardizedFileURL
         let name = url.lastPathComponent.lowercased()
         if name.range(of: #"^python3(?:\.[0-9]+)+$"#, options: .regularExpression) != nil {
             return "python3"
         }
-        if isClaudeVersionsDirectory(url.deletingLastPathComponent()),
-           name.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil {
+        if
+            isClaudeVersionsDirectory(url.deletingLastPathComponent()),
+            name.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil {
             return "claude"
         }
         return name
@@ -26,8 +29,10 @@ final class TerminalAppIconResolver {
     /// appendingPathComponent adds a trailing slash only when the directory
     /// exists, and it standardizes both paths in the same form, because
     /// standardizing removes /private only from paths that exist.
-    nonisolated static func isClaudeVersionsDirectory(_ directory: URL,
-                                                      home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Bool {
+    nonisolated static func isClaudeVersionsDirectory(
+        _ directory: URL,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> Bool {
         let versions = URL(fileURLWithPath: home.path).appendingPathComponent(".local/share/claude/versions")
         return URL(fileURLWithPath: directory.path).standardizedFileURL.pathComponents
             == URL(fileURLWithPath: versions.path).standardizedFileURL.pathComponents
@@ -39,7 +44,9 @@ final class TerminalAppIconResolver {
 
     func icon(forExecutablePath path: String?) -> NSImage {
         let key = path ?? ""
-        if let image = cache[key] { return image }
+        if let image = cache[key] {
+            return image
+        }
         let identity = Self.identity(forExecutablePath: path) ?? ""
         let image = (Self.prefersBrandIcon(identity) ? bundledBrandIcon(identity) : nil)
             ?? enclosingAppIcon(path)
@@ -50,12 +57,21 @@ final class TerminalAppIconResolver {
         return image
     }
 
+    /// Small template glyphs remain legible inside a tab tile. Full app icons
+    /// continue to be available to existing callers of icon(forExecutablePath:).
+    func tabGlyph(for identity: String) -> NSImage {
+        bundledBrandIcon(identity) ?? symbolIcon(identity)
+    }
+
     private func enclosingAppIcon(_ path: String?) -> NSImage? {
-        guard let path, path.hasPrefix("/") else { return nil }
+        guard let path, path.hasPrefix("/") else {
+            return nil
+        }
         var url = URL(fileURLWithPath: path).resolvingSymlinksInPath()
         while url.path != "/" {
-            if url.pathExtension.lowercased() == "app",
-               FileManager.default.fileExists(atPath: url.path) {
+            if
+                url.pathExtension.lowercased() == "app",
+                FileManager.default.fileExists(atPath: url.path) {
                 return NSWorkspace.shared.icon(forFile: url.path)
             }
             url.deleteLastPathComponent()
@@ -84,7 +100,9 @@ final class TerminalAppIconResolver {
 
     /// Only assets with an approved source and license can use these names.
     private func bundledBrandIcon(_ identity: String) -> NSImage? {
-        guard let name = Self.brandAssetName(for: identity) else { return nil }
+        guard let name = Self.brandAssetName(for: identity) else {
+            return nil
+        }
         return NSImage(named: name)
     }
 
@@ -97,7 +115,9 @@ final class TerminalAppIconResolver {
     }
 
     static func brandAssetName(for identity: String) -> String? {
-        guard ["bun", "git"].contains(identity) else { return nil }
+        guard ["bun", "git"].contains(identity) else {
+            return nil
+        }
         return "TerminalBrand-" + identity
     }
 
@@ -110,12 +130,26 @@ final class TerminalAppIconResolver {
 
     static func fallbackSymbolName(for identity: String) -> String {
         switch identity {
-        case "ssh", "mosh": return "network"
-        case "git", "lazygit": return "arrow.triangle.branch"
-        case "node", "bun", "python", "python3": return "chevron.left.forwardslash.chevron.right"
-        case "codex", "claude": return "sparkles"
-        case "less", "more": return "doc.text"
-        default: return "terminal"
+        case "ssh", "mosh":
+            return "network"
+        case "git", "lazygit":
+            return "arrow.triangle.branch"
+        case "node", "bun", "python", "python3":
+            return "chevron.left.forwardslash.chevron.right"
+        case "codex", "claude":
+            return "sparkles"
+        case "less", "more":
+            return "doc.text"
+        case "emacs":
+            return "textformat"
+        case "nvim", "vim":
+            return "pencil.line"
+        case "top":
+            return "waveform.path.ecg"
+        case "kubectl", "docker":
+            return "shippingbox"
+        default:
+            return "terminal"
         }
     }
 }

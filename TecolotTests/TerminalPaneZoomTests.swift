@@ -9,8 +9,7 @@ struct TerminalPaneZoomTests {
         let first = try #require(workspace.focusedController)
         workspace.split(first, orientation: .vertical)
         let second = try #require(workspace.focusedController)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let host = TerminalPaneHostView(workspace: workspace)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
             styleMask: [.titled],
@@ -18,28 +17,34 @@ struct TerminalPaneZoomTests {
             defer: false
         )
         window.contentView = host
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         host.layoutSubtreeIfNeeded()
 
         let firstTerminal = try #require(first.terminal)
         let secondTerminal = try #require(second.terminal)
-        let splitView = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
+        let splitView = try #require(host.subviews.compactMap {
+            $0 as? NSSplitView
+        }.first)
         splitView.setPosition(180, ofDividerAt: 0)
         splitView.adjustSubviews()
         let firstWidth = splitView.arrangedSubviews[0].frame.width
 
         workspace.toggleSplitZoom()
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         #expect(workspace.zoomedControllerID == second.id)
         #expect(workspace.paneCount == 2)
-        #expect(host.subviews.contains { $0 is TerminalPaneCardView })
+        #expect(host.subviews.contains {
+            $0 is TerminalPaneCardView
+        })
         #expect(first.terminal === firstTerminal)
         #expect(second.terminal === secondTerminal)
 
         workspace.toggleSplitZoom()
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         host.layoutSubtreeIfNeeded()
-        let restoredSplit = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
+        let restoredSplit = try #require(host.subviews.compactMap {
+            $0 as? NSSplitView
+        }.first)
         #expect(workspace.zoomedControllerID == nil)
         #expect(abs(restoredSplit.arrangedSubviews[0].frame.width - firstWidth) < 2)
         #expect(first.terminal === firstTerminal)
@@ -65,7 +70,9 @@ struct TerminalPaneZoomTests {
         workspace.close(third)
         #expect(workspace.zoomedControllerID == nil)
         #expect(workspace.paneCount == 2)
-        #expect(workspace.controllers.contains { $0 === second })
+        #expect(workspace.controllers.contains {
+            $0 === second
+        })
     }
 
     @Test func tabIndicatorClearsZoomWhenClicked() throws {
@@ -73,21 +80,22 @@ struct TerminalPaneZoomTests {
         let first = try #require(workspace.focusedController)
         workspace.split(first, orientation: .vertical)
         workspace.toggleSplitZoom()
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-
-        TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
-        let accessory = try #require(window.tab.accessoryView)
-        let button = try #require(accessory.subviews.compactMap { $0 as? NSButton }.first)
+        let group = TerminalTabGroup(name: "zoom", tabs: [TerminalTab(workspace: workspace)])
+        let strip = HorizontalTabBarView()
+        strip.configure(group: group)
+        let button = try #require(strip.subviews.compactMap {
+            $0 as? NSButton
+        }.first {
+            $0.toolTip == "Reset Split Zoom"
+        })
         #expect(!button.isHidden)
+        // The mounted controller supplies the action's workspace.
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        let owner = TerminalWindowController(group: group, manager: manager)
+        strip.controller = owner
         button.performClick(nil)
         #expect(workspace.zoomedControllerID == nil)
-
-        TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
+        strip.configure(group: group)
         #expect(button.isHidden)
     }
 
@@ -97,8 +105,7 @@ struct TerminalPaneZoomTests {
         workspace.split(first, orientation: .vertical)
         let second = try #require(workspace.focusedController)
         workspace.split(second, orientation: .horizontal)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let host = TerminalPaneHostView(workspace: workspace)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
             styleMask: [.titled],
@@ -106,10 +113,12 @@ struct TerminalPaneZoomTests {
             defer: false
         )
         window.contentView = host
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         host.layoutSubtreeIfNeeded()
 
-        let outer = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
+        let outer = try #require(host.subviews.compactMap {
+            $0 as? NSSplitView
+        }.first)
         let inner = try #require(outer.arrangedSubviews[1] as? NSSplitView)
         outer.setPosition(120, ofDividerAt: 0)
         inner.setPosition(320, ofDividerAt: 0)
@@ -119,9 +128,11 @@ struct TerminalPaneZoomTests {
             / (inner.bounds.height - inner.dividerThickness)
 
         workspace.close(first)
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         host.layoutSubtreeIfNeeded()
-        let surviving = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
+        let surviving = try #require(host.subviews.compactMap {
+            $0 as? NSSplitView
+        }.first)
         let restoredFraction = surviving.arrangedSubviews[0].frame.height
             / (surviving.bounds.height - surviving.dividerThickness)
         #expect(abs(restoredFraction - originalFraction) < 0.02)

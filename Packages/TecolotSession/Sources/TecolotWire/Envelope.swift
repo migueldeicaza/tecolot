@@ -13,9 +13,13 @@
 /// Identifies a message type. Values are never reused.
 public struct MessageKind: RawRepresentable, Hashable, Sendable, CustomStringConvertible {
     public let rawValue: UInt32
-    public init(rawValue: UInt32) { self.rawValue = rawValue }
+    public init(rawValue: UInt32) {
+        self.rawValue = rawValue
+    }
 
-    public var description: String { "kind(\(rawValue))" }
+    public var description: String {
+        "kind(\(rawValue))"
+    }
 
     // Client to helper.
     public static let hello = MessageKind(rawValue: 1)
@@ -42,6 +46,11 @@ public struct MessageKind: RawRepresentable, Hashable, Sendable, CustomStringCon
     public static let findPrompt = MessageKind(rawValue: 22)
     public static let fetchImage = MessageKind(rawValue: 23)
     public static let setScreenChecksumReports = MessageKind(rawValue: 24)
+
+    /// Versioned completion clears; old helpers ignore this optional request.
+    public static let clearProgramStatus = MessageKind(rawValue: 25)
+    /// Changes rendering rate without reattaching; old helpers ignore this optional request.
+    public static let setFrameRate = MessageKind(rawValue: 26)
 
     // Link directory messages.
     public static let linkHello = MessageKind(rawValue: 128)
@@ -79,12 +88,16 @@ public struct MessageKind: RawRepresentable, Hashable, Sendable, CustomStringCon
     public static let promptResult = MessageKind(rawValue: 78)
     public static let imageData = MessageKind(rawValue: 79)
     public static let notification = MessageKind(rawValue: 80)
+    /// Optional status snapshots for programStatus-capable clients; old peers ignore this kind.
+    public static let programStatus = MessageKind(rawValue: 81)
 }
 
 /// Per-message flags.
 public struct EnvelopeFlags: OptionSet, Hashable, Sendable {
     public let rawValue: UInt8
-    public init(rawValue: UInt8) { self.rawValue = rawValue }
+    public init(rawValue: UInt8) {
+        self.rawValue = rawValue
+    }
 
     /// The receiver must answer `ErrorMessage(.unsupported)` when it does not
     /// know the kind, instead of ignoring the message.
@@ -130,26 +143,36 @@ public enum EnvelopeCodec {
     public static let lengthFieldSize = 4
 
     /// Encodes `message` with its envelope and appends it to `output`.
-    public static func append<M: WireMessage>(_ message: M,
-                                              flags: EnvelopeFlags = [],
-                                              requestID: UInt64? = nil,
-                                              to output: inout WireWriter) {
+    public static func append<M: WireMessage>(
+        _ message: M,
+        flags: EnvelopeFlags = [],
+        requestID: UInt64? = nil,
+        to output: inout WireWriter
+    ) {
         let lengthOffset = output.count
         output.u32(0)
         output.varint(UInt64(M.kind.rawValue))
         var flags = flags
-        if requestID != nil { flags.insert(.hasRequestID) } else { flags.remove(.hasRequestID) }
+        if requestID != nil {
+            flags.insert(.hasRequestID)
+        } else {
+            flags.remove(.hasRequestID)
+        }
         output.u8(flags.rawValue)
-        if let requestID { output.varint(requestID) }
+        if let requestID {
+            output.varint(requestID)
+        }
         message.encode(to: &output)
         let length = output.count - lengthOffset - lengthFieldSize
         output.patchU32(UInt32(length), at: lengthOffset)
     }
 
     /// Encodes `message` with its envelope into a new byte array.
-    public static func encode<M: WireMessage>(_ message: M,
-                                              flags: EnvelopeFlags = [],
-                                              requestID: UInt64? = nil) -> [UInt8] {
+    public static func encode<M: WireMessage>(
+        _ message: M,
+        flags: EnvelopeFlags = [],
+        requestID: UInt64? = nil
+    ) -> [UInt8] {
         var writer = WireWriter()
         append(message, flags: flags, requestID: requestID, to: &writer)
         return writer.bytes
@@ -165,8 +188,12 @@ public enum EnvelopeCodec {
         if flags.contains(.hasRequestID) {
             requestID = try reader.varint()
         }
-        return Envelope(kind: MessageKind(rawValue: kind), flags: flags,
-                        requestID: requestID, payload: reader)
+        return Envelope(
+            kind: MessageKind(rawValue: kind),
+            flags: flags,
+            requestID: requestID,
+            payload: reader
+        )
     }
 }
 
@@ -184,7 +211,9 @@ public struct EnvelopeStreamDecoder: Sendable {
     }
 
     /// The number of buffered bytes that do not form a complete message yet.
-    public var pendingByteCount: Int { buffer.count - start }
+    public var pendingByteCount: Int {
+        buffer.count - start
+    }
 
     public mutating func append<C: Collection>(_ bytes: C) where C.Element == UInt8 {
         if start > 0 && start == buffer.count {
@@ -205,8 +234,12 @@ public struct EnvelopeStreamDecoder: Sendable {
         for index in 0 ..< 4 {
             length |= Int(buffer[start + index]) << (index * 8)
         }
-        guard length <= maximumMessageSize else { throw .lengthTooLarge(length) }
-        guard length >= 2 else { throw .invalidValue("envelope length \(length)") }
+        guard length <= maximumMessageSize else {
+            throw .lengthTooLarge(length)
+        }
+        guard length >= 2 else {
+            throw .invalidValue("envelope length \(length)")
+        }
         guard available >= EnvelopeCodec.lengthFieldSize + length else {
             compact()
             return nil

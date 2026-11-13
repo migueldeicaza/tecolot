@@ -20,11 +20,67 @@ final class TerminalWindowSizeStore {
     private var observers: [ObjectIdentifier: WindowObserver] = [:]
     private var suppressedWindowIDs: Set<ObjectIdentifier> = []
 
-    private init() {}
+    private let defaults: UserDefaults
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    /// Gives every manager-created window a profile/saved size and an explicit position.
+    func prepare(
+        _ window: NSWindow,
+        profile: TerminalProfile,
+        style: SidebarPreferences,
+        policy: TerminalWindowInitialFrame,
+        cascadeFrom source: NSWindow?
+    ) {
+        var size = TerminalProfileWindowSizer.contentSize(for: profile)
+        window.contentView?.layoutSubtreeIfNeeded()
+        if
+            let owner = window.windowController as? TerminalWindowController,
+            let host = owner.group.selectedTab?.loadedWorkspace?.hostView,
+            host.visibleCards.count == 1, let card = host.visibleCards.first,
+            let content = window.contentView {
+            // Header preferences change the chrome. Measure the mounted container.
+            size.width += content.bounds.width - card.content.bounds.width
+            size.height += content.bounds.height - card.content.bounds.height
+            size.height += card.content.topPadding - GlobalAppearanceSettings.storedTerminalPadding.topPoints(cardsEnabled: false)
+        } else {
+            size.width += style.style == .above || style.hidden ? 16 : style.width + 8
+            size.height += style.style == .above ? 54 : (style.style == .right || style.hidden ? 52 : 16)
+        }
+        var restored = false
+        switch policy {
+        case .windowGroup(let frame), .cascaded(let frame):
+            let destination: NSRect
+            if case .cascaded = policy {
+                destination = frame.offsetBy(dx: 20, dy: -20)
+            } else {
+                destination = frame
+            }
+            restoreWindowGroupFrame(destination, to: window)
+            return
+        case .profile:
+            setProfileContentSize(size, on: window)
+            configure(window, restoresFrame: false)
+        case .saved:
+            restored = configure(window, restoresFrame: true)
+            if !restored {
+                setProfileContentSize(size, on: window)
+            }
+        }
+        if let source {
+            var frame = window.frame
+            frame.origin = NSPoint(x: source.frame.minX + 20, y: source.frame.maxY - frame.height - 20)
+            window.setFrame(constrainedFrame(frame, for: window), display: false)
+        } else if !restored {
+            window.center()
+        }
+    }
 
     func setProfileContentSize(_ contentSize: NSSize, on window: NSWindow) {
         let oldFrame = window.frame
-        let oldContentSize = window.contentLayoutRect.size
+        let oldContentSize = window.styleMask.contains(.fullSizeContentView)
+            ? (window.contentView?.bounds.size ?? window.frame.size) : window.contentLayoutRect.size
         var frame = oldFrame
         frame.size.width += contentSize.width - oldContentSize.width
         frame.size.height += contentSize.height - oldContentSize.height
@@ -35,11 +91,11 @@ final class TerminalWindowSizeStore {
     @discardableResult
     func configure(_ window: NSWindow, restoresFrame: Bool = true) -> Bool {
         let identifier = ObjectIdentifier(window)
-        guard observers[identifier] == nil else { return false }
+        guard observers[identifier] == nil else {
+            return false
+        }
 
-        // macOS puts even a single document window in a tab group. All tabs
-        // share one frame, so restoring each tab is safe and ensures that
-        // startup document windows restore their saved frame.
+        // Each terminal window has one frame, regardless of its tab count.
         let didRestoreFrame = restoresFrame && restoreFrame(to: window)
         if didRestoreFrame {
             recordFrame(of: window)
@@ -47,7 +103,9 @@ final class TerminalWindowSizeStore {
         observers[identifier] = WindowObserver(
             window: window,
             didChangeFrame: { [weak self, weak window] in
-                guard let window else { return }
+                guard let window else {
+                    return
+                }
                 self?.recordFrame(of: window)
             },
             didClose: { [weak self] in
@@ -71,7 +129,7 @@ final class TerminalWindowSizeStore {
     }
 
     private func restoreFrame(to window: NSWindow) -> Bool {
-        if let storedValue = UserDefaults.standard.string(forKey: DefaultsKey.lastFrame) {
+        if let storedValue = defaults.string(forKey: DefaultsKey.lastFrame) {
             let savedFrame = NSRectFromString(storedValue)
             if isValid(savedFrame) {
                 window.setFrame(constrainedFrame(savedFrame, for: window), display: false)
@@ -79,11 +137,13 @@ final class TerminalWindowSizeStore {
             }
         }
 
-        guard let storedValue = UserDefaults.standard.string(forKey: DefaultsKey.lastFrameSize) else {
+        guard let storedValue = defaults.string(forKey: DefaultsKey.lastFrameSize) else {
             return false
         }
         let size = NSSizeFromString(storedValue)
-        guard isValid(size) else { return false }
+        guard isValid(size) else {
+            return false
+        }
         var savedFrame = window.frame
         savedFrame.size = size
         window.setFrame(constrainedFrame(savedFrame, for: window), display: false)
@@ -133,9 +193,11 @@ final class TerminalWindowSizeStore {
     }
 
     private func save(_ frame: NSRect) {
-        guard isValid(frame) else { return }
-        UserDefaults.standard.set(NSStringFromRect(frame), forKey: DefaultsKey.lastFrame)
-        UserDefaults.standard.set(NSStringFromSize(frame.size), forKey: DefaultsKey.lastFrameSize)
+        guard isValid(frame) else {
+            return
+        }
+        defaults.set(NSStringFromRect(frame), forKey: DefaultsKey.lastFrame)
+        defaults.set(NSStringFromSize(frame.size), forKey: DefaultsKey.lastFrameSize)
     }
 
     private func isValid(_ frame: NSRect) -> Bool {

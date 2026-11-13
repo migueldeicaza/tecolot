@@ -70,7 +70,9 @@ struct SettingsView: View {
     }
 
     private var activeProfile: TerminalProfile? {
-        activeProfileID.flatMap { profiles.profile(withID: $0) }
+        activeProfileID.flatMap {
+            profiles.profile(withID: $0)
+        }
     }
 
     @ViewBuilder
@@ -78,6 +80,12 @@ struct SettingsView: View {
         switch currentDestination {
         case .general:
             GeneralSettingsView()
+        case .interface:
+            TabInterfaceSettingsView()
+        case .panes:
+            PanesSettingsView()
+        case .notifications:
+            ProgramActivitySettingsView()
         case .profiles:
             ProfilesSettingsView(activeProfileID: $activeProfileID)
         case .text, .window, .shell, .keyboard, .advanced:
@@ -89,8 +97,9 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func profileSettingsDetail(for destination: SettingsDestination) -> some View {
-        if let section = ProfileSettingsSection(destination: destination),
-           let profile = activeProfile {
+        if
+            let section = ProfileSettingsSection(destination: destination),
+            let profile = activeProfile {
             ProfileSettingsPage(section: section, profile: profile, update: updateActiveProfile)
         } else {
             ContentUnavailableView {
@@ -127,8 +136,9 @@ struct SettingsView: View {
     }
 
     private func repairActiveProfileSelection() {
-        if let activeProfileID,
-           profiles.profile(withID: activeProfileID) != nil {
+        if
+            let activeProfileID,
+            profiles.profile(withID: activeProfileID) != nil {
             return
         }
         activeProfileID = profiles.profiles.isEmpty ? nil : profiles.defaultProfileID
@@ -159,7 +169,9 @@ struct SettingsView: View {
     /// Returns false when the change could not be stored, so callers that
     /// coordinate multi-step operations (theme forking) can roll back.
     private func updateActiveProfile(_ mutate: (inout TerminalProfile) -> Void) -> Bool {
-        guard var profile = activeProfile else { return false }
+        guard var profile = activeProfile else {
+            return false
+        }
         mutate(&profile)
         do {
             try profiles.update(profile)
@@ -172,8 +184,14 @@ struct SettingsView: View {
 
     private var profileErrorPresentation: Binding<Bool> {
         Binding(
-            get: { profileErrorMessage != nil },
-            set: { if !$0 { profileErrorMessage = nil } }
+            get: {
+                profileErrorMessage != nil
+            },
+            set: {
+                if !$0 {
+                    profileErrorMessage = nil
+                }
+            }
         )
     }
 }
@@ -225,13 +243,16 @@ struct SettingsEscapeKeyHandler: NSViewRepresentable {
         private var monitor: Any?
 
         func startMonitoring() {
-            guard monitor == nil else { return }
+            guard monitor == nil else {
+                return
+            }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self,
-                      let window,
-                      event.keyCode == 53,
-                      event.window === window,
-                      window.attachedSheet == nil else {
+                guard
+                    let self,
+                    let window,
+                    event.keyCode == 53,
+                    event.window === window,
+                    window.attachedSheet == nil else {
                     return event
                 }
                 
@@ -263,6 +284,9 @@ struct SettingsEscapeKeyHandler: NSViewRepresentable {
 
 enum SettingsDestination: CaseIterable, Hashable, Identifiable {
     case general
+    case interface
+    case panes
+    case notifications
     case text
     case window
     case shell
@@ -272,31 +296,61 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
     case profiles
     case data
 
-    var id: Self { self }
+    var id: Self {
+        self
+    }
 
     var title: String {
         switch self {
-        case .general: return "General"
-        case .profiles: return "Profiles"
-        case .text: return "Appearance"
-        case .window: return "Window"
-        case .shell: return "Shell"
-        case .keyboard: return "Keyboard"
-        case .advanced: return "Advanced"
-        case .data: return "Data"
+        case .general:
+            return "General"
+        case .interface:
+            return "Interface"
+        case .panes:
+            return "Panes"
+        case .notifications:
+            return "Notifications"
+        case .profiles:
+            return "Profiles"
+        case .text:
+            return "Appearance"
+        case .window:
+            return "Window"
+        case .shell:
+            return "Shell"
+        case .keyboard:
+            return "Keyboard"
+        case .advanced:
+            return "Advanced"
+        case .data:
+            return "Data"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .general: return "gearshape"
-        case .profiles: return "person.2.badge.gearshape"
-        case .text: return "textformat"
-        case .window: return "macwindow"
-        case .shell: return "terminal"
-        case .keyboard: return "keyboard"
-        case .advanced: return "slider.horizontal.3"
-        case .data: return "externaldrive.badge.checkmark"
+        case .general:
+            return "gearshape"
+        case .interface:
+            return "rectangle.topthird.inset.filled"
+        case .panes:
+            return "rectangle.split.2x1"
+        case .notifications:
+            return "bell"
+        case .profiles:
+            return "person.2.badge.gearshape"
+        case .text:
+            return "textformat"
+        case .window:
+            return "macwindow"
+        case .shell:
+            return "terminal"
+        case .keyboard:
+            return "keyboard"
+        case .advanced:
+            return "slider.horizontal.3"
+        case .data:
+            return "externaldrive.badge.checkmark"
         }
     }
 
@@ -304,7 +358,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
         switch self {
         case .text, .window, .shell, .keyboard, .advanced:
             return true
-        case .general, .profiles, .data:
+        case .general, .interface, .panes, .notifications, .profiles, .data:
             return false
         }
     }
@@ -312,34 +366,36 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
 
 /// App-level (non-profile) settings, persisted via AppStorage
 struct GeneralSettingsView: View {
-    @AppStorage(GlobalAppearanceSettings.paneCardsEnabledKey)
-    private var paneCardsEnabled = GlobalAppearanceSettings().paneCardsEnabled
-    @AppStorage(GlobalAppearanceSettings.paneCardsBackdropKey)
-    private var paneCardsBackdrop = GlobalAppearanceSettings().paneCardsBackdrop
-    @AppStorage(GlobalAppearanceSettings.terminalPaddingKey)
-    private var terminalPadding = GlobalAppearanceSettings().terminalPadding
-    @AppStorage(GlobalAppearanceSettings.paneStyleKey)
-    private var paneStyle = GlobalAppearanceSettings().paneStyle
     @EnvironmentObject private var profiles: ProfileStore
-    @ObservedObject private var windowGroups: WindowGroupStore
+    private let groups: TerminalWindowManager
     @AppStorage("newTabsUseCurrentDirectory") private var newTabsUseCurrentDirectory = true
     @AppStorage("newTabsUseCurrentProfile") private var newTabsUseCurrentProfile = true
     @AppStorage("useCommandDigitsForTabs") private var useCommandDigitsForTabs = true
     @AppStorage("restoredRowsLimit") private var restoredRowsLimit = 1_000
-    @AppStorage(WindowRestorationPolicy.key) private var windowRestoration = WindowRestorationPolicy.system.rawValue
     @AppStorage("startupMode") private var startupMode = "default"
     @AppStorage("startupProfileID") private var startupProfileID = ""
-    @AppStorage("startupWindowGroupID") private var startupWindowGroupID = ""
+    @State private var startupSelectionRevision = 0
     @AppStorage("useMetalRenderer") private var useMetalRenderer = true
     @State private var errorMessage: String?
 
     @MainActor
-    init() {
-        self.init(windowGroups: AppModel.shared.windowGroups)
+    init(groups: TerminalWindowManager? = nil) {
+        self.groups = groups ?? .shared
     }
 
-    init(windowGroups: WindowGroupStore) {
-        _windowGroups = ObservedObject(wrappedValue: windowGroups)
+    private func startupBinding(for group: TerminalTabGroup) -> Binding<Bool> {
+        Binding(get: { _ = startupSelectionRevision
+            return StartupGroups.ids().contains(group.id)
+        }, set: { selected in
+            var ids = StartupGroups.ids()
+            if selected {
+                ids.insert(group.id)
+            } else {
+                ids.remove(group.id)
+            }
+            StartupGroups.set(ids, orderedBy: groups.groups.map(\.id))
+            startupSelectionRevision += 1
+        })
     }
 
     var body: some View {
@@ -359,9 +415,9 @@ struct GeneralSettingsView: View {
 
             Section("Startup") {
                 Picker("Open:", selection: $startupMode) {
-                    Text("A window with the default profile").tag("default")
-                    Text("A window with this profile").tag("profile")
-                    Text("A window group").tag("windowGroup")
+                    Text("A new group with the default profile").tag("default")
+                    Text("A new group with this profile").tag("profile")
+                    Text("These groups").tag("groups")
                 }
                 if startupMode == "profile" {
                     Picker("Profile:", selection: $startupProfileID) {
@@ -369,14 +425,14 @@ struct GeneralSettingsView: View {
                             Text(profile.name).tag(profile.id.uuidString)
                         }
                     }
-                } else if startupMode == "windowGroup" {
-                    Picker("Window group:", selection: $startupWindowGroupID) {
-                        Text("None").tag("")
-                        ForEach(windowGroups.groups) { group in
-                            Text(group.name).tag(group.id.uuidString)
-                        }
+                } else if startupMode == "groups" {
+                    ForEach(groups.groups) { group in
+                        Toggle(group.name, isOn: startupBinding(for: group))
                     }
                 }
+                Text("Used only when there is no group to show.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("New tabs") {
@@ -385,27 +441,6 @@ struct GeneralSettingsView: View {
             }
             Section("Tabs") {
                 Toggle("Use Command-1 through Command-9 to select tabs", isOn: $useCommandDigitsForTabs)
-            }
-            Section("Appearance") {
-                Toggle("Show terminal cards", isOn: $paneCardsEnabled)
-                Picker("Pane style:", selection: $paneStyle) {
-                    ForEach(GlobalAppearanceSettings.PaneStyle.allCases, id: \.self) { style in
-                        Text(style.title).tag(style)
-                    }
-                }
-                .disabled(!paneCardsEnabled)
-                .help("Compact keeps the title bar of each pane, but removes the space and the rounded corners around the panes")
-                Picker("Background:", selection: $paneCardsBackdrop) {
-                    ForEach(GlobalAppearanceSettings.Backdrop.allCases, id: \.self) { backdrop in
-                        Text(backdrop.title).tag(backdrop)
-                    }
-                }
-                .disabled(!paneCardsEnabled || paneStyle == .compact)
-                Picker("Padding:", selection: $terminalPadding) {
-                    ForEach(GlobalAppearanceSettings.TerminalPadding.allCases, id: \.self) { padding in
-                        Text(padding.title).tag(padding)
-                    }
-                }
             }
             Section("Rendering") {
                 Toggle("Use Metal", isOn: metalRendererBinding)
@@ -418,14 +453,6 @@ struct GeneralSettingsView: View {
                 }
             }
             Section("Resume") {
-                Picker("Restore windows:", selection: $windowRestoration) {
-                    Text("As in System Settings").tag(WindowRestorationPolicy.system.rawValue)
-                    Text("Always").tag(WindowRestorationPolicy.always.rawValue)
-                    Text("Never").tag(WindowRestorationPolicy.never.rawValue)
-                }
-                Text("“As in System Settings” follows “Close windows when quitting an application” in Desktop & Dock. Hold Option when you quit to do the opposite. A log out or restart restores the windows.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 Stepper(
                     "Restore up to \(restoredRowsLimit) rows when a saved session opens",
                     value: $restoredRowsLimit,
@@ -450,7 +477,9 @@ struct GeneralSettingsView: View {
 
     private var defaultProfileBinding: Binding<TerminalProfile.ID> {
         Binding(
-            get: { profiles.defaultProfileID },
+            get: {
+                profiles.defaultProfileID
+            },
             set: { id in
                 do {
                     try profiles.setDefault(id)
@@ -463,25 +492,37 @@ struct GeneralSettingsView: View {
 
     // Sparkle keeps these in UserDefaults itself, so they are read straight from
     // the updater rather than mirrored through @AppStorage.
-    private var updater: SPUUpdater { UpdaterModel.shared.updater }
+    private var updater: SPUUpdater {
+        UpdaterModel.shared.updater
+    }
 
     private var automaticUpdateChecksBinding: Binding<Bool> {
         Binding(
-            get: { updater.automaticallyChecksForUpdates },
-            set: { updater.automaticallyChecksForUpdates = $0 }
+            get: {
+                updater.automaticallyChecksForUpdates
+            },
+            set: {
+                updater.automaticallyChecksForUpdates = $0
+            }
         )
     }
 
     private var automaticUpdateDownloadsBinding: Binding<Bool> {
         Binding(
-            get: { updater.automaticallyDownloadsUpdates },
-            set: { updater.automaticallyDownloadsUpdates = $0 }
+            get: {
+                updater.automaticallyDownloadsUpdates
+            },
+            set: {
+                updater.automaticallyDownloadsUpdates = $0
+            }
         )
     }
 
     private var metalRendererBinding: Binding<Bool> {
         Binding(
-            get: { useMetalRenderer },
+            get: {
+                useMetalRenderer
+            },
             set: { enabled in
                 useMetalRenderer = enabled
                 TerminalSessionRegistry.shared.setUseMetalRenderer(enabled)
@@ -491,8 +532,14 @@ struct GeneralSettingsView: View {
 
     private var errorPresentation: Binding<Bool> {
         Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
+            get: {
+                errorMessage != nil
+            },
+            set: {
+                if !$0 {
+                    errorMessage = nil
+                }
+            }
         )
     }
 }
@@ -511,7 +558,7 @@ struct GeneralSettingsView: View {
 }
 
 #Preview("General") {
-    GeneralSettingsView(windowGroups: SettingsPreviewData.windowGroups)
+    GeneralSettingsView(groups: TerminalWindowManager(registry: TerminalSessionRegistry()))
         .environmentObject(SettingsPreviewData.profiles)
         .defaultAppStorage(SettingsPreviewData.defaults)
         .frame(width: 640, height: 520)

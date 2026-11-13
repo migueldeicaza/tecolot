@@ -2,32 +2,23 @@ import AppKit
 import Observation
 import TecolotSessionDirectory
 
-enum TitlebarAccessoryAlignment {
-    /// AppKit's accessory center can include a toolbar row. Align content to
-    /// the standard window buttons instead of the accessory's full height.
-    static func centerYConstant(for view: NSView) -> CGFloat? {
-        guard let button = view.window?.standardWindowButton(.closeButton) else { return nil }
-        let buttonCenter = button.convert(
-            NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: view
-        ).y
-        return view.bounds.midY - buttonCenter
-    }
-}
-
 /// The titlebar only shows paths reported by the shell through OSC 7.
 /// A launch directory is not proof that the shell is still there.
 enum TerminalWorkingDirectory {
     static func path(from report: String?) -> String? {
-        guard let report,
-              let url = URL(string: report),
-              url.scheme == "file" || url.scheme == "kitty-shell-cwd",
-              url.path.hasPrefix("/"),
-              !url.path.isEmpty else {
+        guard
+            let report,
+            let url = URL(string: report),
+            url.scheme == "file" || url.scheme == "kitty-shell-cwd",
+            url.path.hasPrefix("/"),
+            !url.path.isEmpty else {
             return nil
         }
 
         if let host = url.host, !host.isEmpty {
-            guard LocalHostNames.shared.contains(host) else { return nil }
+            guard LocalHostNames.shared.contains(host) else {
+                return nil
+            }
         }
         return url.standardizedFileURL.path
     }
@@ -38,7 +29,9 @@ enum TerminalWorkingDirectory {
         while true {
             result.append(url)
             let parent = url.deletingLastPathComponent()
-            if parent.path == url.path { break }
+            if parent.path == url.path {
+                break
+            }
             url = parent
         }
         return result
@@ -58,12 +51,16 @@ final class LocalHostNames {
 
     func contains(_ host: String) -> Bool {
         load()
-        return names.contains { $0.caseInsensitiveCompare(host) == .orderedSame }
+        return names.contains {
+            $0.caseInsensitiveCompare(host) == .orderedSame
+        }
     }
 
     @discardableResult
     func load() -> Task<Void, Never> {
-        if let loadTask { return loadTask }
+        if let loadTask {
+            return loadTask
+        }
         let task = Task {
             names = await Task.detached(priority: .utility) {
                 LocalHostNames.lookUp()
@@ -84,41 +81,6 @@ final class LocalHostNames {
     }
 }
 
-@MainActor
-enum TerminalWorkingDirectoryTitlebar {
-    private static let identifier = NSUserInterfaceItemIdentifier("TecolotWorkingDirectory")
-
-    static func configure(
-        _ window: NSWindow, path: String?, title: String, hasActivity: Bool,
-        enableProxyIcon: Bool
-    ) {
-        window.titleVisibility = .hidden
-        let accessory: WorkingDirectoryTitlebarAccessory
-        if let existing = window.titlebarAccessoryViewControllers.first(where: {
-            $0.identifier == identifier
-        }) as? WorkingDirectoryTitlebarAccessory {
-            accessory = existing
-        } else {
-            accessory = WorkingDirectoryTitlebarAccessory()
-            accessory.identifier = identifier
-            accessory.layoutAttribute = .left
-            window.addTitlebarAccessoryViewController(accessory)
-        }
-        accessory.control.configure(
-            path: enableProxyIcon ? path : nil, title: title, hasActivity: hasActivity
-        )
-        accessory.view.setFrameSize(accessory.control.intrinsicContentSize)
-    }
-}
-
-private final class WorkingDirectoryTitlebarAccessory: NSTitlebarAccessoryViewController {
-    let control = WorkingDirectoryTitlebarControl()
-
-    override func loadView() {
-        view = control
-    }
-}
-
 /// Receives mouse events itself so a drag starts from the icon or the text,
 /// instead of moving the window behind the titlebar.
 final class WorkingDirectoryTitlebarControl: NSView, NSDraggingSource {
@@ -128,7 +90,9 @@ final class WorkingDirectoryTitlebarControl: NSView, NSDraggingSource {
     private var stackCenterY: NSLayoutConstraint!
     private(set) var path: String?
 
-    override var mouseDownCanMoveWindow: Bool { path == nil }
+    override var mouseDownCanMoveWindow: Bool {
+        path == nil
+    }
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: 22 + min(label.intrinsicContentSize.width, 440), height: 24)
@@ -156,14 +120,18 @@ final class WorkingDirectoryTitlebarControl: NSView, NSDraggingSource {
         stack.addArrangedSubview(label)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
-        stackCenterY = stack.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -8)
+        stackCenterY = stack.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 0)
+        // Hidden card proxies can briefly have zero width during layout.
+        let trailing = stack.trailingAnchor.constraint(equalTo: trailingAnchor)
+        trailing.priority = NSLayoutConstraint.Priority(999)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            trailing,
             stackCenterY,
             label.widthAnchor.constraint(lessThanOrEqualToConstant: 440)
         ])
         setAccessibilityRole(.staticText)
+        setAccessibilityElement(true)
     }
 
     @available(*, unavailable)
@@ -186,12 +154,15 @@ final class WorkingDirectoryTitlebarControl: NSView, NSDraggingSource {
         let status = hasActivity
             ? (titleWithoutActivity.isEmpty ? "●" : "● \(titleWithoutActivity)")
             : titleWithoutActivity
-        let text = path.map { status.isEmpty ? $0 : "\(status) | \($0)" } ?? title
+        let text = path.map {
+            status.isEmpty ? $0 : "\(status) | \($0)"
+        } ?? title
         guard self.path != path || label.stringValue != text else {
             return
         }
         self.path = path
         label.stringValue = text
+        setAccessibilityValue(text)
         icon.image = path == nil
             ? NSApp.applicationIconImage
             : NSImage(systemSymbolName: "folder.fill", accessibilityDescription: "Folder")
@@ -209,28 +180,27 @@ final class WorkingDirectoryTitlebarControl: NSView, NSDraggingSource {
         needsLayout = true
     }
 
-    override func layout() {
-        super.layout()
-        guard let constant = TitlebarAccessoryAlignment.centerYConstant(for: self),
-              abs(stackCenterY.constant - constant) > 0.5 else { return }
-        stackCenterY.constant = constant
-    }
-
     override func hitTest(_ point: NSPoint) -> NSView? {
         bounds.contains(convert(point, from: superview)) ? self : nil
     }
 
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
 
     // Keep the mouse sequence here. The default sends it to the titlebar,
     // which can track the drag itself and then mouseDragged does not come.
     override func mouseDown(with event: NSEvent) {
-        guard path == nil else { return }
+        guard path == nil else {
+            return
+        }
         super.mouseDown(with: event)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let path else { return }
+        guard let path else {
+            return
+        }
         let item = NSDraggingItem(pasteboardWriter: pasteboardItem(for: path))
         let image = NSImage(data: dataWithPDF(inside: bounds)) ?? icon.image ?? NSImage()
         item.setDraggingFrame(bounds, contents: image)
@@ -255,11 +225,15 @@ final class WorkingDirectoryTitlebarControl: NSView, NSDraggingSource {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let path else { return nil }
+        guard let path else {
+            return nil
+        }
         let directories = TerminalWorkingDirectory.ancestors(of: path)
         let menu = NSMenu()
         for (index, directory) in directories.enumerated() {
-            if index == 1 { menu.addItem(.separator()) }
+            if index == 1 {
+                menu.addItem(.separator())
+            }
             let item = NSMenuItem(
                 title: index == 0 ? "Open in Finder" : directory.path,
                 action: #selector(openDirectory(_:)),
@@ -274,7 +248,9 @@ final class WorkingDirectoryTitlebarControl: NSView, NSDraggingSource {
     }
 
     @objc private func openDirectory(_ sender: NSMenuItem) {
-        guard let directory = sender.representedObject as? URL else { return }
+        guard let directory = sender.representedObject as? URL else {
+            return
+        }
         NSWorkspace.shared.open(directory)
     }
 }

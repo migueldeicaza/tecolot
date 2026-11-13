@@ -1,127 +1,5 @@
-//
-//  ContentView.swift
-//  Tecolot
-//
-//  Created by Miguel de Icaza on 8/5/25.
-//
-
 import AppKit
 import SwiftUI
-
-struct ContentView: View {
-    @AppStorage(GlobalAppearanceSettings.paneCardsEnabledKey)
-    private var paneCardsEnabled = GlobalAppearanceSettings().paneCardsEnabled
-    @AppStorage(GlobalAppearanceSettings.paneCardsBackdropKey)
-    private var paneCardsBackdrop = GlobalAppearanceSettings().paneCardsBackdrop
-    @AppStorage(GlobalAppearanceSettings.terminalPaddingKey)
-    private var terminalPadding = GlobalAppearanceSettings().terminalPadding
-    @AppStorage(GlobalAppearanceSettings.paneStyleKey)
-    private var paneStyle = GlobalAppearanceSettings().paneStyle
-    @Binding var document: TerminalDocument
-    /// nil for untitled windows; document metadata is only persisted for
-    /// file-backed sessions so that closing an untitled window never
-    /// triggers a save prompt
-    var fileURL: URL?
-    @State private var workspace = TerminalPaneWorkspace(
-        startsProcesses: ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1"
-    )
-    @EnvironmentObject private var profiles: ProfileStore
-    @EnvironmentObject private var themes: ThemeStore
-    @EnvironmentObject private var themeIndex: ThemeCatalogIndex
-    @EnvironmentObject private var systemAppearance: SystemAppearance
-    // Keep the saved value from the earlier folder icon setting.
-    @AppStorage("showWorkingDirectoryIconInTitlebar") private var enableProxyIcon = true
-
-    private var rootController: TerminalSessionController? {
-        workspace.controllers.first
-    }
-
-    /// The controller the window chrome follows. Focus is briefly nil while a
-    /// pane is torn down or before the first pane is built; falling back to the
-    /// root pane keeps the titlebar on the profile theme instead of flashing
-    /// the built-in dark fallback.
-    private var chromeController: TerminalSessionController? {
-        workspace.focusedController ?? rootController
-    }
-
-    private var windowTheme: TerminalTheme {
-        chromeController?.effectiveTheme ?? .fallback
-    }
-
-    private var usesThemeWindowChrome: Bool {
-        chromeController?.profile.useThemeColorsForWindowChrome ?? true
-    }
-
-    private var chromeBackgroundOpacity: Double {
-        chromeController?.effectiveBackgroundOpacity ?? 1
-    }
-
-    var body: some View {
-        TerminalPaneContainer(
-            workspace: workspace,
-            document: document,
-            revision: workspace.revision,
-            appearanceSettings: GlobalAppearanceSettings(
-                paneCardsEnabled: paneCardsEnabled,
-                paneCardsBackdrop: paneCardsBackdrop,
-                terminalPadding: terminalPadding,
-                paneStyle: paneStyle
-            )
-        )
-            .background(WindowTabbingConfigurator(
-                theme: usesThemeWindowChrome ? windowTheme : nil,
-                backgroundOpacity: chromeBackgroundOpacity,
-                showsPaneCards: paneCardsEnabled,
-                workingDirectory: chromeController?.titlebarWorkingDirectory,
-                title: chromeController?.displayedWindowTitle ?? "Tecolot",
-                hasActivity: workspace.controllers.contains(where: \.hasActivity),
-                enableProxyIcon: enableProxyIcon,
-                themeController: workspace.focusedController,
-                showsThemePicker: workspace.focusedController?.showThemePicker ?? false,
-                zoomedControllerID: workspace.zoomedControllerID,
-                workspace: workspace,
-                profiles: profiles,
-                themes: themes,
-                themeIndex: themeIndex
-            ))
-            .preferredColorScheme(
-                usesThemeWindowChrome ? (windowTheme.isDark ? .dark : .light) : nil
-            )
-            .onChange(of: rootController?.themeOverride) { _, newValue in
-                if fileURL != nil && document.themeOverride != newValue {
-                    document.themeOverride = newValue
-                }
-            }
-            .onChange(of: rootController?.profile.id) { _, newValue in
-                if fileURL != nil, let newValue, document.profileID != newValue {
-                    document.profileID = newValue
-                }
-            }
-            .onChange(of: profiles.profiles) {
-                for controller in workspace.controllers {
-                    if let stored = profiles.profile(withID: controller.profile.id),
-                       stored != controller.profile {
-                        controller.applyProfile(stored)
-                    }
-                }
-            }
-            .onChange(of: themes.themes) {
-                // A user theme was edited/imported: re-resolve colors
-                for controller in workspace.controllers {
-                    controller.applyThemeColors()
-                }
-            }
-            .onChange(of: systemAppearance.isDark) {
-                // The system changed between Light and Dark Mode: use the
-                // theme of the new mode. Only the colors change: a full
-                // profile apply would also reset the cursor style that a
-                // program (vim, a shell in vi mode) set.
-                for controller in workspace.controllers {
-                    controller.applyThemeColors()
-                }
-            }
-    }
-}
 
 /// The per-window theme picker: applies the selection to this session only,
 /// with escape hatches to make it the profile-wide theme or reset
@@ -137,14 +15,16 @@ struct ThemePickerPopover: View {
 
     var body: some View {
         VStack {
-            ThemeBrowserView(themes: themes,
-                             themeIndex: themeIndex,
-                             profiles: profiles,
-                             selectedThemeName: controller.effectiveTheme.name) { theme in
+            ThemeBrowserView(
+                themes: themes,
+                themeIndex: themeIndex,
+                profiles: profiles,
+                selectedThemeName: controller.effectiveTheme.name
+            ) { theme in
                 controller.applyThemeOverride(theme.name)
             }
-                             .padding(.top)
-                             .frame(minWidth: 520, minHeight: 420, maxHeight: 500)
+            .padding(.top)
+            .frame(minWidth: 520, minHeight: 420, maxHeight: 500)
             Divider()
             HStack {
                 Button("Reset to Profile Theme") {
@@ -164,8 +44,14 @@ struct ThemePickerPopover: View {
             .padding(10)
         }
         .alert("Could Not Change Profile Theme", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
+            get: {
+                errorMessage != nil
+            },
+            set: {
+                if !$0 {
+                    errorMessage = nil
+                }
+            }
         )) {
             Button("OK", role: .cancel) {
                 errorMessage = nil
@@ -174,78 +60,6 @@ struct ThemePickerPopover: View {
             Text(errorMessage ?? "An unknown error occurred.")
         }
     }
-}
-
-struct WindowTabbingConfigurator: NSViewRepresentable {
-    let theme: TerminalTheme?
-    var backgroundOpacity: Double = 1
-    // Include this setting in the representable input so native tab
-    // accessories update even when the terminal title does not change.
-    var showsPaneCards = true
-    var workingDirectory: String?
-    var title: String = "Tecolot"
-    var hasActivity = false
-    var enableProxyIcon = true
-    var themeController: TerminalSessionController?
-    // Not read by the update. It makes SwiftUI update this view when the
-    // flag changes; the titlebar control reads the live value.
-    var showsThemePicker = false
-    // The titlebar button also reads the live workspace in the queued update.
-    var zoomedControllerID: UUID?
-    var workspace: TerminalPaneWorkspace
-    var profiles: ProfileStore
-    var themes: ThemeStore
-    var themeIndex: ThemeCatalogIndex
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        configureWindow(for: view)
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        configureWindow(for: nsView)
-    }
-
-    private func configureWindow(for view: NSView) {
-        DispatchQueue.main.async {
-            guard let window = view.window else { return }
-            window.tabbingIdentifier = "TerminalDocument"
-            window.tabbingMode = .preferred
-            TerminalWorkingDirectoryTitlebar.configure(
-                window,
-                path: workingDirectory,
-                title: title,
-                hasActivity: hasActivity,
-                enableProxyIcon: enableProxyIcon
-            )
-            TerminalThemeTitlebar.configure(
-                window,
-                controller: themeController,
-                profiles: profiles,
-                themes: themes,
-                themeIndex: themeIndex
-            )
-            TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
-            TerminalWindowSizeStore.shared.configure(window)
-            TerminalWindowAppearance.apply(
-                theme: theme,
-                backgroundOpacity: backgroundOpacity,
-                to: window
-            )
-        }
-    }
-}
-
-#Preview("Terminal Window") {
-    ContentView(
-        document: .constant(TerminalDocument())
-    )
-    .environmentObject(SettingsPreviewData.profiles)
-    .environmentObject(SettingsPreviewData.themes)
-    .environmentObject(SettingsPreviewData.themeIndex)
-    .environmentObject(SystemAppearance(isDark: false))
-    .frame(width: 900, height: 560)
 }
 
 #Preview("Theme Picker") {

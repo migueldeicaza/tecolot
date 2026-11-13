@@ -16,8 +16,10 @@ final class ProfileColorTests {
 
     @Test func sixteenBitEncodesLosslessly () throws {
         let color = ProfileColor (red: 0x1234, green: 0x5678, blue: 0x9abc)
-        let decoded = try JSONDecoder ().decode (ProfileColor.self,
-                                                 from: try JSONEncoder ().encode (color))
+        let decoded = try JSONDecoder ().decode (
+            ProfileColor.self,
+            from: try JSONEncoder ().encode (color)
+        )
         #expect (decoded == color)
     }
 
@@ -40,7 +42,9 @@ final class ThemeTests {
 
     @Test func swiftTermThemeMatchesMacTerminalDefaults () throws {
         let theme = try #require (
-            ThemeStore.loadBundledThemes ().first { $0.name == "SwiftTerm" }
+            ThemeStore.loadBundledThemes ().first {
+                $0.name == "SwiftTerm"
+            }
         )
         #expect (theme.ansi == TerminalTheme.fallback.ansi)
         #expect (theme.foreground.hexString == "#ffffff")
@@ -62,8 +66,10 @@ final class ThemeTests {
     @Test func themeCodableRoundTrip () throws {
         let themes = ThemeStore.loadBundledThemes ()
         let first = try #require (themes.first)
-        let decoded = try JSONDecoder ().decode (TerminalTheme.self,
-                                                 from: try JSONEncoder ().encode (first))
+        let decoded = try JSONDecoder ().decode (
+            TerminalTheme.self,
+            from: try JSONEncoder ().encode (first)
+        )
         #expect (decoded == first)
     }
 }
@@ -132,7 +138,9 @@ final class ThemeStoreTests {
         }
 
         #expect(deletionFailed)
-        #expect(!store.themes.contains { $0.name == custom.name })
+        #expect(!store.themes.contains {
+            $0.name == custom.name
+        })
         #expect(issues.issues.contains {
             $0.domain == .themeFavorites && $0.sourceURL.lastPathComponent == "favorites.json"
         })
@@ -173,7 +181,9 @@ final class ThemeStoreTests {
             try store.deleteUserTheme(named: custom.name)
         }
         #expect(try Data(contentsOf: favoritesURL) == original)
-        #expect(store.themes.contains { $0.name == custom.name })
+        #expect(store.themes.contains {
+            $0.name == custom.name
+        })
         #expect(issues.issues.contains {
             $0.domain == .themeFavorites && $0.sourceURL == favoritesURL
         })
@@ -194,8 +204,12 @@ final class ThemeStoreTests {
         #expect(custom.id == oldID)
         try store.saveUserTheme(custom, replacing: oldName)
 
-        #expect(store.themes.contains { $0.name == custom.name && !$0.isBuiltIn })
-        #expect(!store.themes.contains { $0.name == oldName })
+        #expect(store.themes.contains {
+            $0.name == custom.name && !$0.isBuiltIn
+        })
+        #expect(!store.themes.contains {
+            $0.name == oldName
+        })
         #expect(store.isFavorite(custom.name))
         #expect(!store.isFavorite(oldName))
         let themeFiles = try FileManager.default.contentsOfDirectory(
@@ -674,75 +688,12 @@ final class ProfileStoreTests {
     }
 }
 
-final class TerminalSessionDocumentCodecTests {
-    /// The text of a file from before the versioned format stays: the pane
-    /// shows it, and a save keeps it.
-    @Test func plainTextMigratesInMemoryAndSavesAsV1() throws {
-        let original = Data("prompt output\n".utf8)
-        let value = try TerminalSessionDocumentCodec.decode(original)
-        #expect(value == TerminalSessionDocumentValue(legacyContent: "prompt output\n"))
-
-        let saved = try TerminalSessionDocumentCodec.encode(value)
-        let object = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
-        #expect((object["version"] as? NSNumber)?.intValue == 1)
-        #expect(object["content"] as? String == "prompt output\n")
-        #expect(try TerminalSessionDocumentCodec.decode(saved) == value)
-    }
-
-    @Test func futureEnvelopeIsNeverTreatedAsTerminalText() throws {
-        let data = try fixture("terminal-v99")
-        #expect(throws: VersionedPersistenceError.unsupportedVersion(found: 99, supported: 1)) {
-            try TerminalSessionDocumentCodec.decode(data)
-        }
-    }
-
-    @Test func jsonWithoutVersionRemainsLegacyTerminalText() throws {
-        let text = "{\"ordinary\":\"terminal output\"}"
-        #expect(try TerminalSessionDocumentCodec.decode(Data(text.utf8))
-                == TerminalSessionDocumentValue(legacyContent: text))
-    }
-
-    @Test func savedTextOfAnOlderFileIsKept() throws {
-        let profileID = UUID()
-        let data = Data("{\"version\":1,\"profileID\":\"\(profileID.uuidString)\",\"content\":\"old text\"}".utf8)
-        let value = try TerminalSessionDocumentCodec.decode(data)
-        #expect(value == TerminalSessionDocumentValue(profileID: profileID, legacyContent: "old text"))
-        let saved = try TerminalSessionDocumentCodec.encode(value)
-        let object = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
-        #expect(object["content"] as? String == "old text")
-        #expect(try TerminalSessionDocumentCodec.decode(saved) == value)
-    }
-
-    /// Files of this version have no text, and a save adds none.
-    @Test func newFilesHaveNoText() throws {
-        let empty = Data("{\"version\":1,\"content\":\"\"}".utf8)
-        #expect(try TerminalSessionDocumentCodec.decode(empty) == TerminalSessionDocumentValue())
-        let saved = try TerminalSessionDocumentCodec.encode(TerminalSessionDocumentValue(themeOverride: "Basic"))
-        let object = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
-        #expect(object["content"] == nil)
-    }
-
-    @Test func replayTextKeepsTheLastLinesAndRemovesControls() {
-        #expect(TerminalSessionDocumentCodec.replayText(for: "one\ntwo\nthree\n", limit: 2) == "two\nthree\n")
-        #expect(TerminalSessionDocumentCodec.replayText(for: "a\u{1B}]52;c;x\u{7}\tb\r\n", limit: 10)
-                == "a\u{FFFD}]52;c;x\u{FFFD}      b\n")
-        #expect(TerminalSessionDocumentCodec.replayText(for: "\ta\tbc\t\nabcdefgh\tx\n", limit: 10)
-                == "        a       bc      \nabcdefgh        x\n")
-        #expect(TerminalSessionDocumentCodec.replayText(for: "text", limit: 0) == nil)
-        #expect(TerminalSessionDocumentCodec.replayText(for: "\n", limit: 10) == "\n")
-    }
-
-    /// Persistent panes validate the replay before the helper shows it.
-    @Test func replayTextWithTabsPassesTheScrollbackValidator() throws {
-        let text = try #require(TerminalSessionDocumentCodec.replayText(for: "a\tb\r\n\u{1B}[1mc\n", limit: 10))
-        try ScrollbackFile.validate(text)
-    }
-}
-
 final class LaunchParametersTests {
     private func environmentValues(_ environment: [String]) -> [String: String] {
         environment.reduce(into: [:]) { result, entry in
-            guard let separator = entry.firstIndex(of: "=") else { return }
+            guard let separator = entry.firstIndex(of: "=") else {
+                return
+            }
             result[String(entry[..<separator])] = String(entry[entry.index(after: separator)...])
         }
     }
@@ -755,7 +706,9 @@ final class LaunchParametersTests {
         #expect (params.environment.contains ("TERM_FEATURES=\(TerminalFeatureReporting.featureString)"))
         #expect (params.environment.contains ("TERM_PROGRAM=tecolot"))
         #expect (params.environment.contains ("TERM_PROGRAM_VERSION=\(TecolotShellIntegration.terminalProgramVersion)"))
-        #expect (params.environment.contains { $0.hasPrefix("TECOLOT_RESOURCES_DIR=") })
+        #expect (params.environment.contains {
+            $0.hasPrefix("TECOLOT_RESOURCES_DIR=")
+        })
     }
 
     @Test func termNameFlowsIntoEnvironment () {
@@ -846,12 +799,18 @@ final class LaunchParametersTests {
                 includingPropertiesForKeys: [.isRegularFileKey]
             )
         )
-        let entries = enumerator.compactMap { $0 as? URL }
+        let entries = enumerator.compactMap {
+            $0 as? URL
+        }
         let compiledEntry = try #require(
-            entries.first { $0.lastPathComponent == "swifterm-terminfo" }
+            entries.first {
+                $0.lastPathComponent == "swifterm-terminfo"
+            }
         )
         let xtermEntry = try #require(
-            entries.first { $0.lastPathComponent == "xterm-256color" }
+            entries.first {
+                $0.lastPathComponent == "xterm-256color"
+            }
         )
 
         #expect(try compiledEntry.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true)
@@ -911,7 +870,9 @@ final class LaunchParametersTests {
         profile.shell = .command("/bin/zsh", runInShell: false)
         let params = ProfileApplier.launchParameters(for: profile)
 
-        #expect(params.environment.contains { $0.hasPrefix("ZDOTDIR=") })
+        #expect(params.environment.contains {
+            $0.hasPrefix("ZDOTDIR=")
+        })
     }
 
     @Test func initialDirectoryIsRespected () {
@@ -973,8 +934,8 @@ final class TerminalFeatureReportingTests {
         #expect(TerminalFeatureReporting.featureString == "T3CwLrMSc7UUw18Ts3BFGsSyHSxP")
         #expect(TerminalFeatureReporting.featureString.utf8.allSatisfy { byte in
             (byte >= 0x30 && byte <= 0x39) ||
-            (byte >= 0x41 && byte <= 0x5a) ||
-            (byte >= 0x61 && byte <= 0x7a)
+                (byte >= 0x41 && byte <= 0x5a) ||
+                (byte >= 0x61 && byte <= 0x7a)
         })
     }
 
@@ -1008,7 +969,9 @@ final class TecolotShellIntegrationTests {
         #expect(result.environment.contains("TERM_PROGRAM_VERSION=1.2.3"))
         #expect(result.environment.contains("TECOLOT_SHELL_FEATURES=title"))
         #expect(result.environment.contains("TECOLOT_RESOURCES_DIR=/tmp/tecolot resources"))
-        #expect(!result.environment.contains { $0.hasPrefix("ZDOTDIR=") })
+        #expect(!result.environment.contains {
+            $0.hasPrefix("ZDOTDIR=")
+        })
     }
 
     @Test func shellFeaturesDoNotContainCursorControl() {
@@ -1103,7 +1066,9 @@ final class TecolotShellIntegrationTests {
         )
 
         #expect(result.args.isEmpty)
-        #expect(!result.environment.contains { $0.hasPrefix("ENV=") })
+        #expect(!result.environment.contains {
+            $0.hasPrefix("ENV=")
+        })
         #expect(result.environment.contains("TECOLOT_RESOURCES_DIR=/tmp/tecolot resources"))
     }
 
@@ -1150,7 +1115,9 @@ final class TecolotShellIntegrationTests {
             terminalProgramVersion: "1"
         )
         #expect(bashResult.args == bash.args)
-        #expect(!bashResult.environment.contains { $0.hasPrefix("ENV=") })
+        #expect(!bashResult.environment.contains {
+            $0.hasPrefix("ENV=")
+        })
 
         let nushell = LaunchParameters(
             executable: "/opt/homebrew/bin/nu",
@@ -1223,7 +1190,9 @@ struct Osc8ProfileTests {
         #expect(options.enableOsc8Hyperlinks == enabled)
         #expect(options.featureReport?.contains("H") == enabled)
         let launch = ProfileApplier.launchParameters(for: profile)
-        let features = launch.environment.first { $0.hasPrefix("TERM_FEATURES=") }
+        let features = launch.environment.first {
+            $0.hasPrefix("TERM_FEATURES=")
+        }
         #expect(features?.contains("H") == enabled)
     }
 

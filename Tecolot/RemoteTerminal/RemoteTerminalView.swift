@@ -19,7 +19,7 @@ import TecolotSessionClient
 import TecolotWire
 
 final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuItemValidation, TerminalKeyboardHost,
-                                TerminalContextMenuActions {
+TerminalContextMenuActions {
     private(set) var session: RemoteSession
     let source: RemoteFrameSource
     weak var sessionController: TerminalSessionController?
@@ -34,7 +34,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     var remoteDestination: String?
     var remoteInputEnabled = true {
         didSet {
-            guard remoteInputEnabled != oldValue else { return }
+            guard remoteInputEnabled != oldValue else {
+                return
+            }
             inputShade.isHidden = remoteInputEnabled
             if !remoteInputEnabled {
                 markedText = nil
@@ -89,7 +91,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         fatalError("init(coder:) has not been implemented")
     }
 
-    override var acceptsFirstResponder: Bool { true }
+    override var acceptsFirstResponder: Bool {
+        true
+    }
 
     override func becomeFirstResponder() -> Bool {
         hasFocus = true
@@ -109,9 +113,12 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     var wireGridSize: WireGridSize {
         let grid = gridSize
         let scale = window?.backingScaleFactor ?? 2
-        return WireGridSize(columns: grid.columns, rows: grid.rows,
-                            cellWidth: Int((cellSize.width * scale).rounded()),
-                            cellHeight: Int((cellSize.height * scale).rounded()))
+        return WireGridSize(
+            columns: grid.columns,
+            rows: grid.rows,
+            cellWidth: Int((cellSize.width * scale).rounded()),
+            cellHeight: Int((cellSize.height * scale).rounded())
+        )
     }
 
     /// Device pixels per point, in hundredths, for the helper's image sizes.
@@ -120,12 +127,15 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     private func sendGridSize(columns: Int, rows: Int) {
-        guard columns > 1, rows > 1 else { return }
+        guard columns > 1, rows > 1 else {
+            return
+        }
         session.resize(wireGridSize, scale: displayScale)
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        sessionController?.surfaceDidMoveToWindow()
         source.displayScale = CGFloat(displayScale) / 100
         registerForDraggedTypes([.fileURL])
         sessionController?.connectIfWindowVisible()
@@ -141,12 +151,21 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     private func observe(_ session: RemoteSession) {
         session.onChange = { [weak self] change in
             self?.requestRedraw()
-            DispatchQueue.main.async { [weak self] in self?.sessionController?.refreshRemoteConnectionDisplay() }
+            DispatchQueue.main.async { [weak self] in
+                self?.sessionController?.refreshRemoteConnectionDisplay()
+                if change.contains(.output) {
+                    self?.sessionController?.noteOutputActivity()
+                }
+            }
             if !change.isDisjoint(with: [.geometry, .viewport, .buffer]) {
-                DispatchQueue.main.async { self?.scheduleScrollerUpdate() }
+                DispatchQueue.main.async {
+                    self?.scheduleScrollerUpdate()
+                }
             }
             if change.contains(.colors) {
-                DispatchQueue.main.async { self?.updateDefaultColors() }
+                DispatchQueue.main.async {
+                    self?.updateDefaultColors()
+                }
             }
         }
     }
@@ -178,7 +197,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     /// The alpha of the default background: the profile's opacity.
     var backgroundOpacity: CGFloat = 1 {
         didSet {
-            guard backgroundOpacity != oldValue else { return }
+            guard backgroundOpacity != oldValue else {
+                return
+            }
             updateDefaultColors()
         }
     }
@@ -197,7 +218,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         pendingThemeGeneration += 1
         let generation = pendingThemeGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-            guard let self, generation == pendingThemeGeneration, pendingTheme != nil else { return }
+            guard let self, generation == pendingThemeGeneration, pendingTheme != nil else {
+                return
+            }
             pendingTheme = nil
             updateDefaultColors()
         }
@@ -211,27 +234,40 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         guard pendingTheme == nil, let colors = state.colors else {
             return (themeForeground, themeBackground, themeCursor, state.reverseVideo)
         }
-        return (Self.color(colors.foreground), Self.color(colors.background),
-                colors.cursor.map { Self.color($0).nsColor } ?? themeCursor, state.reverseVideo)
+        return (
+            Self.color(colors.foreground),
+            Self.color(colors.background),
+            colors.cursor.map {
+                Self.color($0).nsColor
+            } ?? themeCursor,
+            state.reverseVideo
+        )
     }
 
     private func updateDefaultColors() {
-        if let pending = pendingTheme, let colors = session.state.colors,
-           colors.foreground == pending.foreground, colors.background == pending.background {
+        if
+            let pending = pendingTheme, let colors = session.state.colors,
+            colors.foreground == pending.foreground, colors.background == pending.background {
             pendingTheme = nil
         }
         let colors = defaultColors
         var foreground = colors.foreground.nsColor
         var background = colors.background.nsColor
-        if colors.reversed { swap(&foreground, &background) }
+        if colors.reversed {
+            swap(&foreground, &background)
+        }
         background = background.withAlphaComponent(backgroundOpacity)
         let cursor = colors.cursor
-        if !nativeForegroundColor.isEqual(foreground) { nativeForegroundColor = foreground }
+        if !nativeForegroundColor.isEqual(foreground) {
+            nativeForegroundColor = foreground
+        }
         if !nativeBackgroundColor.isEqual(background) {
             nativeBackgroundColor = background
             (superview as? TerminalSessionContainerView)?.updatePaddingColor()
         }
-        if caretColor != cursor { caretColor = cursor }
+        if caretColor != cursor {
+            caretColor = cursor
+        }
     }
 
     private static func wire(_ color: SwiftTerm.Color) -> WireRGB {
@@ -262,9 +298,17 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         case .showFindInterface:
             showFindBar()
         case .nextMatch:
-            if findBar == nil { showFindBar() } else { search(backward: false) }
+            if findBar == nil {
+                showFindBar()
+            } else {
+                search(backward: false)
+            }
         case .previousMatch:
-            if findBar == nil { showFindBar() } else { search(backward: true) }
+            if findBar == nil {
+                showFindBar()
+            } else {
+                search(backward: true)
+            }
         case .hideFindInterface:
             hideFindBar()
         default:
@@ -278,8 +322,12 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         bar.focus()
         // Like local panes: start with the selection, else the find pasteboard.
         selectedText { [weak self, weak bar] selected in
-            guard let self, let bar, self.findBar === bar else { return }
-            let initial = selected.flatMap { $0.isEmpty || $0.contains("\n") ? nil : $0 }
+            guard let self, let bar, self.findBar === bar else {
+                return
+            }
+            let initial = selected.flatMap {
+                $0.isEmpty || $0.contains("\n") ? nil : $0
+            }
                 ?? findPasteboard.string(forType: .string)
             if let initial, !initial.isEmpty, bar.query != initial {
                 bar.query = initial
@@ -299,9 +347,15 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
             bar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
             bar.widthAnchor.constraint(lessThanOrEqualToConstant: 560),
         ])
-        bar.onQueryChange = { [weak self] in self?.searchFromOrigin() }
-        bar.onSearch = { [weak self] backward in self?.search(backward: backward) }
-        bar.onClose = { [weak self] in self?.hideFindBar() }
+        bar.onQueryChange = { [weak self] in
+            self?.searchFromOrigin()
+        }
+        bar.onSearch = { [weak self] backward in
+            self?.search(backward: backward)
+        }
+        bar.onClose = { [weak self] in
+            self?.hideFindBar()
+        }
         findBar = bar
         return bar
     }
@@ -316,7 +370,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     /// Searches the bar's query again from where the find started.
     private func searchFromOrigin() {
-        guard let bar = findBar else { return }
+        guard let bar = findBar else {
+            return
+        }
         guard !bar.query.isEmpty else {
             searchGeneration += 1
             clearSelection()
@@ -329,16 +385,35 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     /// Finds `query` after (or before) the last match. Without a match, a
     /// forward search starts at the top of the view and a backward search at
     /// its bottom.
-    func search(query: String? = nil, backward: Bool, caseSensitive: Bool? = nil,
-                regularExpression: Bool? = nil, wholeWord: Bool? = nil) {
-        search(query: query, backward: backward, caseSensitive: caseSensitive,
-               regularExpression: regularExpression, wholeWord: wholeWord, fromOrigin: false)
+    func search(
+        query: String? = nil,
+        backward: Bool,
+        caseSensitive: Bool? = nil,
+        regularExpression: Bool? = nil,
+        wholeWord: Bool? = nil
+    ) {
+        search(
+            query: query,
+            backward: backward,
+            caseSensitive: caseSensitive,
+            regularExpression: regularExpression,
+            wholeWord: wholeWord,
+            fromOrigin: false
+        )
     }
 
-    private func search(query: String? = nil, backward: Bool, caseSensitive: Bool? = nil,
-                        regularExpression: Bool? = nil, wholeWord: Bool? = nil, fromOrigin: Bool) {
+    private func search(
+        query: String? = nil,
+        backward: Bool,
+        caseSensitive: Bool? = nil,
+        regularExpression: Bool? = nil,
+        wholeWord: Bool? = nil,
+        fromOrigin: Bool
+    ) {
         let text = query ?? findBar?.query ?? findPasteboard.string(forType: .string) ?? ""
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty else {
+            return
+        }
         if query == nil {
             // Like other Mac apps, share the query through the find pasteboard.
             let finder = findPasteboard
@@ -348,10 +423,18 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
             }
         }
         var options: SessionSearchOptions = []
-        if caseSensitive ?? findBar?.caseSensitive ?? false { options.insert(.caseSensitive) }
-        if regularExpression ?? findBar?.regularExpression ?? false { options.insert(.regularExpression) }
-        if wholeWord ?? findBar?.wholeWord ?? false { options.insert(.wholeWord) }
-        if backward { options.insert(.backward) }
+        if caseSensitive ?? findBar?.caseSensitive ?? false {
+            options.insert(.caseSensitive)
+        }
+        if regularExpression ?? findBar?.regularExpression ?? false {
+            options.insert(.regularExpression)
+        }
+        if wholeWord ?? findBar?.wholeWord ?? false {
+            options.insert(.wholeWord)
+        }
+        if backward {
+            options.insert(.backward)
+        }
         let state = session.state
         let start: (line: Int64, column: Int)
         if let lastMatch, !fromOrigin {
@@ -364,9 +447,11 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         }
         searchGeneration += 1
         let generation = searchGeneration
-        session.search(text, options: options, from: (start.line, max(0, start.column))) { result in
+        session.search(text, options: options, from: (start.line, max(0, start.column))) { [weak self] result in
             DispatchQueue.main.async { [weak self] in
-                guard let self, generation == self.searchGeneration else { return }
+                guard let self, generation == self.searchGeneration else {
+                    return
+                }
                 self.showSearchResult(result)
             }
         }
@@ -381,7 +466,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         guard let result, result.found else {
             setFindStatus(result?.problem.isEmpty == false ? result!.problem : "Not found")
             // The highlight of an older match no longer applies.
-            if lastMatch != nil { clearSelection() }
+            if lastMatch != nil {
+                clearSelection()
+            }
             return
         }
         setFindStatus("")
@@ -404,10 +491,14 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     /// is the top row, like local panes do.
     func scrollToPrompt(upward: Bool) {
         let state = session.state
-        guard state.buffer == .normal else { return }
-        session.findPrompt(from: state.displayTop, upward: upward) { line in
+        guard state.buffer == .normal else {
+            return
+        }
+        session.findPrompt(from: state.displayTop, upward: upward) { [weak self] line in
             DispatchQueue.main.async { [weak self] in
-                guard let self, let line else { return }
+                guard let self, let line else {
+                    return
+                }
                 self.session.scroll(toTop: line)
                 self.flashScroller()
             }
@@ -419,15 +510,27 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     private var banner: RemoteSessionBanner?
 
     /// The text of the banner that is shown, if any.
-    var bannerText: String? { banner?.text }
-
-    func showBanner(_ text: String, actionTitle: String? = nil, action: (() -> Void)? = nil) {
-        showBanner(text, actionTitle: actionTitle, action: action,
-                   secondaryActionTitle: nil, secondaryAction: nil)
+    var bannerText: String? {
+        banner?.text
     }
 
-    func showBanner(_ text: String, actionTitle: String?, action: (() -> Void)?,
-                    secondaryActionTitle: String?, secondaryAction: (() -> Void)?) {
+    func showBanner(_ text: String, actionTitle: String? = nil, action: (() -> Void)? = nil) {
+        showBanner(
+            text,
+            actionTitle: actionTitle,
+            action: action,
+            secondaryActionTitle: nil,
+            secondaryAction: nil
+        )
+    }
+
+    func showBanner(
+        _ text: String,
+        actionTitle: String?,
+        action: (() -> Void)?,
+        secondaryActionTitle: String?,
+        secondaryAction: (() -> Void)?
+    ) {
         let banner = self.banner ?? RemoteSessionBanner()
         if self.banner == nil {
             banner.translatesAutoresizingMaskIntoConstraints = false
@@ -439,8 +542,13 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
             ])
             self.banner = banner
         }
-        banner.configure(text: text, actionTitle: actionTitle, action: action,
-                         secondaryActionTitle: secondaryActionTitle, secondaryAction: secondaryAction)
+        banner.configure(
+            text: text,
+            actionTitle: actionTitle,
+            action: action,
+            secondaryActionTitle: secondaryActionTitle,
+            secondaryAction: secondaryAction
+        )
     }
 
     func hideBanner() {
@@ -451,8 +559,11 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     // MARK: File drops
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard remoteDestination != nil, sender.draggingSourceOperationMask.contains(.copy),
-              TerminalFileDrop.hasFileURLs(in: sender.draggingPasteboard) else { return [] }
+        guard
+            remoteDestination != nil, sender.draggingSourceOperationMask.contains(.copy),
+            TerminalFileDrop.hasFileURLs(in: sender.draggingPasteboard) else {
+            return []
+        }
         return .copy
     }
 
@@ -465,7 +576,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard draggingEntered(sender) == .copy else { return false }
+        guard draggingEntered(sender) == .copy else {
+            return false
+        }
         let alert = NSAlert()
         alert.messageText = "Files cannot be dropped into a remote session."
         alert.addButton(withTitle: "OK")
@@ -490,10 +603,14 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     private func scheduleScrollerUpdate() {
-        guard !scrollerUpdatePending else { return }
+        guard !scrollerUpdatePending else {
+            return
+        }
         scrollerUpdatePending = true
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             scrollerUpdatePending = false
             updateScroller()
         }
@@ -521,7 +638,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     /// Shows the scroll bar for a moment while the view follows the live screen.
     private func flashScroller() {
-        guard scroller.isEnabled else { return }
+        guard scroller.isEnabled else {
+            return
+        }
         scroller.alphaValue = 1
         fadeScroller()
     }
@@ -530,7 +649,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         scrollerFadeGeneration += 1
         let generation = scrollerFadeGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-            guard let self, generation == scrollerFadeGeneration, session.state.follow else { return }
+            guard let self, generation == scrollerFadeGeneration, session.state.follow else {
+                return
+            }
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.3
                 self.scroller.animator().alphaValue = 0
@@ -542,14 +663,19 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         let state = session.state
         let rows = max(1, state.rows - 1)
         switch sender.hitPart {
-        case .decrementPage: session.scroll(by: -rows)
-        case .incrementPage: session.scroll(by: rows)
-        case .decrementLine: session.scroll(by: -1)
-        case .incrementLine: session.scroll(by: 1)
+        case .decrementPage:
+            session.scroll(by: -rows)
+        case .incrementPage:
+            session.scroll(by: rows)
+        case .decrementLine:
+            session.scroll(by: -1)
+        case .incrementLine:
+            session.scroll(by: 1)
         case .knob, .knobSlot:
             let total = state.endLine - state.firstLine - Int64(state.rows)
             session.scroll(toTop: state.firstLine + Int64((sender.doubleValue * Double(max(0, total))).rounded()))
-        default: break
+        default:
+            break
         }
         scheduleScrollerUpdate()
     }
@@ -577,7 +703,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     /// paragraph is drawn right to left, as `TerminalView` decides.
     var swapsHorizontalArrowKeys: Bool {
         let state = session.state
-        guard state.bidiArrowKeySwap, let cursor = state.cursor else { return false }
+        guard state.bidiArrowKeySwap, let cursor = state.cursor else {
+            return false
+        }
         return baseDirection(row: Int(Int64(cursor.line) - state.displayTop)) == .rightToLeft
     }
 
@@ -587,14 +715,18 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     override func keyDown(with event: NSEvent) {
         guard remoteInputEnabled else {
-            if event.modifierFlags.contains(.command) { super.keyDown(with: event) }
+            if event.modifierFlags.contains(.command) {
+                super.keyDown(with: event)
+            }
             return
         }
         keyboardRouter.keyDown(event)
     }
 
     override func keyUp(with event: NSEvent) {
-        if remoteInputEnabled { keyboardRouter.keyUp(event) }
+        if remoteInputEnabled {
+            keyboardRouter.keyUp(event)
+        }
         super.keyUp(with: event)
     }
 
@@ -608,19 +740,25 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     override func doCommand(by selector: Selector) {
-        guard remoteInputEnabled else { return }
+        guard remoteInputEnabled else {
+            return
+        }
         keyboardRouter.doCommand(selector)
     }
 
     /// The controller hides the pointer while the user types, when the
     /// profile asks for it.
     func keyboardRouterKeyDown(_ event: NSEvent) {
-        guard remoteInputEnabled else { return }
+        guard remoteInputEnabled else {
+            return
+        }
         clearSelection()
     }
 
     func keyboardRouter(send event: TerminalKeyEvent, bytes: [UInt8]) {
-        guard remoteInputEnabled else { return }
+        guard remoteInputEnabled else {
+            return
+        }
         // Releases and modifier keys keep the selection (as in a local
         // pane) and the scroll position.
         if event.eventType != 3 && !routesModifierKey {
@@ -630,12 +768,19 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
             session.send(text: text)
         } else if session.state.helperCapabilities.contains(.keyBytes), bytes.count <= KeyMessage.bytesLimit {
             let fields = event.hostKey
-            session.send(key: KeyMessage(key: fields.key, code: fields.code, modifiers: event.modifiers,
-                                         eventType: event.eventType, text: event.text,
-                                         shiftedKey: event.shiftedKey, baseLayoutKey: event.baseLayoutKey,
-                                         composing: event.composing,
-                                         backspaceSendsControlH: event.backspaceSendsControlH,
-                                         bytes: bytes, modes: routerInputModes))
+            session.send(key: KeyMessage(
+                key: fields.key,
+                code: fields.code,
+                modifiers: event.modifiers,
+                eventType: event.eventType,
+                text: event.text,
+                shiftedKey: event.shiftedKey,
+                baseLayoutKey: event.baseLayoutKey,
+                composing: event.composing,
+                backspaceSendsControlH: event.backspaceSendsControlH,
+                bytes: bytes,
+                modes: routerInputModes
+            ))
         } else {
             // A helper from an older build ignores the options of a key
             // (Backspace would send DEL): send the bytes themselves.
@@ -645,7 +790,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     func keyboardRouter(send bytes: [UInt8]) {
-        guard remoteInputEnabled else { return }
+        guard remoteInputEnabled else {
+            return
+        }
         followAfterInput()
         session.send(bytes: bytes)
         resetCaretBlink()
@@ -653,7 +800,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     /// The helper encodes typed text with the terminal's modes of now.
     func keyboardRouter(sendText text: String) {
-        guard remoteInputEnabled else { return }
+        guard remoteInputEnabled else {
+            return
+        }
         followAfterInput()
         session.send(text: text)
         resetCaretBlink()
@@ -662,7 +811,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     /// As `TerminalView.pageUp()`: the alternate screen gets the key, the
     /// normal screen scrolls one page.
     func keyboardRouterScrollPage(up: Bool) {
-        guard remoteInputEnabled else { return }
+        guard remoteInputEnabled else {
+            return
+        }
         let state = session.state
         if state.buffer == .alternate {
             keyboardRouter(send: up ? EscapeSequences.cmdPageUp : EscapeSequences.cmdPageDown)
@@ -674,13 +825,17 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     private func followAfterInput() {
         clearSelection()
-        if !session.state.follow { session.followLive() }
+        if !session.state.follow {
+            session.followLive()
+        }
     }
 
     // MARK: NSTextInputClient
 
     func insertText(_ string: Any, replacementRange: NSRange) {
-        guard remoteInputEnabled else { return }
+        guard remoteInputEnabled else {
+            return
+        }
         let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
         markedText = nil
         guard !text.isEmpty else {
@@ -692,7 +847,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        guard remoteInputEnabled else { return }
+        guard remoteInputEnabled else {
+            return
+        }
         if let attributed = string as? NSAttributedString {
             markedText = attributed.length == 0 ? nil : attributed
         } else if let plain = string as? String {
@@ -708,26 +865,38 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         keyboardRouter.markedTextChanged(composing: false)
     }
 
-    func selectedRange() -> NSRange { NSRange(location: NSNotFound, length: 0) }
-
-    func markedRange() -> NSRange {
-        markedText.map { NSRange(location: 0, length: $0.length) } ?? NSRange(location: NSNotFound, length: 0)
+    func selectedRange() -> NSRange {
+        NSRange(location: NSNotFound, length: 0)
     }
 
-    func hasMarkedText() -> Bool { markedText != nil }
+    func markedRange() -> NSRange {
+        markedText.map {
+            NSRange(location: 0, length: $0.length)
+        } ?? NSRange(location: NSNotFound, length: 0)
+    }
+
+    func hasMarkedText() -> Bool {
+        markedText != nil
+    }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
         markedText
     }
 
-    func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
+    func validAttributesForMarkedText() -> [NSAttributedString.Key] {
+        []
+    }
 
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
-        guard let window else { return .zero }
+        guard let window else {
+            return .zero
+        }
         return window.convertToScreen(convert(caretFrame, to: nil))
     }
 
-    func characterIndex(for point: NSPoint) -> Int { 0 }
+    func characterIndex(for point: NSPoint) -> Int {
+        0
+    }
 
     // MARK: Mouse
 
@@ -751,16 +920,30 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     private func sendMouse(_ action: TerminalMouseAction, _ button: TerminalMouseButton, _ event: NSEvent) {
-        guard remoteInputEnabled else { return }
+        guard remoteInputEnabled else {
+            return
+        }
         let cell = mouseCell(event)
         let flags = event.modifierFlags
         var modifiers: UInt8 = 0
-        if flags.contains(.shift) { modifiers |= 1 }
-        if flags.contains(.option) { modifiers |= 2 }
-        if flags.contains(.control) { modifiers |= 4 }
-        session.send(mouse: MouseMessage(action: UInt8(action.rawValue), button: UInt8(button.rawValue),
-                                         modifiers: modifiers, column: cell.column, row: cell.row,
-                                         pixelX: cell.pixelX, pixelY: cell.pixelY))
+        if flags.contains(.shift) {
+            modifiers |= 1
+        }
+        if flags.contains(.option) {
+            modifiers |= 2
+        }
+        if flags.contains(.control) {
+            modifiers |= 4
+        }
+        session.send(mouse: MouseMessage(
+            action: UInt8(action.rawValue),
+            button: UInt8(button.rawValue),
+            modifiers: modifiers,
+            column: cell.column,
+            row: cell.row,
+            pixelX: cell.pixelX,
+            pixelY: cell.pixelY
+        ))
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -797,15 +980,23 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     override func mouseDragged(with event: NSEvent) {
-        if pressedLink != nil { return }
+        if pressedLink != nil {
+            return
+        }
         if pressedButton == .left {
             sendMouse(.move, .left, event)
             return
         }
-        guard selectionAnchor != nil else { return }
+        guard selectionAnchor != nil else {
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
-        if point.y > bounds.height { session.scroll(by: -1) }
-        if point.y < 0 { session.scroll(by: 1) }
+        if point.y > bounds.height {
+            session.scroll(by: -1)
+        }
+        if point.y < 0 {
+            session.scroll(by: 1)
+        }
         let cell = mouseCell(event)
         selectionHead = Position(col: cell.column, row: Int(session.state.displayTop) + cell.row)
         updateSelection()
@@ -896,9 +1087,12 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     // MARK: Context menu
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard event.type == .rightMouseDown
-                || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
-              !reportsMouse(event) else { return nil }
+        guard
+            event.type == .rightMouseDown
+            || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
+            !reportsMouse(event) else {
+            return nil
+        }
         // Auto Fill and later typing use the active text input client,
         // and not every menu dispatch goes through rightMouseDown.
         window?.makeFirstResponder(self)
@@ -909,18 +1103,30 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         TerminalContextMenu.make(target: self, hasSelection: selectionActive, pasteboard: pasteboard)
     }
 
-    @objc func splitRight(_ sender: Any?) { split(in: .right) }
-    @objc func splitLeft(_ sender: Any?) { split(in: .left) }
-    @objc func splitDown(_ sender: Any?) { split(in: .down) }
-    @objc func splitUp(_ sender: Any?) { split(in: .up) }
+    @objc func splitRight(_ sender: Any?) {
+        split(in: .right)
+    }
+    @objc func splitLeft(_ sender: Any?) {
+        split(in: .left)
+    }
+    @objc func splitDown(_ sender: Any?) {
+        split(in: .down)
+    }
+    @objc func splitUp(_ sender: Any?) {
+        split(in: .up)
+    }
 
     private func split(in direction: TerminalPaneDirection) {
-        guard let controller = sessionController else { return }
+        guard let controller = sessionController else {
+            return
+        }
         controller.workspace?.split(controller, direction: direction)
     }
 
     @objc func resetTerminal(_ sender: Any?) {
-        guard remoteInputEnabled else { return }
+        guard remoteInputEnabled else {
+            return
+        }
         session.reset(.hard)
     }
 
@@ -929,9 +1135,13 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     /// The target of the OSC 8 hyperlink at a cell, when the profile allows
     /// these links.
     func hyperlink(line: Int64, column: Int) -> String? {
-        guard allowsOsc8Links else { return nil }
+        guard allowsOsc8Links else {
+            return nil
+        }
         let payload: String? = session.withState { state, cache in
-            guard let cells = cache[line]?.cells, column >= 0, column < cells.count else { return nil }
+            guard let cells = cache[line]?.cells, column >= 0, column < cells.count else {
+                return nil
+            }
             let id = cells[column].style.link
             return id == 0 ? nil : state.links[id]
         }
@@ -940,7 +1150,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     /// The URI of an OSC 8 payload, "params;URI" as SwiftTerm keeps it.
     static func hyperlinkTarget(payload: String) -> String? {
-        guard let separator = payload.firstIndex(of: ";") else { return nil }
+        guard let separator = payload.firstIndex(of: ";") else {
+            return nil
+        }
         let target = String(payload[payload.index(after: separator)...])
         return target.isEmpty ? nil : target
     }
@@ -949,17 +1161,23 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     /// a scheme, unsafe local files are blocked, and other apps' schemes ask
     /// first.
     private func openHyperlink(_ link: String) {
-        guard allowsOsc8Links else { return }
+        guard allowsOsc8Links else {
+            return
+        }
         TerminalLinkRequest(link: link, params: [:], isExplicit: true).openDefault()
     }
 
     override func scrollWheel(with event: NSEvent) {
         let state = session.state
         var delta = event.scrollingDeltaY
-        if event.hasPreciseScrollingDeltas { delta /= max(1, cellSize.height) }
+        if event.hasPreciseScrollingDeltas {
+            delta /= max(1, cellSize.height)
+        }
         wheelRemainder += delta
         let lines = Int(wheelRemainder)
-        guard lines != 0 else { return }
+        guard lines != 0 else {
+            return
+        }
         wheelRemainder -= CGFloat(lines)
         if reportsMouse(event) {
             for _ in 0 ..< min(abs(lines), 10) {
@@ -980,11 +1198,15 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     // MARK: Selection and clipboard
 
-    var selectionActive: Bool { selectionAnchor != nil && selectionHead != nil }
+    var selectionActive: Bool {
+        selectionAnchor != nil && selectionHead != nil
+    }
 
     private func clearSelection() {
         lastMatch = nil
-        guard selectionAnchor != nil else { return }
+        guard selectionAnchor != nil else {
+            return
+        }
         selectionAnchor = nil
         selectionHead = nil
         updateSelection()
@@ -995,7 +1217,8 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
             // The view keeps inclusive positions (copy reads them); the
             // renderer, like SelectionService, stops before `end`.
             source.selection = TerminalExternalSelection(
-                start: range.start, end: Position(col: range.end.col + 1, row: range.end.row))
+                start: range.start, end: Position(col: range.end.col + 1, row: range.end.row)
+            )
         } else {
             source.selection = nil
         }
@@ -1003,23 +1226,36 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     private func selectWord(line: Int, column: Int) {
-        let cells: [WireCell]? = session.withState { _, cache in cache[Int64(line)]?.cells }
-        guard let cells, column < cells.count else { return }
+        let cells: [WireCell]? = session.withState { _, cache in
+            cache[Int64(line)]?.cells
+        }
+        guard let cells, column < cells.count else {
+            return
+        }
         func isWord(_ cell: WireCell) -> Bool {
             switch cell.content {
             case .ascii(let byte):
                 let scalar = UnicodeScalar(byte)
                 return CharacterSet.alphanumerics.contains(scalar) || "_-./~".unicodeScalars.contains(scalar)
-            case .grapheme: return true
-            case .spacer: return true
-            case .null: return false
+            case .grapheme:
+                return true
+            case .spacer:
+                return true
+            case .null:
+                return false
             }
         }
-        guard isWord(cells[column]) else { return }
+        guard isWord(cells[column]) else {
+            return
+        }
         var start = column
         var end = column
-        while start > 0 && isWord(cells[start - 1]) { start -= 1 }
-        while end + 1 < cells.count && isWord(cells[end + 1]) { end += 1 }
+        while start > 0 && isWord(cells[start - 1]) {
+            start -= 1
+        }
+        while end + 1 < cells.count && isWord(cells[end + 1]) {
+            end += 1
+        }
         selectionAnchor = Position(col: start, row: line)
         selectionHead = Position(col: end, row: line)
         updateSelection()
@@ -1027,13 +1263,17 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     /// The selected range, start first.
     private var orderedSelection: (start: Position, end: Position)? {
-        guard let anchor = selectionAnchor, let head = selectionHead else { return nil }
+        guard let anchor = selectionAnchor, let head = selectionHead else {
+            return nil
+        }
         return Position.compare(anchor, head) == .before ? (anchor, head) : (head, anchor)
     }
 
     @objc func copy(_ sender: Any?) {
         selectedText { text in
-            if let text { Self.setPasteboard(text) }
+            if let text {
+                Self.setPasteboard(text)
+            }
         }
     }
 
@@ -1046,12 +1286,17 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         }
         let start = (line: Int64(range.start.row), column: range.start.col)
         let end = (line: Int64(range.end.row), column: range.end.col)
-        if let text = session.withState({ _, cache in cache.text(from: start, to: end) }) {
+        if
+            let text = session.withState({ _, cache in
+                cache.text(from: start, to: end)
+            }) {
             completion(text)
             return
         }
         session.text(from: start, to: end) { text in
-            DispatchQueue.main.async { completion(text) }
+            DispatchQueue.main.async {
+                completion(text)
+            }
         }
     }
 
@@ -1060,7 +1305,9 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         let state = session.state
         let last = max(state.firstLine, state.endLine - 1)
         session.text(from: (state.firstLine, 0), to: (last, max(0, state.columns - 1))) { text in
-            DispatchQueue.main.async { completion((text ?? "") + "\n") }
+            DispatchQueue.main.async {
+                completion((text ?? "") + "\n")
+            }
         }
     }
 
@@ -1070,25 +1317,37 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     @objc func paste(_ sender: Any?) {
-        guard remoteInputEnabled else { return }
-        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
+        guard remoteInputEnabled else {
+            return
+        }
+        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else {
+            return
+        }
         keyboardRouter.textWillBePasted()
         followAfterInput()
         session.paste(text) { [weak self] result in
-            guard result.status == .needsApproval else { return }
-            DispatchQueue.main.async { self?.confirmUnsafePaste(token: result.token) }
+            guard result.status == .needsApproval else {
+                return
+            }
+            DispatchQueue.main.async {
+                self?.confirmUnsafePaste(token: result.token)
+            }
         }
     }
 
     private func confirmUnsafePaste(token: UInt64) {
-        guard remoteInputEnabled else { return }
+        guard remoteInputEnabled else {
+            return
+        }
         let alert = NSAlert()
         alert.messageText = "Paste text that contains control characters?"
         alert.informativeText = "The text has characters that a program can treat as commands."
         alert.addButton(withTitle: "Paste")
         alert.addButton(withTitle: "Cancel")
         let approve: (NSApplication.ModalResponse) -> Void = { [weak self] response in
-            guard let self, remoteInputEnabled else { return }
+            guard let self, remoteInputEnabled else {
+                return
+            }
             session.approvePaste(token: token, approved: response == .alertFirstButtonReturn)
         }
         if let window {
@@ -1107,12 +1366,16 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
-        case #selector(copy(_:)): return selectionActive
-        case #selector(paste(_:)): return remoteInputEnabled && NSPasteboard.general.string(forType: .string) != nil
+        case #selector(copy(_:)):
+            return selectionActive
+        case #selector(paste(_:)):
+            return remoteInputEnabled && NSPasteboard.general.string(forType: .string) != nil
         case #selector(splitRight(_:)), #selector(splitLeft(_:)), #selector(splitDown(_:)), #selector(splitUp(_:)):
             return sessionController?.workspace != nil
-        case #selector(resetTerminal(_:)): return remoteInputEnabled
-        default: return true
+        case #selector(resetTerminal(_:)):
+            return remoteInputEnabled
+        default:
+            return true
         }
     }
 }
@@ -1125,5 +1388,7 @@ extension RemoteTerminalView: TerminalSurface {
 }
 
 private final class RemoteInputShade: NSView {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
 }

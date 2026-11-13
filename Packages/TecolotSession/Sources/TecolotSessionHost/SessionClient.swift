@@ -40,7 +40,11 @@ final class SessionClient: @unchecked Sendable {
     static let byteBudget = 4 * 1024 * 1024
     var credits = SessionClient.maximumCredits
     var inFlight: [(sequence: UInt64, bytes: Int)] = []
-    var bytesInFlight: Int { inFlight.reduce(0) { $0 + $1.bytes } }
+    var bytesInFlight: Int {
+        inFlight.reduce(0) {
+            $0 + $1.bytes
+        }
+    }
     var nextFrameAt: DispatchTime = .init(uptimeNanoseconds: 0)
     var boostUntil: DispatchTime = .init(uptimeNanoseconds: 0)
     var sequence: UInt64 = 0
@@ -54,6 +58,11 @@ final class SessionClient: @unchecked Sendable {
     var seenDirectory: UInt64 = 0
     var seenColors: UInt64 = 0
     var seenProgress: UInt64 = 0
+    var seenProgramStatus: UInt64 = .max
+    var seenActivityFeed: UInt64 = .max
+    var lastStatusKey: ProgramStatusDeliveryKey?
+    var nextActivityAt: DispatchTime = .init(uptimeNanoseconds: 0)
+    var capabilities: SessionCapabilities = []
     var seenReverse: Bool?
     var lastCursor: WireCursor?
     var lastModes: WireModes?
@@ -96,7 +105,33 @@ final class SessionClient: @unchecked Sendable {
         let low = viewTop - Int64(retainMargin)
         let high = viewTop + Int64(rows + retainMargin)
         if rowVersions.count > rows + 2 * retainMargin {
-            rowVersions = rowVersions.filter { $0.key >= low && $0.key < high }
+            rowVersions = rowVersions.filter {
+                $0.key >= low && $0.key < high
+            }
         }
+    }
+}
+
+/// Progress percentages share a throttle; state, identity and message changes bypass it.
+struct ProgramStatusDeliveryKey: Equatable {
+    struct Record: Equatable {
+        let id: String
+        let state: ProgramStatusState
+        let kind: String?
+        let app: String?
+        let title: String?
+        let message: String?
+    }
+    let records: [Record]
+    let uses7501: Bool
+    let reset: UInt64
+    let progressState: UInt8?
+    init(_ status: ProgramStatusMessage) {
+        records = status.records.map {
+            Record(id: $0.id, state: $0.state, kind: $0.kind, app: $0.app, title: $0.title, message: $0.message)
+        }
+        uses7501 = status.uses7501
+        reset = status.resetSerial
+        progressState = status.progress?.state
     }
 }

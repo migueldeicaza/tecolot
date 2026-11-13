@@ -32,13 +32,19 @@ struct ProfilesSettingsView: View {
     @FocusState private var renameFocus: TerminalProfile.ID?
     
     private var selectedProfile: TerminalProfile? {
-        activeProfileID.flatMap { profiles.profile(withID: $0) }
+        activeProfileID.flatMap {
+            profiles.profile(withID: $0)
+        }
     }
 
     private var profileListSelection: Binding<TerminalProfile.ID> {
         Binding(
-            get: { activeProfileID ?? profiles.defaultProfileID },
-            set: { activeProfileID = $0 }
+            get: {
+                activeProfileID ?? profiles.defaultProfileID
+            },
+            set: {
+                activeProfileID = $0
+            }
         )
     }
 
@@ -63,7 +69,9 @@ struct ProfilesSettingsView: View {
             repairActiveProfileSelection()
         }
         .onChange(of: renameFocus) { oldFocus, newFocus in
-            guard oldFocus != nil, newFocus == nil, let renameTarget else { return }
+            guard oldFocus != nil, newFocus == nil, let renameTarget else {
+                return
+            }
             // Text field lost focus, check whether a commit of the profile name
             // is needed.
             guard renameText != renameTarget.profile.name else {
@@ -76,7 +84,11 @@ struct ProfilesSettingsView: View {
             switch result {
             case .success(let url):
                 let gotAccess = url.startAccessingSecurityScopedResource()
-                defer { if gotAccess { url.stopAccessingSecurityScopedResource() } }
+                defer {
+                    if gotAccess {
+                        url.stopAccessingSecurityScopedResource()
+                    }
+                }
                 do {
                     activeProfileID = try profiles.importProfile(from: url).id
                 } catch {
@@ -86,10 +98,12 @@ struct ProfilesSettingsView: View {
                 report(error)
             }
         }
-        .fileExporter(isPresented: $showExporter,
-                      document: exportDocument,
-                      contentType: .json,
-                      defaultFilename: exportDocument?.filename ?? "Profile") { result in
+        .fileExporter(
+            isPresented: $showExporter,
+            document: exportDocument,
+            contentType: .json,
+            defaultFilename: exportDocument?.filename ?? "Profile"
+        ) { result in
             if case .failure(let error) = result {
                 report(error)
             }
@@ -191,9 +205,10 @@ struct ProfilesSettingsView: View {
     
     @ViewBuilder
     private func nameView(for profile: TerminalProfile) -> some View {
-        if let renameTarget,
-           renameTarget.mode == .inline,
-           renameTarget.profile.id == profile.id {
+        if
+            let renameTarget,
+            renameTarget.mode == .inline,
+            renameTarget.profile.id == profile.id {
             TextField("Name", text: $renameText)
                 .fixedSize(horizontal: true, vertical: false)
                 .focused($renameFocus, equals: profile.id)
@@ -254,7 +269,9 @@ struct ProfilesSettingsView: View {
     }
 
     private func deleteSelectedProfile() {
-        guard let activeProfileID else { return }
+        guard let activeProfileID else {
+            return
+        }
         do {
             try profiles.delete(activeProfileID)
             self.activeProfileID = profiles.defaultProfileID
@@ -264,7 +281,9 @@ struct ProfilesSettingsView: View {
     }
 
     private func duplicateSelectedProfile() {
-        guard let activeProfileID else { return }
+        guard let activeProfileID else {
+            return
+        }
         do {
             self.activeProfileID = try profiles.duplicate(activeProfileID).id
         } catch {
@@ -273,13 +292,17 @@ struct ProfilesSettingsView: View {
     }
 
     private func presentRename() {
-        guard let profile = selectedProfile else { return }
+        guard let profile = selectedProfile else {
+            return
+        }
         renameTarget = RenameTarget(profile: profile, mode: .alert)
         renameText = profile.name
     }
 
     private func renameProfile() {
-        guard let renameTarget else { return }
+        guard let renameTarget else {
+            return
+        }
         do {
             try profiles.rename(
                 renameTarget.profile.id,
@@ -297,7 +320,9 @@ struct ProfilesSettingsView: View {
     }
     
     private func setSelectedProfileAsDefault() {
-        guard let activeProfileID else { return }
+        guard let activeProfileID else {
+            return
+        }
         do {
             try profiles.setDefault(activeProfileID)
         } catch {
@@ -306,14 +331,17 @@ struct ProfilesSettingsView: View {
     }
 
     private func exportSelectedProfile() {
-        guard let profile = selectedProfile else { return }
+        guard let profile = selectedProfile else {
+            return
+        }
         exportDocument = ProfileExportDocument(profile: profile)
         showExporter = true
     }
 
     private func repairActiveProfileSelection() {
-        if let activeProfileID,
-           profiles.profile(withID: activeProfileID) != nil {
+        if
+            let activeProfileID,
+            profiles.profile(withID: activeProfileID) != nil {
             return
         }
         activeProfileID = profiles.profiles.isEmpty ? nil : profiles.defaultProfileID
@@ -331,8 +359,14 @@ struct ProfilesSettingsView: View {
 
     private var errorPresentation: Binding<Bool> {
         Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
+            get: {
+                errorMessage != nil
+            },
+            set: {
+                if !$0 {
+                    errorMessage = nil
+                }
+            }
         )
     }
 
@@ -342,8 +376,14 @@ struct ProfilesSettingsView: View {
 
     private var renamePresentation: Binding<Bool> {
         Binding(
-            get: { renameTarget?.mode == .alert },
-            set: { if !$0 { renameTarget = nil } }
+            get: {
+                renameTarget?.mode == .alert
+            },
+            set: {
+                if !$0 {
+                    renameTarget = nil
+                }
+            }
         )
     }
 }
@@ -357,22 +397,33 @@ enum ProfileSettingsSection {
 
     init?(destination: SettingsDestination) {
         switch destination {
-        case .text: self = .text
-        case .window: self = .window
-        case .shell: self = .shell
-        case .keyboard: self = .keyboard
-        case .advanced: self = .advanced
-        case .general, .profiles, .data: return nil
+        case .text:
+            self = .text
+        case .window:
+            self = .window
+        case .shell:
+            self = .shell
+        case .keyboard:
+            self = .keyboard
+        case .advanced:
+            self = .advanced
+        case .general, .interface, .panes, .notifications, .profiles, .data:
+            return nil
         }
     }
 
     var title: String {
         switch self {
-        case .text: return "Appearance"
-        case .window: return "Window"
-        case .shell: return "Shell"
-        case .keyboard: return "Keyboard"
-        case .advanced: return "Advanced"
+        case .text:
+            return "Appearance"
+        case .window:
+            return "Window"
+        case .shell:
+            return "Shell"
+        case .keyboard:
+            return "Keyboard"
+        case .advanced:
+            return "Advanced"
         }
     }
 }
@@ -390,7 +441,9 @@ struct ProfileSettingsPage: View {
 
     /// Adapter for child views that have no rollback path of their own.
     private var updateIgnoringResult: ((inout TerminalProfile) -> Void) -> Void {
-        { mutate in _ = update(mutate) }
+        { mutate in
+            _ = update(mutate)
+        }
     }
 
     var body: some View {
@@ -449,24 +502,44 @@ struct ProfileSettingsPage: View {
                 TextField("Columns:", value: binding(\.columns), format: .number)
                 TextField("Rows:", value: binding(\.rows), format: .number)
                 Toggle("Limit scrollback", isOn: Binding(
-                    get: { profile.scrollbackLines != nil },
-                    set: { limited in update { $0.scrollbackLines = limited ? 10_000 : nil } }
+                    get: {
+                        profile.scrollbackLines != nil
+                    },
+                    set: { limited in
+                        update {
+                            $0.scrollbackLines = limited ? 10_000 : nil
+                        }
+                    }
                 ))
                 if profile.scrollbackLines != nil {
                     TextField("Scrollback lines:", value: Binding(
-                        get: { profile.scrollbackLines ?? 10_000 },
-                        set: { newValue in update { $0.scrollbackLines = max(0, newValue) } }
+                        get: {
+                            profile.scrollbackLines ?? 10_000
+                        },
+                        set: { newValue in
+                            update {
+                                $0.scrollbackLines = max(0, newValue)
+                            }
+                        }
                     ), format: .number)
                 }
             }
             Section("Title") {
                 TextField("Custom title:", text: Binding(
-                    get: { profile.titleOverride ?? "" },
-                    set: { newValue in update { $0.titleOverride = newValue.isEmpty ? nil : newValue } }
+                    get: {
+                        profile.titleOverride ?? ""
+                    },
+                    set: { newValue in
+                        update {
+                            $0.titleOverride = newValue.isEmpty ? nil : newValue
+                        }
+                    }
                 ), prompt: Text("Default"))
                 ForEach(TerminalTitleComponent.allCases, id: \.self) { component in
                     Toggle(titleComponentLabel(component), isOn: Binding(
-                        get: { profile.titleComponents.contains(component) },
+                        get: {
+                            profile.titleComponents.contains(component)
+                        },
                         set: { isEnabled in
                             update {
                                 if isEnabled {
@@ -492,12 +565,24 @@ struct ProfileSettingsPage: View {
                 }
                 if case .command(let commandLine, let runInShell) = profile.shell {
                     TextField("Command:", text: Binding(
-                        get: { commandLine },
-                        set: { newValue in update { $0.shell = .command(newValue, runInShell: runInShell) } }
+                        get: {
+                            commandLine
+                        },
+                        set: { newValue in
+                            update {
+                                $0.shell = .command(newValue, runInShell: runInShell)
+                            }
+                        }
                     ))
                     Toggle("Run inside shell", isOn: Binding(
-                        get: { runInShell },
-                        set: { newValue in update { $0.shell = .command(commandLine, runInShell: newValue) } }
+                        get: {
+                            runInShell
+                        },
+                        set: { newValue in
+                            update {
+                                $0.shell = .command(commandLine, runInShell: newValue)
+                            }
+                        }
                     ))
                 }
                 Picker("When the shell exits:", selection: binding(\.whenShellExits)) {
@@ -519,7 +604,7 @@ struct ProfileSettingsPage: View {
                 }
             } footer: {
                 Text("A persistent session keeps the shell running when you close its pane or quit Tecolot. " +
-                     "Use File > Attach to Session to show it again. Applies to new tabs and windows.")
+                    "Use File > Attach to Session to show it again. Applies to new tabs and windows.")
             }
         }
     }
@@ -574,14 +659,19 @@ struct ProfileSettingsPage: View {
                 ForEach(profile.environmentVariables) { variable in
                     EnvironmentVariableRow(variable: variable) { replacement in
                         update { profile in
-                            guard let index = profile.environmentVariables.firstIndex(where: { $0.id == replacement.id }) else {
+                            guard
+                                let index = profile.environmentVariables.firstIndex(where: {
+                                    $0.id == replacement.id
+                                }) else {
                                 return
                             }
                             profile.environmentVariables[index] = replacement
                         }
                     } remove: {
                         update { profile in
-                            profile.environmentVariables.removeAll { $0.id == variable.id }
+                            profile.environmentVariables.removeAll {
+                                $0.id == variable.id
+                            }
                         }
                     }
                 }
@@ -605,7 +695,9 @@ struct ProfileSettingsPage: View {
     private var shellKindBinding: Binding<ShellKind> {
         Binding(
             get: {
-                if case .command = profile.shell { return .command }
+                if case .command = profile.shell {
+                    return .command
+                }
                 return .loginShell
             },
             set: { kind in
@@ -623,18 +715,29 @@ struct ProfileSettingsPage: View {
 
     private func binding<T>(_ keyPath: WritableKeyPath<TerminalProfile, T>) -> Binding<T> {
         Binding(
-            get: { profile[keyPath: keyPath] },
-            set: { newValue in update { $0[keyPath: keyPath] = newValue } }
+            get: {
+                profile[keyPath: keyPath]
+            },
+            set: { newValue in
+                update {
+                    $0[keyPath: keyPath] = newValue
+                }
+            }
         )
     }
 
     private func titleComponentLabel(_ component: TerminalTitleComponent) -> String {
         switch component {
-        case .activeTitle: return "Active title"
-        case .workingDirectory: return "Working directory"
-        case .fullPath: return "Full path"
-        case .profileName: return "Profile name"
-        case .dimensions: return "Dimensions"
+        case .activeTitle:
+            return "Active title"
+        case .workingDirectory:
+            return "Working directory"
+        case .fullPath:
+            return "Full path"
+        case .profileName:
+            return "Profile name"
+        case .dimensions:
+            return "Dimensions"
         }
     }
 }
@@ -683,7 +786,9 @@ private struct TerminalNameComboBox: NSViewRepresentable {
         }
 
         func controlTextDidChange(_ notification: Notification) {
-            guard let comboBox = notification.object as? NSComboBox else { return }
+            guard let comboBox = notification.object as? NSComboBox else {
+                return
+            }
             text.wrappedValue = comboBox.stringValue
         }
 
@@ -691,7 +796,9 @@ private struct TerminalNameComboBox: NSViewRepresentable {
             guard
                 let comboBox = notification.object as? NSComboBox,
                 comboBox.stringValue.isEmpty
-            else { return }
+            else {
+                return
+            }
             comboBox.stringValue = fallbackValue
             text.wrappedValue = fallbackValue
         }
@@ -700,7 +807,9 @@ private struct TerminalNameComboBox: NSViewRepresentable {
             guard
                 let comboBox = notification.object as? NSComboBox,
                 let selectedValue = comboBox.objectValueOfSelectedItem as? String
-            else { return }
+            else {
+                return
+            }
             comboBox.stringValue = selectedValue
             text.wrappedValue = selectedValue
         }
@@ -715,7 +824,9 @@ private struct EnvironmentVariableRow: View {
     var body: some View {
         HStack {
             TextField("Name", text: Binding(
-                get: { variable.name },
+                get: {
+                    variable.name
+                },
                 set: { newName in
                     var replacement = variable
                     replacement.name = newName
@@ -726,7 +837,9 @@ private struct EnvironmentVariableRow: View {
 
             if variable.value != nil {
                 TextField("Value", text: Binding(
-                    get: { variable.value ?? "" },
+                    get: {
+                        variable.value ?? ""
+                    },
                     set: { newValue in
                         var replacement = variable
                         replacement.value = newValue
@@ -736,7 +849,9 @@ private struct EnvironmentVariableRow: View {
             }
 
             Toggle("Unset", isOn: Binding(
-                get: { variable.value == nil },
+                get: {
+                    variable.value == nil
+                },
                 set: { isUnset in
                     var replacement = variable
                     replacement.value = isUnset ? nil : ""
@@ -762,8 +877,12 @@ struct TerminalKeyBindingsEditor: View {
         ForEach(profile.keyBindings) { keyBinding in
             TerminalKeyBindingRow(
                 keyBinding: keyBinding,
-                update: { replace(keyBinding.id, with: $0) },
-                remove: { remove(keyBinding.id) }
+                update: {
+                    replace(keyBinding.id, with: $0)
+                },
+                remove: {
+                    remove(keyBinding.id)
+                }
             )
         }
 
@@ -781,13 +900,22 @@ struct TerminalKeyBindingsEditor: View {
 
     private func replace(_ id: UUID, with keyBinding: TerminalKeyBinding) {
         update { profile in
-            guard let index = profile.keyBindings.firstIndex(where: { $0.id == id }) else { return }
+            guard
+                let index = profile.keyBindings.firstIndex(where: {
+                    $0.id == id
+                }) else {
+                return
+            }
             profile.keyBindings[index] = keyBinding
         }
     }
 
     private func remove(_ id: UUID) {
-        update { $0.keyBindings.removeAll { $0.id == id } }
+        update {
+            $0.keyBindings.removeAll {
+                $0.id == id
+            }
+        }
     }
 }
 
@@ -829,10 +957,18 @@ private struct TerminalKeyBindingRow: View {
 
     private var modifierLabel: String {
         var labels: [String] = []
-        if keyBinding.modifiers.contains(.control) { labels.append("⌃") }
-        if keyBinding.modifiers.contains(.option) { labels.append("⌥") }
-        if keyBinding.modifiers.contains(.shift) { labels.append("⇧") }
-        if keyBinding.modifiers.contains(.command) { labels.append("⌘") }
+        if keyBinding.modifiers.contains(.control) {
+            labels.append("⌃")
+        }
+        if keyBinding.modifiers.contains(.option) {
+            labels.append("⌥")
+        }
+        if keyBinding.modifiers.contains(.shift) {
+            labels.append("⇧")
+        }
+        if keyBinding.modifiers.contains(.command) {
+            labels.append("⌘")
+        }
         return labels.isEmpty ? "None" : labels.joined()
     }
 
@@ -840,7 +976,9 @@ private struct TerminalKeyBindingRow: View {
         _ keyPath: WritableKeyPath<TerminalKeyBinding, Value>
     ) -> Binding<Value> {
         Binding(
-            get: { keyBinding[keyPath: keyPath] },
+            get: {
+                keyBinding[keyPath: keyPath]
+            },
             set: { newValue in
                 var changed = keyBinding
                 changed[keyPath: keyPath] = newValue
@@ -851,7 +989,9 @@ private struct TerminalKeyBindingRow: View {
 
     private func modifierBinding(_ modifier: TerminalKeyModifiers) -> Binding<Bool> {
         Binding(
-            get: { keyBinding.modifiers.contains(modifier) },
+            get: {
+                keyBinding.modifiers.contains(modifier)
+            },
             set: { enabled in
                 var changed = keyBinding
                 if enabled {
@@ -916,16 +1056,28 @@ struct ProfileTextSettingsFields: View {
             configureFontPanel()
         }
         Picker("Cursor:", selection: Binding(
-            get: { profile.cursorStyle },
-            set: { newValue in update { $0.cursorStyle = newValue } }
+            get: {
+                profile.cursorStyle
+            },
+            set: { newValue in
+                update {
+                    $0.cursorStyle = newValue
+                }
+            }
         )) {
             ForEach(CursorStyle.allCases, id: \.tagName) { style in
                 Text(style.displayName).tag(style)
             }
         }
         Toggle("Use bright colors for bold text", isOn: Binding(
-            get: { profile.useBrightColorsForBold },
-            set: { newValue in update { $0.useBrightColorsForBold = newValue } }
+            get: {
+                profile.useBrightColorsForBold
+            },
+            set: { newValue in
+                update {
+                    $0.useBrightColorsForBold = newValue
+                }
+            }
         ))
         LabeledContent("Background opacity:") {
             Slider(
@@ -957,8 +1109,12 @@ struct ProfileTextSettingsFields: View {
 
     private func backgroundOpacityEditingChanged(_ isEditing: Bool) {
         isEditingBackgroundOpacity = isEditing
-        guard !isEditing else { return }
-        update { $0.backgroundOpacity = backgroundOpacityPreview }
+        guard !isEditing else {
+            return
+        }
+        update {
+            $0.backgroundOpacity = backgroundOpacityPreview
+        }
     }
 
     private var fontDescription: String {
@@ -978,7 +1134,9 @@ struct ProfileTextSettingsFields: View {
 
     private func configureFontPanel() {
         fontPanelManager.onSelect = { font in
-            guard font.pointSize.isFinite, font.pointSize > 0 else { return }
+            guard font.pointSize.isFinite, font.pointSize > 0 else {
+                return
+            }
             update {
                 $0.fontFamily = font.fontName
                 $0.fontSize = Double(font.pointSize)
@@ -987,7 +1145,9 @@ struct ProfileTextSettingsFields: View {
     }
 
     private func resetFont() {
-        update { $0.fontFamily = nil }
+        update {
+            $0.fontFamily = nil
+        }
     }
 }
 
@@ -1023,17 +1183,22 @@ final class FontPanelManager: NSObject {
     }
 
     private func resolveFont(fontName: String?, size: CGFloat) -> NSFont {
-        guard let fontName,
-              let font = NSFont(name: fontName, size: size) else {
+        guard
+            let fontName,
+            let font = NSFont(name: fontName, size: size) else {
             return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
         }
         return font
     }
 
     @objc private func changeFont(_ sender: NSFontManager?) {
-        guard let sender else { return }
+        guard let sender else {
+            return
+        }
         let font = sender.convert(currentFont)
-        guard font.isFixedPitch else { return }
+        guard font.isFixedPitch else {
+            return
+        }
         currentFont = font
         onSelect?(font)
     }
@@ -1060,7 +1225,9 @@ extension FontPanelManager: NSWindowDelegate {
 
 /// FileDocument wrapper so fileExporter can save a profile
 struct ProfileExportDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.json] }
+    static var readableContentTypes: [UTType] {
+        [.json]
+    }
 
     var profile: TerminalProfile
 
@@ -1153,7 +1320,7 @@ struct ProfileExportDocument: FileDocument {
         ProfileTextSettings(profile: SettingsPreviewData.profile, update: { _ in })
     }
     .formStyle(.grouped)
-        .frame(width: 560, height: 250)
+    .frame(width: 560, height: 250)
 
 }
 

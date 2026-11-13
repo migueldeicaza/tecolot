@@ -9,20 +9,34 @@ struct TerminalContextMenuTests {
     func clipboardItemsAndDividerFollowAvailableContent(hasSelection: Bool, hasPaste: Bool) {
         let terminal = AppTerminalView(frame: .zero, font: nil, options: .default)
         terminal.feed(text: "selected text")
-        if hasSelection { terminal.selectAll() }
+        if hasSelection {
+            terminal.selectAll()
+        }
         let pasteboard = NSPasteboard.withUniqueName()
         defer { pasteboard.releaseGlobally() }
         pasteboard.setString(hasPaste ? "paste text" : "", forType: .string)
 
         let menu = terminal.makeContextMenu(pasteboard: pasteboard)
         var expected: [String] = []
-        if hasSelection { expected.append("Copy") }
-        if hasPaste { expected.append("Paste") }
-        if hasSelection || hasPaste { expected.append("|") }
+        if hasSelection {
+            expected.append("Copy")
+        }
+        if hasPaste {
+            expected.append("Paste")
+        }
+        if hasSelection || hasPaste {
+            expected.append("|")
+        }
         expected += ["Split Right", "Split Left", "Split Down", "Split Up", "|", "Reset Terminal"]
-        #expect(menu.items.map { $0.isSeparatorItem ? "|" : $0.title } == expected)
+        #expect(menu.items.map {
+            $0.isSeparatorItem ? "|" : $0.title
+        } == expected)
         #expect(menu.allowsContextMenuPlugIns)
-        #expect(menu.items.filter { !$0.isSeparatorItem }.allSatisfy { $0.target === terminal })
+        #expect(menu.items.filter {
+            !$0.isSeparatorItem
+        }.allSatisfy {
+            $0.target === terminal
+        })
     }
 
     @Test(arguments: [9, 1000, 1002, 1003])
@@ -58,15 +72,18 @@ struct TerminalContextMenuTests {
         terminal.feed(text: "\u{1b}[?1000h\u{1b}[?1006h")
         let point = NSPoint(x: 1, y: terminal.bounds.maxY - 1)
         let modifiers: NSEvent.ModifierFlags = onLink ? .command : []
-        terminal.rightMouseDown(with: try mouseEvent(.rightMouseDown, modifiers: modifiers, window: window, point: point))
-        terminal.rightMouseUp(with: try mouseEvent(.rightMouseUp, modifiers: modifiers, window: window, point: point))
+        let down = try mouseEvent(.rightMouseDown, modifiers: modifiers, window: window, point: point)
+        let up = try mouseEvent(.rightMouseUp, modifiers: modifiers, window: window, point: point)
+        #expect(down.locationInWindow == point, "event window: \(down.windowNumber), expected: \(window.windowNumber), location: \(down.locationInWindow), expected: \(point)")
+        terminal.rightMouseDown(with: down)
+        terminal.rightMouseUp(with: up)
 
         let deadline = ContinuousClock.now + .seconds(5)
         let expected = "\u{1b}[<2;1;1M\u{1b}[<2;1;1m"
         while receiver.text != expected && ContinuousClock.now < deadline {
             await Task.yield()
         }
-        #expect(receiver.text == expected)
+        #expect(receiver.text == expected, "Received: \(receiver.text.debugDescription)")
         #expect(receiver.openedLinks.isEmpty)
         #expect(window.firstResponder === terminal)
     }
@@ -76,10 +93,9 @@ struct TerminalContextMenuTests {
         let first = try #require(workspace.focusedController)
         workspace.split(first, orientation: .vertical)
         let second = try #require(workspace.focusedController)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let host = TerminalPaneHostView(workspace: workspace)
         let window = makeWindow(content: host)
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         host.layoutSubtreeIfNeeded()
         let terminal = try #require(first.terminal as? AppTerminalView)
         #expect(window.makeFirstResponder(second.terminal))
@@ -89,7 +105,9 @@ struct TerminalContextMenuTests {
         #expect(window.firstResponder === terminal)
         #expect(workspace.focusedController === first)
         #expect(TerminalSessionRegistry.shared.controller(for: window) === first)
-        let item = try #require(menu.items.first { $0.title == "Split Left" })
+        let item = try #require(menu.items.first {
+            $0.title == "Split Left"
+        })
         #expect(terminal.validateUserInterfaceItem(item))
         #expect(NSApp.sendAction(try #require(item.action), to: item.target, from: item))
         #expect(workspace.paneCount == 3)
@@ -102,7 +120,9 @@ struct TerminalContextMenuTests {
         let terminal = AppTerminalView(frame: .zero, font: nil, options: .default)
         terminal.feed(text: "text\u{1b}[?1000h")
         let menu = terminal.makeContextMenu()
-        let item = try #require(menu.items.first { $0.title == "Reset Terminal" })
+        let item = try #require(menu.items.first {
+            $0.title == "Reset Terminal"
+        })
         #expect(terminal.validateUserInterfaceItem(item))
         #expect(NSApp.sendAction(try #require(item.action), to: item.target, from: item))
         #expect(terminal.currentMouseMode == .off)
@@ -131,22 +151,60 @@ struct TerminalContextMenuTests {
         ))
         // NSEvent.mouseEvent sets buttonNumber to zero for every event type.
         if type == .rightMouseDown || type == .rightMouseUp {
-            let cgEvent = try #require(event.cgEvent)
-            cgEvent.setIntegerValueField(.mouseEventButtonNumber, value: 1)
-            let rightEvent = try #require(NSEvent(cgEvent: cgEvent))
-            #expect(rightEvent.buttonNumber == 1)
-            return rightEvent
+            return RightClickEvent(event)
         }
         return event
+    }
+}
+
+/// Supplies the button number without a CGEvent round trip, which changes
+/// coordinates for windows that have not been ordered onto the screen.
+private final class RightClickEvent: NSEvent {
+    private let event: NSEvent
+    init(_ event: NSEvent) {
+        self.event = event
+        super.init()
+    }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+    override var buttonNumber: Int {
+        1
+    }
+    override var type: NSEvent.EventType {
+        event.type
+    }
+    override var locationInWindow: NSPoint {
+        event.locationInWindow
+    }
+    override var windowNumber: Int {
+        event.windowNumber
+    }
+    override var window: NSWindow? {
+        event.window
+    }
+    override var modifierFlags: NSEvent.ModifierFlags {
+        event.modifierFlags
+    }
+    override var timestamp: TimeInterval {
+        event.timestamp
+    }
+    override var clickCount: Int {
+        event.clickCount
     }
 }
 
 @MainActor
 private final class ContextMenuInputReceiver: TerminalViewDelegate {
     private var data: [UInt8] = []
-    var text: String { String(decoding: data, as: UTF8.self) }
+    var text: String {
+        String(decoding: data, as: UTF8.self)
+    }
     var openedLinks: [String] = []
-    func send(source: TerminalView, data: ArraySlice<UInt8>) { self.data.append(contentsOf: data) }
+    func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        self.data.append(contentsOf: data)
+    }
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {}
     func setTerminalTitle(source: TerminalView, title: String) {}
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
@@ -163,23 +221,26 @@ struct TerminalPaneSplitDirectionTests {
     func newPaneAppearsOnTheRequestedSide(direction: TerminalPaneDirection) throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let existing = try #require(workspace.focusedController)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let host = TerminalPaneHostView(workspace: workspace)
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         workspace.split(existing, direction: direction)
         let added = try #require(workspace.focusedController)
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         host.layoutSubtreeIfNeeded()
         let existingView = try #require(existing.terminal?.superview)
         let addedView = try #require(added.terminal?.superview)
         let existingFrame = existingView.convert(existingView.bounds, to: host)
         let addedFrame = addedView.convert(addedView.bounds, to: host)
         switch direction {
-        case .right: #expect(addedFrame.minX > existingFrame.minX)
-        case .left: #expect(addedFrame.minX < existingFrame.minX)
-        case .down: #expect(addedFrame.minY < existingFrame.minY)
-        case .up: #expect(addedFrame.minY > existingFrame.minY)
+        case .right:
+            #expect(addedFrame.minX > existingFrame.minX)
+        case .left:
+            #expect(addedFrame.minX < existingFrame.minX)
+        case .down:
+            #expect(addedFrame.minY < existingFrame.minY)
+        case .up:
+            #expect(addedFrame.minY > existingFrame.minY)
         }
         #expect(added.profile == existing.profile)
         #expect(added.themeOverride == existing.themeOverride)
