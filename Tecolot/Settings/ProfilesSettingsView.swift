@@ -56,7 +56,7 @@ struct ProfilesSettingsView: View {
                 } description: {
                     Text("Create a profile to customize terminal settings.")
                 } actions: {
-                    Button("Create Profile", action: addProfile)
+                    Button("New Profile", action: addProfile)
                 }
             } else {
                 profileList
@@ -165,8 +165,9 @@ struct ProfilesSettingsView: View {
                         .disabled(selectedProfile == nil)
                     Button("Rename…", action: presentRename)
                         .disabled(selectedProfile == nil)
-                    Button("Set as Default", action: setSelectedProfileAsDefault)
-                        .disabled(selectedProfile == nil)
+                    if let profile = selectedProfile, profile.id != profiles.defaultProfileID {
+                        Button("Make “\(profile.name)” the Default", action: setSelectedProfileAsDefault)
+                    }
                     Menu("New from Preset") {
                         Button("Pro") {
                             addPreset(name: "Pro", theme: "Pro", fontSize: 12)
@@ -237,12 +238,8 @@ struct ProfilesSettingsView: View {
     }
 
     private func addProfile() {
-        var profile = profiles.defaultProfile
-        profile.id = UUID()
-        profile.name = uniqueName(basedOn: "New Profile")
         do {
-            try profiles.add(profile)
-            activeProfileID = profile.id
+            activeProfileID = try profiles.addNewProfile().id
         } catch {
             report(error)
         }
@@ -339,22 +336,11 @@ struct ProfilesSettingsView: View {
     }
 
     private func repairActiveProfileSelection() {
-        if
-            let activeProfileID,
-            profiles.profile(withID: activeProfileID) != nil {
-            return
-        }
-        activeProfileID = profiles.profiles.isEmpty ? nil : profiles.defaultProfileID
-    }
-
-    private func uniqueName(basedOn base: String) -> String {
-        var name = base
-        var number = 2
-        while profiles.profile(named: name) != nil {
-            name = "\(base) \(number)"
-            number += 1
-        }
-        return name
+        activeProfileID = SettingsView.repairedProfileID(
+            selectedID: activeProfileID,
+            profileIDs: profiles.profiles.map(\.id),
+            defaultID: profiles.defaultProfileID
+        )
     }
 
     private var errorPresentation: Binding<Bool> {

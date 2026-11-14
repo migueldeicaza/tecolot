@@ -228,6 +228,15 @@ public final class ProfileStore: ObservableObject {
     }
 
     @discardableResult
+    func addNewProfile() throws -> TerminalProfile {
+        var profile = defaultProfile
+        profile.id = UUID()
+        profile.name = availableName(basedOn: "New Profile")
+        try add(profile)
+        return profile
+    }
+
+    @discardableResult
     public func duplicate(_ id: TerminalProfile.ID) throws -> TerminalProfile {
         guard var copy = profile(withID: id) else { throw ProfilesError.profileNotFound }
         copy.id = UUID()
@@ -323,10 +332,14 @@ public final class ProfileStore: ObservableObject {
     }
 
     func uniqueName(basedOn base: String) -> String {
-        var candidate = "\(base) copy"
+        availableName(basedOn: "\(base) copy")
+    }
+
+    private func availableName(basedOn base: String) -> String {
+        var candidate = base
         var counter = 2
         while profile(named: candidate) != nil {
-            candidate = "\(base) copy \(counter)"
+            candidate = "\(base) \(counter)"
             counter += 1
         }
         return candidate

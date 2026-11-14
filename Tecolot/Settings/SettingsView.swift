@@ -3,7 +3,7 @@
 //  Tecolot
 //
 //  Settings window: App pages edit shared preferences. Profile pages edit
-//  the profile selected in the Settings toolbar.
+//  the profile selected in the Settings sidebar.
 //
 import Combine
 import AppKit
@@ -17,7 +17,8 @@ struct SettingsView: View {
     private let secureKeyboardEntry: SecureKeyboardEntry
 
     @State private var destination: SettingsDestination? = .general
-    @State private var activeProfileID: TerminalProfile.ID?
+    static let selectedProfileIDKey = "settingsSelectedProfileID"
+    @AppStorage(selectedProfileIDKey) private var selectedProfileID = ""
     @State private var profileErrorMessage: String?
 
     @MainActor
@@ -41,7 +42,9 @@ struct SettingsView: View {
                     }
                 }
                 Section("Profile") {
-                    ForEach(SettingsDestination.profilePages.dropLast()) { destination in
+                    profilePicker
+                        .selectionDisabled()
+                    ForEach(SettingsDestination.visibleProfileEditingPages(profilesAreEmpty: profiles.profiles.isEmpty)) { destination in
                         Label(destination.title, systemImage: destination.systemImage)
                             .tag(destination)
                     }
@@ -54,13 +57,6 @@ struct SettingsView: View {
             .frame(minWidth: 170)
         } detail: {
             detail
-        }
-        .toolbar {
-            if currentDestination.isProfileDriven {
-                ToolbarItem(placement: .automatic) {
-                    profileMenu
-                }
-            }
         }
         .frame(minWidth: 800, minHeight: 560)
         .background(SettingsEscapeKeyHandler())
@@ -110,7 +106,7 @@ struct SettingsView: View {
         case .notifications:
             ProgramActivitySettingsView()
         case .manageProfiles:
-            ProfilesSettingsView(activeProfileID: $activeProfileID)
+            ProfilesSettingsView(activeProfileID: activeProfileSelection)
         case .appearance, .window, .shell, .keyboardAndMouse, .terminal:
             profileSettingsDetail(for: currentDestination)
         case .data:
@@ -124,69 +120,124 @@ struct SettingsView: View {
             let section = ProfileSettingsSection(destination: destination),
             let profile = activeProfile {
             ProfileSettingsPage(section: section, profile: profile, update: updateActiveProfile)
+                .navigationSubtitle("\(profile.name) profile")
         } else {
             ContentUnavailableView {
                 Label("No Profile to Edit", systemImage: "person.crop.circle.badge.plus")
             } description: {
                 Text("Create a profile before you change these settings.")
             } actions: {
-                Button("Create Profile", action: createProfile)
+                Button("New Profile", action: createProfile)
             }
         }
     }
 
-    private var profileMenu: some View {
+    private var activeProfileID: TerminalProfile.ID? {
+        get { UUID(uuidString: selectedProfileID) }
+        nonmutating set { selectedProfileID = newValue?.uuidString ?? "" }
+    }
+
+    private var activeProfileSelection: Binding<TerminalProfile.ID?> {
+        Binding(get: { activeProfileID }, set: { activeProfileID = $0 })
+    }
+
+    private var profilePicker: some View {
         Menu {
             ForEach(profiles.profiles) { profile in
                 Button {
                     activeProfileID = profile.id
                 } label: {
-                    if profile.id == activeProfileID {
-                        Label(profile.name, systemImage: "checkmark")
-                    } else {
+                    HStack {
+                        if profile.id == activeProfileID {
+                            Image(systemName: "checkmark")
+                        }
                         Text(profile.name)
+                        if profile.id == profiles.defaultProfileID {
+                            Spacer()
+                            Text("Default")
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
+            Divider()
+            Button("New Profile", action: createProfile)
+            if let profile = activeProfile {
+                Button("Duplicate “\(profile.name)”", action: duplicateProfile)
+                if profile.id != profiles.defaultProfileID {
+                    Button("Make “\(profile.name)” the Default", action: makeProfileDefault)
+                }
+            }
+            Divider()
+            Button("Manage Profiles…") {
+                destination = .manageProfiles
+            }
         } label: {
-            Label(
-                "Profile: \(activeProfile?.name ?? "None")",
-                systemImage: "person.crop.circle"
-            )
+            HStack {
+                Text(activeProfile?.name ?? "No profile")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .disabled(profiles.profiles.isEmpty)
-        .accessibilityLabel("Active profile")
+        .accessibilityLabel("Profile, \(activeProfile?.name ?? "No profile")")
+        .accessibilityHint("Chooses which profile the pages below edit.")
+    }
+
+    static func repairedProfileID(
+        selectedID: TerminalProfile.ID?,
+        profileIDs: [TerminalProfile.ID],
+        defaultID: TerminalProfile.ID
+    ) -> TerminalProfile.ID? {
+        if let selectedID, profileIDs.contains(selectedID) {
+            return selectedID
+        }
+        return profileIDs.isEmpty ? nil : defaultID
     }
 
     private func repairActiveProfileSelection() {
-        if
-            let activeProfileID,
-            profiles.profile(withID: activeProfileID) != nil {
-            return
-        }
-        activeProfileID = profiles.profiles.isEmpty ? nil : profiles.defaultProfileID
+        activeProfileID = Self.repairedProfileID(
+            selectedID: activeProfileID,
+            profileIDs: profiles.profiles.map(\.id),
+            defaultID: profiles.defaultProfileID
+        )
+        destination = SettingsDestination.repairedDestination(
+            currentDestination,
+            profilesAreEmpty: profiles.profiles.isEmpty
+        )
     }
 
     private func createProfile() {
-        var profile = profiles.defaultProfile
-        profile.id = UUID()
-        profile.name = uniqueProfileName(basedOn: "New Profile")
         do {
-            try profiles.add(profile)
-            activeProfileID = profile.id
+            activeProfileID = try profiles.addNewProfile().id
+            destination = SettingsDestination.destinationAfterCreatingProfile(from: currentDestination)
         } catch {
             profileErrorMessage = error.localizedDescription
         }
     }
 
-    private func uniqueProfileName(basedOn base: String) -> String {
-        var name = base
-        var number = 2
-        while profiles.profile(named: name) != nil {
-            name = "\(base) \(number)"
-            number += 1
+    private func duplicateProfile() {
+        guard let activeProfileID else { return }
+        do {
+            self.activeProfileID = try profiles.duplicate(activeProfileID).id
+            destination = SettingsDestination.destinationAfterCreatingProfile(from: currentDestination)
+        } catch {
+            profileErrorMessage = error.localizedDescription
         }
-        return name
+    }
+
+    private func makeProfileDefault() {
+        guard let activeProfileID else { return }
+        do {
+            try profiles.setDefault(activeProfileID)
+        } catch {
+            profileErrorMessage = error.localizedDescription
+        }
     }
 
     /// Returns false when the change could not be stored, so callers that
@@ -321,6 +372,18 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
 
     static let appPages: [Self] = [.general, .tabs, .panes, .notifications, .data]
     static let profilePages: [Self] = [.appearance, .window, .shell, .keyboardAndMouse, .terminal, .manageProfiles]
+
+    static func destinationAfterCreatingProfile(from destination: Self) -> Self {
+        destination.isProfileDriven || destination == .manageProfiles ? destination : .appearance
+    }
+
+    static func repairedDestination(_ destination: Self, profilesAreEmpty: Bool) -> Self {
+        profilesAreEmpty && destination.isProfileDriven ? .manageProfiles : destination
+    }
+
+    static func visibleProfileEditingPages(profilesAreEmpty: Bool) -> [Self] {
+        profilesAreEmpty ? [] : profilePages.filter(\.isProfileDriven)
+    }
 
     var id: Self {
         self
