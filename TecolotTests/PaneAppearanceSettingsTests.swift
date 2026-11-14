@@ -82,12 +82,35 @@ struct PaneAppearanceSettingsTests {
         #expect(focus(true, style: .compact).header != NSColor.black)
     }
 
-    @Test func panesPageIsAppWideAndFollowsInterface() throws {
-        let cases = SettingsDestination.allCases
-        let interface = try #require(cases.firstIndex(of: .interface))
-        #expect(cases[interface + 1] == .panes)
+    @Test func panesPageIsAppWideAndFollowsTabs() throws {
+        let pages = SettingsDestination.appPages
+        let tabs = try #require(pages.firstIndex(of: .tabs))
+        #expect(pages[tabs + 1] == .panes)
+        #expect(pages == [.general, .tabs, .panes, .notifications, .data])
+        #expect(SettingsDestination.profilePages == [.appearance, .window, .shell, .keyboardAndMouse, .terminal, .manageProfiles])
+        #expect(Set(pages + SettingsDestination.profilePages) == Set(SettingsDestination.allCases))
         #expect(!SettingsDestination.panes.isProfileDriven)
         #expect(ProfileSettingsSection(destination: .panes) == nil)
+    }
+
+    @Test func onlyProfileEditingPagesAreProfileDriven() {
+        let expected: Set<SettingsDestination> = [.appearance, .window, .shell, .keyboardAndMouse, .terminal]
+        #expect(Set(SettingsDestination.allCases.filter(\.isProfileDriven)) == expected)
+        for destination in SettingsDestination.allCases {
+            #expect((ProfileSettingsSection(destination: destination) != nil) == expected.contains(destination))
+        }
+        #expect(ProfileSettingsSection(destination: .appearance) == .appearance)
+        #expect(ProfileSettingsSection(destination: .window) == .window)
+        #expect(ProfileSettingsSection(destination: .shell) == .shell)
+        #expect(ProfileSettingsSection(destination: .keyboardAndMouse) == .keyboardAndMouse)
+        #expect(ProfileSettingsSection(destination: .terminal) == .terminal)
+    }
+
+    @Test func tabIconCountClampsOnlyForSideTabs() {
+        #expect(TabInterfaceSettingsView.displayedIconCount(stored: 5, tabsOnSide: true) == 3)
+        #expect(TabInterfaceSettingsView.displayedIconCount(stored: 5, tabsOnSide: false) == 5)
+        #expect(TabInterfaceSettingsView.displayedIconCount(stored: 2, tabsOnSide: true) == 2)
+        #expect(TabInterfaceSettingsView.displayedIconCount(stored: 2, tabsOnSide: false) == 2)
     }
 
     @Test func aSinglePaneKeepsNeutralDecorationEvenWithHighlightEnabled() throws {

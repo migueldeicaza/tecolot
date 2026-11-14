@@ -389,41 +389,41 @@ struct ProfilesSettingsView: View {
 }
 
 enum ProfileSettingsSection {
-    case text
+    case appearance
     case window
     case shell
-    case keyboard
-    case advanced
+    case keyboardAndMouse
+    case terminal
 
     init?(destination: SettingsDestination) {
         switch destination {
-        case .text:
-            self = .text
+        case .appearance:
+            self = .appearance
         case .window:
             self = .window
         case .shell:
             self = .shell
-        case .keyboard:
-            self = .keyboard
-        case .advanced:
-            self = .advanced
-        case .general, .interface, .panes, .notifications, .profiles, .data:
+        case .keyboardAndMouse:
+            self = .keyboardAndMouse
+        case .terminal:
+            self = .terminal
+        case .general, .tabs, .panes, .notifications, .manageProfiles, .data:
             return nil
         }
     }
 
     var title: String {
         switch self {
-        case .text:
+        case .appearance:
             return "Appearance"
         case .window:
             return "Window"
         case .shell:
             return "Shell"
-        case .keyboard:
-            return "Keyboard"
-        case .advanced:
-            return "Advanced"
+        case .keyboardAndMouse:
+            return "Keyboard and Mouse"
+        case .terminal:
+            return "Terminal"
         }
     }
 }
@@ -437,7 +437,6 @@ struct ProfileSettingsPage: View {
     let update: ((inout TerminalProfile) -> Void) -> Bool
 
     @EnvironmentObject private var themes: ThemeStore
-    @AppStorage("showWorkingDirectoryIconInTitlebar") private var enableProxyIcon = true
 
     /// Adapter for child views that have no rollback path of their own.
     private var updateIgnoringResult: ((inout TerminalProfile) -> Void) -> Void {
@@ -449,32 +448,24 @@ struct ProfileSettingsPage: View {
     var body: some View {
         Group {
             switch section {
-            case .text:
-                textSettings
+            case .appearance:
+                appearanceSettings
             case .window:
                 windowSettings
             case .shell:
                 shellSettings
-            case .keyboard:
-                keyboardSettings
-            case .advanced:
-                advancedSettings
+            case .keyboardAndMouse:
+                keyboardAndMouseSettings
+            case .terminal:
+                terminalSettings
             }
         }
         .formStyle(.grouped)
         .navigationTitle(section.title)
     }
 
-    private var textSettings: some View {
+    private var appearanceSettings: some View {
         Form {
-            Section {
-                Toggle("Enable Proxy Icon", isOn: $enableProxyIcon)
-                    .help("Drag the reported directory or use its menu to open a folder.")
-            } header: {
-                Text("Titlebar")
-            } footer: {
-                Text("Applies to all windows. The shell must report a working directory before the folder appears.")
-            }
             Section {
                 ProfileTextSettings(profile: profile, update: updateIgnoringResult)
                     .padding(.horizontal)
@@ -482,12 +473,6 @@ struct ProfileSettingsPage: View {
             }
             ThemeModeSection(isDark: false, profile: profile, themes: themes, update: update)
             ThemeModeSection(isDark: true, profile: profile, themes: themes, update: update)
-        }
-    }
-
-    @ViewBuilder
-    private var windowSettings: some View {
-        Form {
             Section {
                 Toggle(
                     "Match window chrome to theme",
@@ -498,31 +483,15 @@ struct ProfileSettingsPage: View {
             } footer: {
                 Text("Applies the theme to the title bar, tabs, and toolbar controls. Turn this off to follow the system appearance.")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var windowSettings: some View {
+        Form {
             Section {
                 TextField("Columns:", value: binding(\.columns), format: .number)
                 TextField("Rows:", value: binding(\.rows), format: .number)
-                Toggle("Limit scrollback", isOn: Binding(
-                    get: {
-                        profile.scrollbackLines != nil
-                    },
-                    set: { limited in
-                        update {
-                            $0.scrollbackLines = limited ? 10_000 : nil
-                        }
-                    }
-                ))
-                if profile.scrollbackLines != nil {
-                    TextField("Scrollback lines:", value: Binding(
-                        get: {
-                            profile.scrollbackLines ?? 10_000
-                        },
-                        set: { newValue in
-                            update {
-                                $0.scrollbackLines = max(0, newValue)
-                            }
-                        }
-                    ), format: .number)
-                }
             }
             Section("Title") {
                 TextField("Custom title:", text: Binding(
@@ -606,52 +575,6 @@ struct ProfileSettingsPage: View {
                 Text("A persistent session keeps the shell running when you close its pane or quit Tecolot. " +
                     "Use File > Attach to Session to show it again. Applies to new tabs and windows.")
             }
-        }
-    }
-
-    @ViewBuilder
-    private var keyboardSettings: some View {
-        Form {
-            Section {
-                Toggle("Use Option as Meta key", isOn: binding(\.optionAsMetaKey))
-                Toggle("Delete sends Control-H", isOn: binding(\.backspaceSendsControlH))
-                Toggle("Hide pointer while typing", isOn: binding(\.hidePointerWhileTyping))
-            }
-            Section("Key Mappings"){
-                TerminalKeyBindingsEditor(profile: profile, update: updateIgnoringResult)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var advancedSettings: some View {
-        Form {
-            Section {
-                LabeledContent("Declare terminal as:") {
-                    TerminalNameComboBox(text: binding(\.termName))
-                }
-                if profile.termName == "xterm-ghostty" {
-                    TextField("TERM_PROGRAM:", text: binding(\.termProgram))
-                    TextField("TERM_VERSION:", text: binding(\.termVersion))
-                }
-                Toggle("Enable OSC 8 links", isOn: binding(\.linkOsc8))
-                    .help("Allow terminal programs to set links on text. Turn this off to ignore these links. Tecolot can still detect web addresses in text.")
-                Toggle(isOn: binding(\.screenChecksumReports)) {
-                    Text("Allow programs to read screen contents")
-                    Text("DECRQCRA (Request Checksum of Rectangular Area)")
-                }
-                .help("Answer screen checksum requests. Test tools such as vttest and esctest use them. A program can also use them to read text on the screen, including text from other programs. Keep this off unless you need it.")
-                Picker("Bell:", selection: binding(\.bellStyle)) {
-                    ForEach(BellStyle.allCases, id: \.tagName) { style in
-                        Text(style.displayName).tag(style)
-                    }
-                }
-                Toggle("Show notifications from programs", isOn: binding(\.allowsNotifications))
-            } footer: {
-                Text("Programs send notifications with OSC 9 or OSC 777. Tecolot shows them when the pane is not in front.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
             Section {
                 Text("Tecolot inherits the app environment, then applies these changes.")
                     .font(.caption)
@@ -684,6 +607,74 @@ struct ProfileSettingsPage: View {
                 Text("Environment")
             } footer: {
                 Text("Unset removes an inherited value. An empty value is passed as an empty string. Later entries with the same name win.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var keyboardAndMouseSettings: some View {
+        Form {
+            Section {
+                Toggle("Use Option as Meta key", isOn: binding(\.optionAsMetaKey))
+                Toggle("Delete sends Control-H", isOn: binding(\.backspaceSendsControlH))
+                Toggle("Hide pointer while typing", isOn: binding(\.hidePointerWhileTyping))
+            }
+            Section("Key Mappings"){
+                TerminalKeyBindingsEditor(profile: profile, update: updateIgnoringResult)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var terminalSettings: some View {
+        Form {
+            Section {
+                LabeledContent("Declare terminal as:") {
+                    TerminalNameComboBox(text: binding(\.termName))
+                }
+                if profile.termName == "xterm-ghostty" {
+                    TextField("TERM_PROGRAM:", text: binding(\.termProgram))
+                    TextField("TERM_VERSION:", text: binding(\.termVersion))
+                }
+                Toggle("Enable OSC 8 links", isOn: binding(\.linkOsc8))
+                    .help("Allow terminal programs to set links on text. Turn this off to ignore these links. Tecolot can still detect web addresses in text.")
+                Toggle(isOn: binding(\.screenChecksumReports)) {
+                    Text("Allow programs to read screen contents")
+                    Text("DECRQCRA (Request Checksum of Rectangular Area)")
+                }
+                .help("Answer screen checksum requests. Test tools such as vttest and esctest use them. A program can also use them to read text on the screen, including text from other programs. Keep this off unless you need it.")
+                Toggle("Limit scrollback", isOn: Binding(
+                    get: {
+                        profile.scrollbackLines != nil
+                    },
+                    set: { limited in
+                        update {
+                            $0.scrollbackLines = limited ? 10_000 : nil
+                        }
+                    }
+                ))
+                if profile.scrollbackLines != nil {
+                    TextField("Scrollback lines:", value: Binding(
+                        get: {
+                            profile.scrollbackLines ?? 10_000
+                        },
+                        set: { newValue in
+                            update {
+                                $0.scrollbackLines = max(0, newValue)
+                            }
+                        }
+                    ), format: .number)
+                }
+                Picker("Bell:", selection: binding(\.bellStyle)) {
+                    ForEach(BellStyle.allCases, id: \.tagName) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                Toggle("Show notifications from programs", isOn: binding(\.allowsNotifications))
+            } footer: {
+                Text("Programs send notifications with OSC 9 or OSC 777. Tecolot shows them when the pane is not in front.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -1255,7 +1246,7 @@ struct ProfileExportDocument: FileDocument {
     }
 }
 
-#Preview("Profiles") {
+#Preview("Manage Profiles") {
     @Previewable @State var activeProfileID: TerminalProfile.ID? = SettingsPreviewData.profiles.defaultProfileID
 
     ProfilesSettingsView(activeProfileID: $activeProfileID)
@@ -1266,8 +1257,8 @@ struct ProfileExportDocument: FileDocument {
         .frame(width: 640, height: 520)
 }
 
-#Preview("Text Settings") {
-    ProfileSettingsPagePreview(section: .text)
+#Preview("Appearance Settings") {
+    ProfileSettingsPagePreview(section: .appearance)
         .environmentObject(SettingsPreviewData.profiles)
         .environmentObject(SettingsPreviewData.themes)
         .environmentObject(SettingsPreviewData.themeIndex)
@@ -1287,14 +1278,14 @@ struct ProfileExportDocument: FileDocument {
         .frame(width: 560, height: 430)
 }
 
-#Preview("Keyboard Settings") {
-    ProfileSettingsPagePreview(section: .keyboard)
+#Preview("Keyboard and Mouse Settings") {
+    ProfileSettingsPagePreview(section: .keyboardAndMouse)
         .environmentObject(SettingsPreviewData.themes)
         .frame(width: 560, height: 430)
 }
 
-#Preview("Advanced Settings") {
-    ProfileSettingsPagePreview(section: .advanced)
+#Preview("Terminal Settings") {
+    ProfileSettingsPagePreview(section: .terminal)
         .environmentObject(SettingsPreviewData.themes)
         .frame(width: 680, height: 480)
 }

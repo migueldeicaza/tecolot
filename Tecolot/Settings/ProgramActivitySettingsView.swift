@@ -1,9 +1,19 @@
 import SwiftUI
 
-/// Edits live preferences for tab styles and status animations.
+/// Edits live preferences for tab layout, appearance and the sidebar.
 struct TabInterfaceSettingsView: View {
     @AppStorage("tabStyle") private var tabStyle = "horizontal"
     @AppStorage("sidebarPosition") private var sidebarPosition = "left"
+    @AppStorage(TabStripPreferences.fillKey) private var fill = false
+    @AppStorage(TabStripPreferences.iconCountKey) private var icons = 3
+    @AppStorage("useCommandDigitsForTabs") private var useCommandDigitsForTabs = true
+    @AppStorage("sidebarTextSize") private var sidebarTextSize = 0.0
+    @AppStorage("preserveWidthWhenResizingSidebar") private var preserveWidth = true
+    @AppStorage("sidebarGesture") private var sidebarGesture = "swipe"
+    @AppStorage(TabStripPreferences.colorModeKey) private var color = "always"
+    @AppStorage(TabStripPreferences.animationStyleKey) private var animation = "natural"
+    @AppStorage(TabStripPreferences.preferGeneratedTitlesKey) private var generatedTitles = true
+
     private var style: Binding<String> {
         Binding(get: {
             tabStyle == "horizontal" ? "above" : sidebarPosition
@@ -14,52 +24,52 @@ struct TabInterfaceSettingsView: View {
             tabStyle = value == "above" ? "horizontal" : "vertical"
         })
     }
-    @AppStorage(TabStripPreferences.fillKey) private var fill = false
-    @AppStorage(TabStripPreferences.iconCountKey) private var icons = 3
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Tabs") {
-                    Picker("Tab style", selection: style) {
-                        Text("Above").tag("above")
-                        Text("Left Side").tag("left")
-                        Text("Right Side").tag("right")
-                    }
-                    if tabStyle == "horizontal" {
-                        Toggle("Fill available space", isOn: $fill)
-                    }
-                    Picker("Show tab icons", selection: $icons) {
-                        Text("None").tag(0)
-                        ForEach(1...(tabStyle == "vertical" ? 3 : 5), id: \.self) {
-                            Text("\($0)").tag($0)
-                        }
-                    }
-                    NavigationLink("Additional Tab Options") {
-                        AdditionalTabOptionsView()
-                    }
-                }
-            }
-            .formStyle(.grouped)
-            .navigationTitle("Interface")
-        }
-    }
-}
 
-/// The less frequently changed tab preferences, one level below Interface.
-struct AdditionalTabOptionsView: View {
-    @AppStorage("tabStyle") private var tabStyle = "horizontal"
-    @AppStorage("sidebarTextSize") private var sidebarTextSize = 0.0
-    @AppStorage("preserveWidthWhenResizingSidebar") private var preserveWidth = true
-    @AppStorage("sidebarGesture") private var sidebarGesture = "swipe"
-    @AppStorage(TabStripPreferences.colorModeKey) private var color = "always"
-    @AppStorage(TabStripPreferences.animationStyleKey) private var animation = "natural"
-    @AppStorage(TabStripPreferences.preferGeneratedTitlesKey) private var generatedTitles = true
-    @AppStorage(ProgramActivityPreferences.bounceKey) private var bounce = true
-    @AppStorage(ProgramActivityPreferences.announceKey) private var announce = true
-    @AppStorage(ProgramActivityPreferences.colorKey) private var statusColor = true
-    @AppStorage(ProgramActivityPreferences.tickerSpeedKey) private var speed = 33.4
+    static func displayedIconCount(stored: Int, tabsOnSide: Bool) -> Int {
+        tabsOnSide ? min(stored, 3) : stored
+    }
+
+    private var iconSelection: Binding<Int> {
+        Binding(get: {
+            Self.displayedIconCount(stored: icons, tabsOnSide: tabStyle == "vertical")
+        }, set: { value in
+            icons = value
+        })
+    }
+
     var body: some View {
         Form {
+            Section("Layout") {
+                Picker("Tab style", selection: style) {
+                    Text("Above").tag("above")
+                    Text("Left Side").tag("left")
+                    Text("Right Side").tag("right")
+                }
+                if tabStyle == "horizontal" {
+                    Toggle("Fill available space", isOn: $fill)
+                }
+                Picker("Show tab icons", selection: iconSelection) {
+                    Text("None").tag(0)
+                    ForEach(1...(tabStyle == "vertical" ? 3 : 5), id: \.self) {
+                        Text("\($0)").tag($0)
+                    }
+                }
+                Toggle("Use Command-1 through Command-9 to select tabs", isOn: $useCommandDigitsForTabs)
+            }
+            Section("Look") {
+                Picker("Use color for tab icons", selection: $color) {
+                    Text("Always").tag("always")
+                    Text("Active tabs").tag("activeTabs")
+                    Text("Active panes").tag("activePanes")
+                    Text("Never").tag("never")
+                }
+                Toggle("Prefer generated tab titles", isOn: $generatedTitles)
+                Picker("Animation style", selection: $animation) {
+                    Text("Natural").tag("natural")
+                    Text("Snappy").tag("snappy")
+                    Text("Off").tag("off")
+                }
+            }
             if tabStyle == "vertical" {
                 Section("Sidebar") {
                     Picker("Sidebar text size", selection: $sidebarTextSize) {
@@ -76,30 +86,9 @@ struct AdditionalTabOptionsView: View {
                     }
                 }
             }
-            Section {
-                Picker("Use color for tab icons", selection: $color) {
-                    Text("Always").tag("always")
-                    Text("Active tabs").tag("activeTabs")
-                    Text("Active panes").tag("activePanes")
-                    Text("Never").tag("never")
-                }
-                Toggle("Prefer generated tab titles", isOn: $generatedTitles)
-                Toggle("Bounce tab icons", isOn: $bounce)
-                Toggle("Announce messages in tabs", isOn: $announce)
-                Slider(value: $speed, in: 10...100) {
-                    Text("Message scroll speed")
-                }
-                .disabled(!announce)
-                Toggle("Use color for status badges", isOn: $statusColor)
-                Picker("Animation style", selection: $animation) {
-                    Text("Natural").tag("natural")
-                    Text("Snappy").tag("snappy")
-                    Text("Off").tag("off")
-                }
-            }
         }
         .formStyle(.grouped)
-        .navigationTitle("Additional Tab Options")
+        .navigationTitle("Tabs")
     }
 }
 
@@ -113,11 +102,14 @@ struct ProgramActivitySettingsView: View {
     @AppStorage("programActivityBlocked") private var blocked = true
     @AppStorage("programActivityError") private var error = true
     @AppStorage("programActivityDone") private var done = true
+    @AppStorage(ProgramActivityPreferences.bounceKey) private var bounce = true
+    @AppStorage(ProgramActivityPreferences.announceKey) private var announce = true
+    @AppStorage(ProgramActivityPreferences.colorKey) private var statusColor = true
+    @AppStorage(ProgramActivityPreferences.tickerSpeedKey) private var speed = 33.4
     var body: some View {
         Form {
-            Section("Program Activity") {
-                Toggle("Show activity in tabs", isOn: $tabs)
-                Toggle("Show system notifications", isOn: $notifications)
+            Section("Program activity") {
+                Toggle("Notify when a program finishes or needs attention", isOn: $notifications)
                 Text(
                     "System notifications appear while Tecolot is inactive. Clicking one reveals its group, tab and pane."
                 )
@@ -132,6 +124,16 @@ struct ProgramActivitySettingsView: View {
                     }
                 }
                 Toggle("Play sounds", isOn: $sounds)
+            }
+            Section("In tabs") {
+                Toggle("Show activity in tabs", isOn: $tabs)
+                Toggle("Bounce tab icons", isOn: $bounce)
+                Toggle("Announce messages in tabs", isOn: $announce)
+                Slider(value: $speed, in: 10...100) {
+                    Text("Message scroll speed")
+                }
+                .disabled(!announce)
+                Toggle("Use color for status badges", isOn: $statusColor)
             }
             Section("States") {
                 Toggle("Working", isOn: $working)

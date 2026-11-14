@@ -126,6 +126,7 @@ final class SecureKeyboardEntry {
     static let shared = SecureKeyboardEntry()
 
     @ObservationIgnored private var enabledByThisApp = false
+    @ObservationIgnored private let appliesState: Bool
     var isEnabled = false {
         didSet {
             applyState()
@@ -133,8 +134,15 @@ final class SecureKeyboardEntry {
     }
 
     private init() {
+        appliesState = true
         isEnabled = UserDefaults.standard.bool(forKey: "SecureKeyboardEntry")
         applyState()
+    }
+
+    /// An in-memory stand-in that never changes secure input or stored preferences.
+    init(isEnabled: Bool) {
+        appliesState = false
+        self.isEnabled = isEnabled
     }
 
     func disableForTermination() {
@@ -146,6 +154,9 @@ final class SecureKeyboardEntry {
     }
 
     private func applyState() {
+        guard appliesState else {
+            return
+        }
         UserDefaults.standard.set(isEnabled, forKey: "SecureKeyboardEntry")
         if isEnabled {
             guard !enabledByThisApp else {

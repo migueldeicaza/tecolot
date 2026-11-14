@@ -2,7 +2,7 @@
 //  SettingsView.swift
 //  Tecolot
 //
-//  Settings window: General and Data are app-wide. The remaining pages edit
+//  Settings window: App pages edit shared preferences. Profile pages edit
 //  the profile selected in the Settings toolbar.
 //
 import Combine
@@ -14,17 +14,40 @@ struct SettingsView: View {
     @ObservedObject var issueCenter: PersistenceIssueCenter
     let recovery: DataRecoveryCoordinator
     @EnvironmentObject private var profiles: ProfileStore
+    private let secureKeyboardEntry: SecureKeyboardEntry
 
     @State private var destination: SettingsDestination? = .general
     @State private var activeProfileID: TerminalProfile.ID?
     @State private var profileErrorMessage: String?
 
+    @MainActor
+    init(
+        issueCenter: PersistenceIssueCenter,
+        recovery: DataRecoveryCoordinator,
+        secureKeyboardEntry: SecureKeyboardEntry? = nil
+    ) {
+        self.issueCenter = issueCenter
+        self.recovery = recovery
+        self.secureKeyboardEntry = secureKeyboardEntry ?? .shared
+    }
+
     var body: some View {
         NavigationSplitView {
             List(selection: $destination) {
-                ForEach(SettingsDestination.allCases) { destination in
-                    Label(sidebarTitle(for: destination), systemImage: destination.systemImage)
-                        .tag(destination)
+                Section("App") {
+                    ForEach(SettingsDestination.appPages) { destination in
+                        Label(sidebarTitle(for: destination), systemImage: destination.systemImage)
+                            .tag(destination)
+                    }
+                }
+                Section("Profile") {
+                    ForEach(SettingsDestination.profilePages.dropLast()) { destination in
+                        Label(destination.title, systemImage: destination.systemImage)
+                            .tag(destination)
+                    }
+                    Divider()
+                    Label(SettingsDestination.manageProfiles.title, systemImage: SettingsDestination.manageProfiles.systemImage)
+                        .tag(SettingsDestination.manageProfiles)
                 }
             }
             .navigationTitle("Settings")
@@ -79,16 +102,16 @@ struct SettingsView: View {
     private var detail: some View {
         switch currentDestination {
         case .general:
-            GeneralSettingsView()
-        case .interface:
+            GeneralSettingsView(secureKeyboardEntry: secureKeyboardEntry)
+        case .tabs:
             TabInterfaceSettingsView()
         case .panes:
             PanesSettingsView()
         case .notifications:
             ProgramActivitySettingsView()
-        case .profiles:
+        case .manageProfiles:
             ProfilesSettingsView(activeProfileID: $activeProfileID)
-        case .text, .window, .shell, .keyboard, .advanced:
+        case .appearance, .window, .shell, .keyboardAndMouse, .terminal:
             profileSettingsDetail(for: currentDestination)
         case .data:
             DataRecoveryView(issueCenter: issueCenter, recovery: recovery)
@@ -284,17 +307,20 @@ struct SettingsEscapeKeyHandler: NSViewRepresentable {
 
 enum SettingsDestination: CaseIterable, Hashable, Identifiable {
     case general
-    case interface
+    case tabs
     case panes
     case notifications
-    case text
+    case data
+
+    case appearance
     case window
     case shell
-    case keyboard
-    case advanced
+    case keyboardAndMouse
+    case terminal
+    case manageProfiles
 
-    case profiles
-    case data
+    static let appPages: [Self] = [.general, .tabs, .panes, .notifications, .data]
+    static let profilePages: [Self] = [.appearance, .window, .shell, .keyboardAndMouse, .terminal, .manageProfiles]
 
     var id: Self {
         self
@@ -304,24 +330,24 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
         switch self {
         case .general:
             return "General"
-        case .interface:
-            return "Interface"
+        case .tabs:
+            return "Tabs"
         case .panes:
             return "Panes"
         case .notifications:
             return "Notifications"
-        case .profiles:
-            return "Profiles"
-        case .text:
+        case .manageProfiles:
+            return "Manage Profiles"
+        case .appearance:
             return "Appearance"
         case .window:
             return "Window"
         case .shell:
             return "Shell"
-        case .keyboard:
-            return "Keyboard"
-        case .advanced:
-            return "Advanced"
+        case .keyboardAndMouse:
+            return "Keyboard and Mouse"
+        case .terminal:
+            return "Terminal"
         case .data:
             return "Data"
         }
@@ -331,23 +357,23 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
         switch self {
         case .general:
             return "gearshape"
-        case .interface:
+        case .tabs:
             return "rectangle.topthird.inset.filled"
         case .panes:
             return "rectangle.split.2x1"
         case .notifications:
             return "bell"
-        case .profiles:
+        case .manageProfiles:
             return "person.2.badge.gearshape"
-        case .text:
+        case .appearance:
             return "textformat"
         case .window:
             return "macwindow"
         case .shell:
             return "terminal"
-        case .keyboard:
+        case .keyboardAndMouse:
             return "keyboard"
-        case .advanced:
+        case .terminal:
             return "slider.horizontal.3"
         case .data:
             return "externaldrive.badge.checkmark"
@@ -356,9 +382,9 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
 
     var isProfileDriven: Bool {
         switch self {
-        case .text, .window, .shell, .keyboard, .advanced:
+        case .appearance, .window, .shell, .keyboardAndMouse, .terminal:
             return true
-        case .general, .interface, .panes, .notifications, .profiles, .data:
+        case .general, .tabs, .panes, .notifications, .manageProfiles, .data:
             return false
         }
     }
@@ -368,9 +394,9 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
 struct GeneralSettingsView: View {
     @EnvironmentObject private var profiles: ProfileStore
     private let groups: TerminalWindowManager
+    @Bindable private var secureKeyboardEntry: SecureKeyboardEntry
     @AppStorage("newTabsUseCurrentDirectory") private var newTabsUseCurrentDirectory = true
     @AppStorage("newTabsUseCurrentProfile") private var newTabsUseCurrentProfile = true
-    @AppStorage("useCommandDigitsForTabs") private var useCommandDigitsForTabs = true
     @AppStorage("restoredRowsLimit") private var restoredRowsLimit = 1_000
     @AppStorage("startupMode") private var startupMode = "default"
     @AppStorage("startupProfileID") private var startupProfileID = ""
@@ -379,8 +405,9 @@ struct GeneralSettingsView: View {
     @State private var errorMessage: String?
 
     @MainActor
-    init(groups: TerminalWindowManager? = nil) {
+    init(groups: TerminalWindowManager? = nil, secureKeyboardEntry: SecureKeyboardEntry? = nil) {
         self.groups = groups ?? .shared
+        self.secureKeyboardEntry = secureKeyboardEntry ?? .shared
     }
 
     private func startupBinding(for group: TerminalTabGroup) -> Binding<Bool> {
@@ -400,19 +427,6 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
-            if profiles.profiles.isEmpty {
-                LabeledContent("Default profile:") {
-                    Text("Built-in defaults")
-                }
-            } else {
-                Picker("Default profile:", selection: defaultProfileBinding) {
-                    ForEach(profiles.profiles) { profile in
-                        Text(profile.name).tag(profile.id)
-                    }
-                }
-                .help("Used for new windows, and wherever no explicit profile is chosen")
-            }
-
             Section("Startup") {
                 Picker("Open:", selection: $startupMode) {
                     Text("A new group with the default profile").tag("default")
@@ -433,14 +447,39 @@ struct GeneralSettingsView: View {
                 Text("Used only when there is no group to show.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Stepper(
+                    "Restore up to \(restoredRowsLimit) rows when a saved session opens",
+                    value: $restoredRowsLimit,
+                    in: 0...100_000,
+                    step: 100
+                )
+                Text("Set the value to 0 to restore no terminal text.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
-            Section("New tabs") {
+            Section("New windows and tabs") {
+                if profiles.profiles.isEmpty {
+                    LabeledContent("Default profile:") {
+                        Text("Built-in defaults")
+                    }
+                } else {
+                    Picker("Default profile:", selection: defaultProfileBinding) {
+                        ForEach(profiles.profiles) { profile in
+                            Text(profile.name).tag(profile.id)
+                        }
+                    }
+                    .help("Used for new windows, and wherever no explicit profile is chosen")
+                }
+
                 Toggle("Open with the working directory of the current tab", isOn: $newTabsUseCurrentDirectory)
                 Toggle("Use the profile of the current window", isOn: $newTabsUseCurrentProfile)
             }
-            Section("Tabs") {
-                Toggle("Use Command-1 through Command-9 to select tabs", isOn: $useCommandDigitsForTabs)
+            Section("Input") {
+                Toggle("Secure keyboard entry", isOn: $secureKeyboardEntry.isEnabled)
+                Text("Prevents other apps from reading what you type.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Rendering") {
                 Toggle("Use Metal", isOn: metalRendererBinding)
@@ -451,17 +490,6 @@ struct GeneralSettingsView: View {
                     Toggle("Download updates automatically", isOn: automaticUpdateDownloadsBinding)
                         .disabled(!updater.automaticallyChecksForUpdates)
                 }
-            }
-            Section("Resume") {
-                Stepper(
-                    "Restore up to \(restoredRowsLimit) rows when a saved session opens",
-                    value: $restoredRowsLimit,
-                    in: 0...100_000,
-                    step: 100
-                )
-                Text("Set the value to 0 to restore no terminal text.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -547,7 +575,8 @@ struct GeneralSettingsView: View {
 #Preview("Settings") {
     SettingsView(
         issueCenter: SettingsPreviewData.issueCenter,
-        recovery: SettingsPreviewData.recovery
+        recovery: SettingsPreviewData.recovery,
+        secureKeyboardEntry: SecureKeyboardEntry(isEnabled: false)
     )
     .environmentObject(SettingsPreviewData.profiles)
     .environmentObject(SettingsPreviewData.themes)
@@ -558,7 +587,10 @@ struct GeneralSettingsView: View {
 }
 
 #Preview("General") {
-    GeneralSettingsView(groups: TerminalWindowManager(registry: TerminalSessionRegistry()))
+    GeneralSettingsView(
+        groups: TerminalWindowManager(registry: TerminalSessionRegistry()),
+        secureKeyboardEntry: SecureKeyboardEntry(isEnabled: false)
+    )
         .environmentObject(SettingsPreviewData.profiles)
         .defaultAppStorage(SettingsPreviewData.defaults)
         .frame(width: 640, height: 520)
