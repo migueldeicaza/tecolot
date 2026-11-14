@@ -144,19 +144,16 @@ struct SettingsView: View {
     private var profilePicker: some View {
         Menu {
             ForEach(profiles.profiles) { profile in
-                Button {
+                // A menu draws a toggle as a checkmark item, and a second
+                // Text as secondary text. It ignores stacks and spacers.
+                Toggle(isOn: Binding(get: {
+                    profile.id == activeProfileID
+                }, set: { _ in
                     activeProfileID = profile.id
-                } label: {
-                    HStack {
-                        if profile.id == activeProfileID {
-                            Image(systemName: "checkmark")
-                        }
-                        Text(profile.name)
-                        if profile.id == profiles.defaultProfileID {
-                            Spacer()
-                            Text("Default")
-                                .foregroundStyle(.secondary)
-                        }
+                })) {
+                    Text(profile.name)
+                    if profile.id == profiles.defaultProfileID {
+                        Text("Default")
                     }
                 }
             }
