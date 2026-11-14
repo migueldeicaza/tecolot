@@ -72,12 +72,14 @@ enum SessionTermination {
     }
 }
 
-/// Shows an alert whose first button is destructive and whose second button
-/// (Cancel) has Return. Escape also cancels.
+/// Session termination keeps Return on Cancel. Group-ending confirmations
+/// opt into Return on their enabled primary action. Escape always cancels.
 @MainActor
 enum DestructiveAlert {
-    static func run(_ alert: NSAlert, in window: NSWindow?) async -> NSApplication.ModalResponse {
-        // Return took the Escape key equivalent of Cancel, so a monitor adds it again.
+    static func run(_ alert: NSAlert, in window: NSWindow?, confirmsWithReturn: Bool = false) async -> NSApplication.ModalResponse {
+        // Session-termination alerts give Cancel Return, so add Escape explicitly.
+        let returnMonitor = confirmsWithReturn ? ConfirmationKeyboard.install(on: alert) : nil
+        defer { returnMonitor.map(NSEvent.removeMonitor) }
         let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak alert] event in
             guard
                 let alert, event.window === alert.window, event.keyCode == 53,

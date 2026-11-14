@@ -67,7 +67,7 @@ struct GroupSessionEnderTests {
         #expect(GroupSessionEnder.probe(pane(kind), record: record).busyProgram == nil)
     }
 
-    @Test func confirmationListsBusyPanesAndMakesCancelDefault() async {
+    @Test func confirmationListsBusyPanesAndReservesEscapeForCancel() async {
         let busy = pane(.local, local: .init(persistent: false, running: true, childProcesses: 1))
         let plan = await GroupSessionEnder.plan([busy]) { _ in
             (nil, nil)
@@ -77,7 +77,7 @@ struct GroupSessionEnderTests {
         #expect(alert.informativeText.contains("1 busy pane:\nBuild › Pane — make"))
         #expect(alert.buttons[0].title == "End Sessions" && alert.buttons[0].hasDestructiveAction)
         #expect(alert.buttons[0].keyEquivalent.isEmpty)
-        #expect(alert.buttons[1].keyEquivalent == "\r")
+        #expect(alert.buttons[1].keyEquivalent == "\u{1b}")
     }
 
     @Test func idleLocalGroupSkipsConfirmationButHelperGroupsConfirm() async throws {

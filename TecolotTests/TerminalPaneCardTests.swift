@@ -102,6 +102,17 @@ struct TerminalPaneCardTests {
     }
 
     @Test func tabStackTracksInactiveCommandsFocusAndPaneCount() throws {
+        // The widths below are for three icons; the stack reads the count from the app's defaults.
+        let key = TabStripPreferences.iconCountKey
+        let stored = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(3, forKey: key)
+        defer {
+            if let stored {
+                UserDefaults.standard.set(stored, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .right)

@@ -312,6 +312,10 @@ final class RestoreStore {
     private(set) var observationGeneration = 0
     private var isRestoring = false
     private var isTerminating = false
+    private var launchInProgress = false
+    private var startupTask: Task<Void, Never>?
+    private let startupTimeout: TimeInterval
+    private let startupReady: @MainActor (TerminalSessionController) -> Bool
     private var canWrite = true
     private let stateWriter: @Sendable (RestoreState, URL) throws -> Void
     var windowGroupsMigrated = false
@@ -346,6 +350,10 @@ final class RestoreStore {
         issueCenter: PersistenceIssueCenter? = nil,
         debounceInterval: TimeInterval = 1,
         startsProcesses: Bool = true,
+        startupTimeout: TimeInterval = 15,
+        startupReady: @escaping @MainActor (TerminalSessionController) -> Bool = {
+            $0.hasCompletedRestorationStartup
+        },
         stateWriter: @escaping @Sendable (RestoreState, URL) throws -> Void = RestoreStore.writeLayout
     ) {
         self.directory = directory
@@ -355,12 +363,17 @@ final class RestoreStore {
         self.issueCenter = issueCenter ?? AppModel.shared.issueCenter
         self.debounceInterval = debounceInterval
         self.startsProcesses = startsProcesses
+        self.startupTimeout = startupTimeout
+        self.startupReady = startupReady
         self.stateWriter = stateWriter
         sessionStatesOverride = sessionStates
         self.runningSessions = runningSessions
     }
 
-    deinit { pendingSave?.cancel() }
+    deinit {
+        pendingSave?.cancel()
+        startupTask?.cancel()
+    }
 
     nonisolated static var applicationSupport: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -514,6 +527,9 @@ final class RestoreStore {
             return
         }
         isTerminating = true
+        startupTask?.cancel()
+        startupTask = nil
+        launchInProgress = false
         pendingSave?.cancel()
         pendingSave = nil
         var (state, texts, caches) = capture(limit: Self.restoredRowsLimit)
@@ -556,7 +572,8 @@ final class RestoreStore {
             bootID: BootIdentifier.current(),
             savedAt: Date(),
             windows: [],
-            windowGroupsMigrated: windowGroupsMigrated
+            windowGroupsMigrated: windowGroupsMigrated,
+            launching: launchInProgress
         )
         var texts: [ScrollbackSnapshot.Pending] = []
         var caches: [RemoteRowCopy] = []
@@ -938,10 +955,43 @@ final class RestoreStore {
             self?.stateDidChange(immediately: immediate)
         }
         observeState()
-        var current = capture(limit: 0).0
-        current.launching = false
-        _ = writeLaunchState(current)
+        // Dormant background groups have no asynchronous startup to guard.
+        let panes = recovered.flatMap(\.tabs).compactMap(\.loadedWorkspace).flatMap(\.controllers)
+        startupTask?.cancel()
+        launchInProgress = !panes.isEmpty
+        _ = writeLaunchState(capture(limit: 0).0)
+        if launchInProgress {
+            let deadline = ContinuousClock.now + .seconds(startupTimeout)
+            startupTask = Task { @MainActor [weak self] in
+                // Always cross the async startup boundary, even in model tests.
+                await Task.yield()
+                while !Task.isCancelled {
+                    guard self?.finishStartupIfReady(panes, deadline: deadline) == false else {
+                        return
+                    }
+                    do {
+                        try await Task.sleep(for: .milliseconds(50))
+                    } catch {
+                        return
+                    }
+                }
+            }
+        }
         return !manager.windows.isEmpty
+    }
+
+    /// Called between suspensions so the task does not retain its store while waiting.
+    private func finishStartupIfReady(_ panes: [TerminalSessionController], deadline: ContinuousClock.Instant) -> Bool {
+        guard !isTerminating else {
+            return true
+        }
+        guard panes.allSatisfy(startupReady) || ContinuousClock.now >= deadline else {
+            return false
+        }
+        launchInProgress = false
+        startupTask = nil
+        stateDidChange(immediately: true)
+        return true
     }
 
     /// Removes persistent sessions that were attached before launch restoration.

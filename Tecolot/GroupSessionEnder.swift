@@ -180,7 +180,7 @@ enum GroupSessionEnder {
         end.hasDestructiveAction = true
         end.keyEquivalent = ""
         end.isEnabled = plan.unavailable.isEmpty
-        alert.addButton(withTitle: "Cancel").keyEquivalent = "\r"
+        alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
         if !plan.unavailable.isEmpty {
             let close = alert.addButton(withTitle: "Close Group Without Ending Unavailable Sessions")
             close.hasDestructiveAction = true
@@ -290,7 +290,7 @@ enum GroupSessionEnder {
             }
             do {
                 try await perform(plan, confirm: { plan in
-                    switch await DestructiveAlert.run(makeAlert(plan), in: window) {
+                    switch await DestructiveAlert.run(makeAlert(plan), in: window, confirmsWithReturn: true) {
                     case .alertFirstButtonReturn:
                         return .endSessions
                     case .alertThirdButtonReturn:

@@ -26,7 +26,6 @@ final class TabDragController: NSObject, NSDraggingSource {
     private weak var bar: HorizontalTabBarView?
     private var dragged: TerminalTab?
     private var sourceGroup: TerminalTabGroup?
-    private var windowOffset = NSPoint.zero
     private var escapeMonitor: Any?
     private var cancelled = false
     init(bar: HorizontalTabBarView) {
@@ -45,10 +44,6 @@ final class TabDragController: NSObject, NSDraggingSource {
         dragged = tab
         sourceGroup = owner.group
         cancelled = false
-        if let window = bar.window {
-            let screen = window.convertPoint(toScreen: event.locationInWindow)
-            windowOffset = NSPoint(x: screen.x - window.frame.minX, y: screen.y - window.frame.minY)
-        }
         let item = NSPasteboardItem()
         guard let data = TabDropPayload(groupID: owner.group.id, tabID: tab.id).data else {
             return
@@ -111,9 +106,7 @@ final class TabDragController: NSObject, NSDraggingSource {
                 return
             }
         }
-        if sourceGroup.tabs.count == 1 {
-            owner.window?.setFrameOrigin(NSPoint(x: screenPoint.x - windowOffset.x, y: screenPoint.y - windowOffset.y))
-        } else if let detached = owner.manager.moveToNewWindow(tab, from: sourceGroup, activate: false) as? TerminalWindowController {
+        if let detached = owner.manager.moveToNewWindow(tab, from: sourceGroup, activate: false) as? TerminalWindowController {
             detached.window?.setFrameTopLeftPoint(NSPoint(x: screenPoint.x - 100, y: screenPoint.y + 23))
             detached.window?.orderFront(nil)
         }

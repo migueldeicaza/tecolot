@@ -143,7 +143,7 @@ struct GroupWindowCommands: Commands {
                     owner.moveToNewWindow(tab)
                 }
             }
-            .disabled(owner == nil)
+            .disabled((owner?.group.tabs.count ?? 0) < 2)
             Button("Merge All Windows") {
                 if let owner {
                     TerminalWindowManager.shared.mergeAllWindows(into: owner)

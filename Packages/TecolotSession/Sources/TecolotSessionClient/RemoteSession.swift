@@ -152,6 +152,8 @@ public final class RemoteSession: @unchecked Sendable {
     private var imageRequests: [UInt64: UInt64] = [:]
     private var partialImages: [UInt64: PartialImage] = [:]
     private var closed = false
+    private var capabilitiesKnown = false
+    private var requestedFramesEnabled: Bool?
 
     /// Rows fetched ahead of a scroll, per side, in screens.
     public var prefetchScreens = 2
@@ -213,8 +215,11 @@ public final class RemoteSession: @unchecked Sendable {
             if let screenChecksumReports {
                 setScreenChecksumReports(screenChecksumReports)
             }
+            if requestedFramesEnabled == nil {
+                requestedFramesEnabled = framesEnabled
+            }
             let attach = AttachMessage(
-                size: size, maximumFramesPerSecond: framesEnabled ? maximumFramesPerSecond : 0,
+                size: size, maximumFramesPerSecond: requestedFramesEnabled == false ? 0 : maximumFramesPerSecond,
                 viewer: viewer, focused: focused, scale: scale
             )
             framePolicy.withLock {
@@ -281,22 +286,37 @@ public final class RemoteSession: @unchecked Sendable {
     /// and repaint state, so their scrollback position returns to the live bottom.
     public func setFramesEnabled(_ enabled: Bool) {
         queue.async { [self] in
-            if state.helperCapabilities.contains([.statusOnly, .metadata]) {
-                channel.send(SetFrameRateMessage(enabled ? maximumFramesPerSecond : 0))
-            } else if
-                var attach = framePolicy.withLock({
-                    $0
-                }) {
-                // A released helper cannot suspend frames. Reattach at one
-                // frame/sec in the background, restoring its rate when shown.
-                attach.maximumFramesPerSecond = enabled ? maximumFramesPerSecond : 1
-                framePolicy.withLock {
-                    $0 = attach
-                }
-                channel.send(attach)
+            requestedFramesEnabled = enabled
+            guard capabilitiesKnown else {
+                return
             }
+            applyFramePolicy()
         }
     }
+
+    /// Queue-confined; unknown capabilities must never select the legacy path.
+    private func applyFramePolicy() {
+        guard let enabled = requestedFramesEnabled else {
+            return
+        }
+        if state.helperCapabilities.contains([.statusOnly, .metadata]) {
+            channel.send(SetFrameRateMessage(enabled ? maximumFramesPerSecond : 0))
+        } else if
+            var attach = framePolicy.withLock({
+                $0
+            }) {
+            let rate = enabled ? maximumFramesPerSecond : 1
+            guard attach.maximumFramesPerSecond != rate else {
+                return
+            }
+            attach.maximumFramesPerSecond = rate
+            framePolicy.withLock {
+                $0 = attach
+            }
+            channel.send(attach)
+        }
+    }
+
     public func clearSeenProgramStatus(_ records: [WireProgramStatus]) {
         channel.send(ClearProgramStatusMessage(records: records))
     }
@@ -575,17 +595,8 @@ public final class RemoteSession: @unchecked Sendable {
                     $0.state.helperBuild = reply.build
                     $0.state.helperCapabilities = reply.capabilities
                 }
-                if
-                    !reply.capabilities.contains([.statusOnly, .metadata]),
-                    var attach = framePolicy.withLock({
-                        $0
-                    }), attach.maximumFramesPerSecond == 0 {
-                    attach.maximumFramesPerSecond = 1
-                    framePolicy.withLock {
-                        $0 = attach
-                    }
-                    channel.send(attach)
-                }
+                capabilitiesKnown = true
+                applyFramePolicy()
             case .frame:
                 try apply(envelope.decode(FrameMessage.self))
             case .rows:

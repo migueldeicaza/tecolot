@@ -233,7 +233,14 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             ?? AppModel.shared.profiles.defaultProfile
         themeOverride = pane.themeOverride
         directoryTracker = PaneDirectoryTracker(launch: pane.directory?.path)
+        remoteDestination = pane.kind == .remote ? pane.remoteDestination : nil
         if restoration.startsFresh {
+            if pane.kind == .remote {
+                // The helper resolves its own directory; never check it on the Mac.
+                launchDirectory = pane.directory?.path
+                wantsPersistentSession = true
+                return
+            }
             wantsPersistentSession = pane.kind != .local
             if wantsPersistentSession {
                 pendingSessionRestore = restoration
@@ -275,8 +282,41 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         profile = source.profile
         themeOverride = source.themeOverride
         remoteDestination = source.remoteDestination
-        launchDirectory = remoteDestination == nil ? source.currentWorkingDirectory : nil
+        launchDirectory = source.currentWorkingDirectory
         wantsPersistentSession = source.isPersistent
+    }
+
+    var reservedPersistentSessionIDs: [String] {
+        [
+            persistentSessionID,
+            attachSessionID,
+            remoteRestoreSessionID,
+            remotePendingRestore,
+            pendingSessionRestore?.pane.sessionID
+        ].compactMap {
+            $0
+        }
+    }
+
+    /// Startup is complete after replay and shell launch, or a reply after attach.
+    /// Failed/declined connections have reached a stable, retryable pane state.
+    var hasCompletedRestorationStartup: Bool {
+        if !startsProcess || isTerminated {
+            return true
+        }
+        if isPersistent {
+            return persistentView.map {
+                Self.persistentStartupHasCompleted($0.session.state)
+            } == true
+                || persistentView?.session.state.exitStatus != nil
+                || remoteOpenFailed || remoteInstallDeclined
+        }
+        return didStartProcess && !awaitingRestore && replayText == nil
+    }
+
+    static func persistentStartupHasCompleted(_ state: RemoteSessionState) -> Bool {
+        // Hello precedes Attach. Hidden panes may receive info without frames.
+        state.connected && (state.lastFrameSequence > 0 || state.info != nil)
     }
 
     /// The last directory that the shell reported on the pane's host. A
@@ -1139,14 +1179,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return
         }
 
-        let alert = NSAlert()
-        alert.messageText = "Close this pane?"
-        alert.informativeText = "A process is still running."
-        alert.addButton(withTitle: "Close")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.hasDestructiveAction = true
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn, let self else {
+        TabCloseConfirmation.present(required: true, title: "Close this pane?", in: window) { [weak self] in
+            guard let self else {
                 return
             }
             self.workspace?.close(self)
@@ -2775,7 +2809,10 @@ final class TerminalSessionRegistry {
     // Standalone pane hosts (previews and tests) have no group yet.
     private var unownedPanes: [UUID: UnownedPane] = [:]
 
-    func synchronize(groups: [TerminalTabGroup]) {
+    private weak var windowManager: TerminalWindowManager?
+
+    func synchronize(groups: [TerminalTabGroup], manager: TerminalWindowManager) {
+        windowManager = manager
         for group in groups {
             for tab in group.tabs {
                 entries[Key(groupID: group.id, tabID: tab.id)] = Entry(group: group, tab: tab)
@@ -2889,24 +2926,48 @@ final class TerminalSessionRegistry {
     /// a pane whose session ended starts again from its saved state.
     /// Includes panes in background groups.
     func persistentSessionIDsInUse(destination: String? = nil) -> Set<String> {
-        Set(
-            allControllers.filter {
-                $0.remoteDestination == destination
-            }
-            .flatMap {
-                [$0.persistentSessionID, $0.remoteRestoreSessionID, $0.remotePendingRestore].compactMap {
-                    $0
-                }
-            }
-        )
+        let live = allControllers.filter {
+            $0.remoteDestination == destination
+        }
+        .flatMap(\.reservedPersistentSessionIDs)
+        let dormant = entries.values.flatMap { entry in
+            entry.tab?.savedSpec?.restoredTab?.tab.root.panes.filter {
+                $0.kind != .local && $0.remoteDestination == destination
+            }.compactMap(\.sessionID) ?? []
+        }
+        return Set(live + dormant)
     }
 
-    /// The pane that shows the persistent session `id`, if any, even in a background group.
-    func controller(showingPersistentSession id: String, destination: String? = nil) -> TerminalSessionController? {
-        allControllers.first {
-            $0.persistentSessionID == id && $0.remoteDestination == destination
+    /// Resolves an explicit Show/notification action, including a dormant owner.
+    /// Loading its existing tab prevents a second attachment in a new tab.
+    func controller(showingPersistentSession id: String, destination: String? = nil, loadDormant: Bool = true) -> TerminalSessionController? {
+        if
+            let controller = allControllers.first(where: {
+                $0.reservedPersistentSessionIDs.contains(id) && $0.remoteDestination == destination
+            }) {
+            return controller
         }
+        guard loadDormant else {
+            return nil
+        }
+        for entry in entries.values {
+            guard
+                let tab = entry.tab, let group = entry.group,
+                let pane = tab.savedSpec?.restoredTab?.tab.root.panes.first(where: {
+                    $0.kind != .local && $0.sessionID == id && $0.remoteDestination == destination
+                }) else {
+                continue
+            }
+            windowManager?.navigate(to: group, tab: tab, in: windowManager?.controller(for: WindowOpener.frontTerminalWindow()))
+            _ = tab.hostView
+            tab.loadedWorkspace?.windowManager = windowManager
+            return tab.loadedWorkspace?.controllers.first {
+                $0.id == pane.id
+            }
+        }
+        return nil
     }
+
 }
 
 extension Notification.Name {

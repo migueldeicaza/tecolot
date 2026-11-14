@@ -21,8 +21,10 @@ final class TerminalWindowSizeStore {
     private var suppressedWindowIDs: Set<ObjectIdentifier> = []
 
     private let defaults: UserDefaults
-    init(defaults: UserDefaults = .standard) {
+    private let profileContentSize: (TerminalProfile) -> NSSize
+    init(defaults: UserDefaults = .standard, profileContentSize: @escaping (TerminalProfile) -> NSSize = TerminalProfileWindowSizer.contentSize) {
         self.defaults = defaults
+        self.profileContentSize = profileContentSize
     }
 
     /// Gives every manager-created window a profile/saved size and an explicit position.
@@ -33,7 +35,37 @@ final class TerminalWindowSizeStore {
         policy: TerminalWindowInitialFrame,
         cascadeFrom source: NSWindow?
     ) {
-        var size = TerminalProfileWindowSizer.contentSize(for: profile)
+        var restored = false
+        switch policy {
+        case .windowGroup(let frame), .cascaded(let frame):
+            let destination: NSRect
+            if case .cascaded = policy {
+                destination = frame.offsetBy(dx: 20, dy: -20)
+            } else {
+                destination = frame
+            }
+            restoreWindowGroupFrame(destination, to: window)
+            return
+        case .profile:
+            setProfileContentSize(contentSize(for: window, profile: profile, style: style), on: window)
+            configure(window, restoresFrame: false)
+        case .saved:
+            restored = configure(window, restoresFrame: true)
+            if !restored {
+                setProfileContentSize(contentSize(for: window, profile: profile, style: style), on: window)
+            }
+        }
+        if let source {
+            var frame = window.frame
+            frame.origin = NSPoint(x: source.frame.minX + 20, y: source.frame.maxY - frame.height - 20)
+            window.setFrame(constrainedFrame(frame, for: window), display: false)
+        } else if !restored {
+            window.center()
+        }
+    }
+
+    private func contentSize(for window: NSWindow, profile: TerminalProfile, style: SidebarPreferences) -> NSSize {
+        var size = profileContentSize(profile)
         window.contentView?.layoutSubtreeIfNeeded()
         if
             let owner = window.windowController as? TerminalWindowController,
@@ -48,33 +80,7 @@ final class TerminalWindowSizeStore {
             size.width += style.style == .above || style.hidden ? 16 : style.width + 8
             size.height += style.style == .above ? 54 : (style.style == .right || style.hidden ? 52 : 16)
         }
-        var restored = false
-        switch policy {
-        case .windowGroup(let frame), .cascaded(let frame):
-            let destination: NSRect
-            if case .cascaded = policy {
-                destination = frame.offsetBy(dx: 20, dy: -20)
-            } else {
-                destination = frame
-            }
-            restoreWindowGroupFrame(destination, to: window)
-            return
-        case .profile:
-            setProfileContentSize(size, on: window)
-            configure(window, restoresFrame: false)
-        case .saved:
-            restored = configure(window, restoresFrame: true)
-            if !restored {
-                setProfileContentSize(size, on: window)
-            }
-        }
-        if let source {
-            var frame = window.frame
-            frame.origin = NSPoint(x: source.frame.minX + 20, y: source.frame.maxY - frame.height - 20)
-            window.setFrame(constrainedFrame(frame, for: window), display: false)
-        } else if !restored {
-            window.center()
-        }
+        return size
     }
 
     func setProfileContentSize(_ contentSize: NSSize, on window: NSWindow) {

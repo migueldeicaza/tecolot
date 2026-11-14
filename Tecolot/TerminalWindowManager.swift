@@ -417,7 +417,7 @@ final class TerminalWindowManager {
     @discardableResult
     func moveToNewWindow(_ tab: TerminalTab, from source: TerminalTabGroup, activate: Bool = true) -> (any TerminalGroupWindow)? {
         guard
-            source.tabs.contains(where: {
+            source.tabs.count > 1, source.tabs.contains(where: {
                 $0 === tab
             }) else {
             return nil
@@ -447,11 +447,12 @@ final class TerminalWindowManager {
             let tabs = group.tabs
             group.tabs = []
             mount(group, in: source)
-            closeWindow(source)
+            destination.group.tabs.append(contentsOf: tabs)
             groups.removeAll {
                 $0 === group
             }
-            destination.group.tabs.append(contentsOf: tabs)
+            // Every forced save sees the transferred tabs in their new owner.
+            closeWindow(source)
         }
         changed()
     }
@@ -496,16 +497,18 @@ final class TerminalWindowManager {
         for group in groups {
             for tab in group.tabs {
                 tab.loadedWorkspace?.windowManager = self
-                tab.loadedWorkspace?.updateProcessInspection()
             }
         }
         persistenceDidChange?(false)
-        registry.synchronize(groups: groups)
+        registry.synchronize(groups: groups, manager: self)
         for window in windows {
             mount(window.group, in: window)
         }
         NotificationCenter.default.post(name: .groupsDidChange, object: self)
         NotificationCenter.default.post(name: .terminalFocusedPaneDidChange, object: nil)
+        for tab in groups.flatMap(\.tabs) {
+            tab.loadedWorkspace?.updateProcessInspection()
+        }
     }
 
     func addRestoredGroup(_ group: TerminalTabGroup) {
@@ -520,17 +523,21 @@ final class TerminalWindowManager {
         }
     }
 
-    /// Duplicate descriptions, never attachments. Remote and persistent panes
-    /// start a fresh local persistent session with the saved profile and cwd.
+    /// Duplicate descriptions, never attachments. Remote panes start fresh
+    /// sessions on the same host; local persistent panes also get new sessions.
     @discardableResult
     func duplicate(_ group: TerminalTabGroup, showInWindow: Bool = true) -> TerminalTabGroup {
         var texts: [ScrollbackSnapshot.Pending] = []
         var caches: [RemoteRowCopy] = []
+        var selectedCopyID: UUID?
         let tabs = group.tabs.compactMap { tab -> TerminalTab? in
             guard var saved = RestoreStore.capture(tab, texts: &texts, caches: &caches) else {
                 return nil
             }
             saved.id = UUID()
+            if tab.id == group.selection {
+                selectedCopyID = saved.id
+            }
             var ids: [UUID: UUID] = [:]
             func copy(_ node: RestorePaneNode) -> RestorePaneNode {
                 switch node {
@@ -538,11 +545,7 @@ final class TerminalWindowManager {
                     let id = UUID()
                     ids[pane.id] = id
                     pane.id = id
-                    if pane.kind == .remote {
-                        pane.kind = .persistent
-                    }
                     pane.sessionID = nil
-                    pane.remoteDestination = nil
                     pane.title = nil
                     pane.alternateScreenProgram = nil
                     return .pane(pane)
@@ -570,11 +573,8 @@ final class TerminalWindowManager {
             }))))
         }
         let duplicate = TerminalTabGroup(name: nameGenerator.generate(existingNames: groups.map(\.name)), tabs: tabs)
-        if
-            let index = group.tabs.firstIndex(where: {
-                $0.id == group.selection
-            }), tabs.indices.contains(index) {
-            duplicate.selection = tabs[index].id
+        if let selectedCopyID {
+            duplicate.selection = selectedCopyID
         }
         groups.append(duplicate)
         changed()

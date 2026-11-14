@@ -90,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: "Quit")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
-        guard alert.runModal() == .alertFirstButtonReturn else {
+        guard ConfirmationKeyboard.runModal(alert) == .alertFirstButtonReturn else {
             return .terminateCancel
         }
         return saveForTermination(sender)

@@ -91,6 +91,77 @@ final class EventLog: @unchecked Sendable {
 }
 
 struct RemoteSessionTests {
+    @Test(arguments: [SessionCapabilities(), [.statusOnly, .metadata]])
+    func frameVisibilityWaitsForHelloAndAppliesLatestRequest(capabilities: SessionCapabilities) async throws {
+        var fds: [Int32] = [0, 0]
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
+            throw POSIXError(.EIO)
+        }
+        let helper = MessageChannel(readFD: fds[1], writeFD: fds[1])
+        let attaches = Mutex<[Int]>([])
+        let rates = Mutex<[Int]>([])
+        helper.onMessage = { envelope in
+            if envelope.kind == .attach, let attach = try? envelope.decode(AttachMessage.self) {
+                attaches.withLock {
+                    $0.append(attach.maximumFramesPerSecond)
+                }
+            } else if envelope.kind == .setFrameRate, let rate = try? envelope.decode(SetFrameRateMessage.self) {
+                rates.withLock {
+                    $0.append(rate.maximumFramesPerSecond)
+                }
+            }
+        }
+        helper.start()
+        let session = RemoteSession(socket: fds[0], clientName: "test", build: "test")
+        defer { session.close()
+            helper.close()
+        }
+        session.start(size: WireGridSize(columns: 80, rows: 24), focused: true)
+        try await eventually("initial attach") {
+            attaches.withLock {
+                $0.count == 1
+            }
+        }
+        session.setFramesEnabled(false)
+        session.setFramesEnabled(true)
+        session.setFramesEnabled(false)
+        await withCheckedContinuation { c in
+            session.queue.async {
+                c.resume()
+            }
+        }
+        // No premature legacy reattach while hello is delayed.
+        #expect(attaches.withLock {
+            $0
+        } == [120])
+        helper.send(HelloReplyMessage(version: 1, build: "helper", capabilities: capabilities, sessionID: "test"))
+        if capabilities.contains([.statusOnly, .metadata]) {
+            try await eventually("suspend after hello") {
+                rates.withLock {
+                    $0.last == 0
+                }
+            }
+            #expect(attaches.withLock {
+                $0
+            } == [120])
+            #expect(rates.withLock {
+                $0
+            } == [0])
+        } else {
+            try await eventually("legacy fallback after hello") {
+                attaches.withLock {
+                    $0.last == 1
+                }
+            }
+            #expect(attaches.withLock {
+                $0
+            } == [120, 1])
+            #expect(rates.withLock {
+                $0.isEmpty
+            })
+        }
+    }
+
     @Test(arguments: [SessionCapabilities(), [.statusOnly]])
     func oldHelperReattachAndHistoryFetchDoNotReportNewOutput(capabilities: SessionCapabilities) async throws {
         var fds: [Int32] = [0, 0]

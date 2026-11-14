@@ -660,10 +660,11 @@ struct GroupPersistenceTests {
         #expect(copy.id != source.id && copy.name != source.name && !copy.isNameCustom)
         #expect(copy.tabs[0].id != tab.id && duplicate.tab.name == "Build")
         #expect(Set(duplicate.tab.root.panes.map(\.id)).isDisjoint(with: saved.root.panes.map(\.id)))
-        #expect(duplicate.tab.root.panes.map(\.kind) == [.persistent, .persistent])
+        #expect(duplicate.tab.root.panes.map(\.kind) == [.remote, .persistent])
         #expect(duplicate.tab.root.panes.allSatisfy {
-            $0.sessionID == nil && $0.remoteDestination == nil
+            $0.sessionID == nil
         })
+        #expect(duplicate.tab.root.panes.map(\.remoteDestination) == saved.root.panes.map(\.remoteDestination))
         #expect(duplicate.tab.root.panes.map(\.profileID) == saved.root.panes.map(\.profileID))
         #expect(duplicate.tab.root.panes.map(\.directory) == saved.root.panes.map(\.directory))
         #expect(duplicate.tab.root.panes.map(\.themeOverride) == saved.root.panes.map(\.themeOverride))

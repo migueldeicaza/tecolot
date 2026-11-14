@@ -36,7 +36,7 @@ enum TerminalPaneTransition {
 
 /// Ignores unrelated defaults notifications before starting process-inspection work.
 nonisolated struct PaneIconInspectionPreferences {
-    private var iconCount: Int
+    private(set) var iconCount: Int
     init(iconCount: Int) {
         self.iconCount = iconCount
     }
@@ -48,6 +48,33 @@ nonisolated struct PaneIconInspectionPreferences {
         self.iconCount = iconCount
         refresh()
     }
+}
+
+/// Multiple layout and visibility callbacks in one turn evaluate the final state once.
+@MainActor
+final class ProcessInspectionUpdates {
+    private var pending: DispatchWorkItem?
+    func request(_ evaluate: @escaping @MainActor () -> Void) {
+        guard pending == nil else {
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else {
+                    return
+                }
+                self.pending = nil
+                evaluate()
+            }
+        }
+        pending = work
+        DispatchQueue.main.async(execute: work)
+    }
+    func cancel() {
+        pending?.cancel()
+        pending = nil
+    }
+    deinit { pending?.cancel() }
 }
 
 @Observable
@@ -84,6 +111,7 @@ final class TerminalPaneWorkspace {
     @ObservationIgnored var pendingTransition: TerminalPaneTransition?
     /// The host sets this value from SwiftUI. The title bar also reads it.
     @ObservationIgnored var appearanceSettings = GlobalAppearanceSettings()
+    @ObservationIgnored private let processInspectionUpdates = ProcessInspectionUpdates()
     @ObservationIgnored private var processTask: Task<Void, Never>?
     @ObservationIgnored private var jobIconResolvers: [UUID: TerminalForegroundJobIconResolver] = [:]
     @ObservationIgnored private var processVisibilityObservers: [NSObjectProtocol] = []
@@ -102,7 +130,7 @@ final class TerminalPaneWorkspace {
         if spec.restoredTab == nil {
             controller.resolveLaunchIfNeeded(spec: spec)
         }
-        for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification, NSApplication.didHideNotification, NSApplication.didUnhideNotification, .groupsDidChange] {
+        for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification, NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
             processVisibilityObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.updateProcessInspection()
@@ -343,6 +371,7 @@ final class TerminalPaneWorkspace {
     }
 
     func terminateAll() {
+        processInspectionUpdates.cancel()
         processTask?.cancel()
         processTask = nil
         for controller in controllers {
@@ -377,7 +406,7 @@ final class TerminalPaneWorkspace {
             group.selection == tab.id, hostView?.cardsEnabled == true, hostView?.showsPaneHeaders == true {
             return true
         }
-        guard TabStripPreferences().iconCount > 0 else {
+        guard iconPreferences.iconCount > 0 else {
             return false
         }
         return manager.windows.compactMap {
@@ -388,13 +417,19 @@ final class TerminalPaneWorkspace {
     }
 
     func updateProcessInspection() {
+        processInspectionUpdates.request { [weak self] in
+            self?.evaluateProcessInspection()
+        }
+    }
+
+    private func evaluateProcessInspection() {
         guard
             needsProcessInspection,
             TabStripPreferences.inspectsProcesses(
                 paneCards: hostView.map {
                     $0.cardsEnabled && $0.showsPaneHeaders
                 } ?? appearanceSettings.paneCardsEnabled,
-                iconCount: TabStripPreferences().iconCount
+                iconCount: iconPreferences.iconCount
             ) else {
             processTask?.cancel()
             processTask = nil
@@ -428,7 +463,7 @@ final class TerminalPaneWorkspace {
                 paneCards: hostView.map {
                     $0.cardsEnabled && $0.showsPaneHeaders
                 } ?? appearanceSettings.paneCardsEnabled,
-                iconCount: TabStripPreferences().iconCount
+                iconCount: iconPreferences.iconCount
             ) else {
             return
         }

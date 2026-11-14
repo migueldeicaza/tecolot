@@ -168,7 +168,7 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
     /// (the helper keeps it in the session record). A click shows the
     /// session.
     func notify(_ notification: SessionNotification, session record: SessionRecord, now: Date = Date()) {
-        if let controller = TerminalSessionRegistry.shared.controller(showingPersistentSession: record.id) {
+        if let controller = TerminalSessionRegistry.shared.controller(showingPersistentSession: record.id, loadDormant: false) {
             notify(title: notification.title, body: notification.body, from: controller, now: now)
             return
         }
