@@ -33,31 +33,31 @@ struct PanesSettingsView: View {
     var body: some View {
         Form {
             Section("Panes") {
-                Picker("Padding:", selection: $padding) {
+                Picker("Padding", selection: $padding) {
                     ForEach(GlobalAppearanceSettings.TerminalPadding.allCases, id: \.self) {
                         Text($0.title).tag($0)
                     }
                 }
-                Picker("Pane style:", selection: $style) {
+                Picker("Pane style", selection: $style) {
                     ForEach(GlobalAppearanceSettings.PaneStyle.allCases, id: \.self) {
                         Text($0.title).tag($0)
                     }
                 }
                 .help("Compact removes the spacing, rounded corners and shadows around panes.")
-                Toggle("Show Pane Headers", isOn: $headers)
+                Toggle("Show pane headers", isOn: $headers)
                     .help("Comfortable panes keep headers when the window controls need them on the right or with the sidebar hidden.")
-                Picker("Background:", selection: $backdrop) {
+                Picker("Background", selection: $backdrop) {
                     ForEach(GlobalAppearanceSettings.Backdrop.allCases, id: \.self) {
                         Text($0.title).tag($0)
                     }
                 }
                 .disabled(style == .compact)
             }
-            Section("Active Pane") {
-                Toggle("Highlight Active Pane", isOn: $highlight)
+            Section("Active pane") {
+                Toggle("Highlight active pane", isOn: $highlight)
                 HStack {
-                    ColorPicker("Highlight Color", selection: color, supportsOpacity: true)
-                        .accessibilityLabel("Highlight Color")
+                    ColorPicker("Highlight color", selection: color, supportsOpacity: true)
+                        .accessibilityLabel("Highlight color")
                     Button("Use Accent Color") {
                         colorOverride = ""
                     }

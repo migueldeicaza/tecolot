@@ -42,8 +42,8 @@ struct TabInterfaceSettingsView: View {
             Section("Layout") {
                 Picker("Tab style", selection: style) {
                     Text("Above").tag("above")
-                    Text("Left Side").tag("left")
-                    Text("Right Side").tag("right")
+                    Text("Left side").tag("left")
+                    Text("Right side").tag("right")
                 }
                 if tabStyle == "horizontal" {
                     Toggle("Fill available space", isOn: $fill)
@@ -81,7 +81,7 @@ struct TabInterfaceSettingsView: View {
                     Toggle("Preserve width when resizing sidebar", isOn: $preserveWidth)
                     Picker("Use a gesture to toggle the sidebar", selection: $sidebarGesture) {
                         Text("Swipe").tag("swipe")
-                        Text("Option-Swipe").tag("optionSwipe")
+                        Text("Option-swipe").tag("optionSwipe")
                         Text("Off").tag("off")
                     }
                 }

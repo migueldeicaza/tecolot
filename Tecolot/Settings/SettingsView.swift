@@ -491,13 +491,13 @@ struct GeneralSettingsView: View {
     var body: some View {
         Form {
             Section("Startup") {
-                Picker("Open:", selection: $startupMode) {
+                Picker("Open", selection: $startupMode) {
                     Text("A new group with the default profile").tag("default")
                     Text("A new group with this profile").tag("profile")
                     Text("These groups").tag("groups")
                 }
                 if startupMode == "profile" {
-                    Picker("Profile:", selection: $startupProfileID) {
+                    Picker("Profile", selection: $startupProfileID) {
                         ForEach(profiles.profiles) { profile in
                             Text(profile.name).tag(profile.id.uuidString)
                         }
@@ -523,11 +523,11 @@ struct GeneralSettingsView: View {
 
             Section("New windows and tabs") {
                 if profiles.profiles.isEmpty {
-                    LabeledContent("Default profile:") {
+                    LabeledContent("Default profile") {
                         Text("Built-in defaults")
                     }
                 } else {
-                    Picker("Default profile:", selection: defaultProfileBinding) {
+                    Picker("Default profile", selection: defaultProfileBinding) {
                         ForEach(profiles.profiles) { profile in
                             Text(profile.name).tag(profile.id)
                         }

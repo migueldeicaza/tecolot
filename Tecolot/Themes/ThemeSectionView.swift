@@ -135,10 +135,10 @@ struct ThemeModeSection: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(isDark ? "Dark Mode" : "Light Mode")
+            Text(isDark ? "Dark mode" : "Light mode")
                 .font(.headline)
             if systemAppearance.isDark == isDark {
-                Text("\u{2014} Active")
+                Text("\u{2014} active")
                     .font(.headline)
                     .foregroundStyle(.secondary)
             }

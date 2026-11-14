@@ -162,10 +162,10 @@ struct ThemeEditorView: View {
                     }
                 }
             }
-            ThemeColorGroup(title: "ANSI Standard") {
+            ThemeColorGroup(title: "ANSI standard") {
                 ansiGrid(range: 0..<8)
             }
-            ThemeColorGroup(title: "ANSI Bright") {
+            ThemeColorGroup(title: "ANSI bright") {
                 ansiGrid(range: 8..<16)
             }
         }
@@ -284,7 +284,7 @@ struct ThemeEditorView: View {
     // MARK: Helpers
 
     private static let terminalLabels = [
-        "Background", "Text", "Cursor", "Cursor Text", "Selection", "Selected Text"
+        "Background", "Text", "Cursor", "Cursor text", "Selection", "Selected text"
     ]
     private static let ansiLabels = [
         "Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White"
@@ -301,7 +301,7 @@ struct ThemeKindBadge: View {
     let isDark: Bool
 
     var body: some View {
-        Label(isDark ? "Dark Theme" : "Light Theme", systemImage: isDark ? "moon" : "sun.max")
+        Label(isDark ? "Dark theme" : "Light theme", systemImage: isDark ? "moon" : "sun.max")
             .font(.callout)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 12)

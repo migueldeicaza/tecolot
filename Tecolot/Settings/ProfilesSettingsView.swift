@@ -476,11 +476,11 @@ struct ProfileSettingsPage: View {
     private var windowSettings: some View {
         Form {
             Section {
-                TextField("Columns:", value: binding(\.columns), format: .number)
-                TextField("Rows:", value: binding(\.rows), format: .number)
+                TextField("Columns", value: binding(\.columns), format: .number)
+                TextField("Rows", value: binding(\.rows), format: .number)
             }
             Section("Title") {
-                TextField("Custom title:", text: Binding(
+                TextField("Custom title", text: Binding(
                     get: {
                         profile.titleOverride ?? ""
                     },
@@ -514,12 +514,12 @@ struct ProfileSettingsPage: View {
     private var shellSettings: some View {
         Form {
             Section {
-                Picker("Run:", selection: shellKindBinding) {
+                Picker("Run", selection: shellKindBinding) {
                     Text("Default login shell").tag(ShellKind.loginShell)
                     Text("Command").tag(ShellKind.command)
                 }
                 if case .command(let commandLine, let runInShell) = profile.shell {
-                    TextField("Command:", text: Binding(
+                    TextField("Command", text: Binding(
                         get: {
                             commandLine
                         },
@@ -540,19 +540,19 @@ struct ProfileSettingsPage: View {
                         }
                     ))
                 }
-                Picker("When the shell exits:", selection: binding(\.whenShellExits)) {
+                Picker("When the shell exits", selection: binding(\.whenShellExits)) {
                     ForEach(ShellExitBehavior.allCases, id: \.self) { behavior in
                         Text(behavior.description).tag(behavior)
                     }
                 }
-                Picker("Ask before closing:", selection: binding(\.askBeforeClosing)) {
+                Picker("Ask before closing", selection: binding(\.askBeforeClosing)) {
                     ForEach(AskBeforeClosing.allCases, id: \.self) { policy in
                         Text(policy.description).tag(policy)
                     }
                 }
             }
             Section {
-                Picker("Shell session:", selection: binding(\.sessionPersistence)) {
+                Picker("Shell session", selection: binding(\.sessionPersistence)) {
                     ForEach(SessionPersistence.allCases, id: \.self) { persistence in
                         Text(persistence.description).tag(persistence)
                     }
@@ -605,7 +605,7 @@ struct ProfileSettingsPage: View {
                 Toggle("Delete sends Control-H", isOn: binding(\.backspaceSendsControlH))
                 Toggle("Hide pointer while typing", isOn: binding(\.hidePointerWhileTyping))
             }
-            Section("Key Mappings"){
+            Section("Key mappings"){
                 TerminalKeyBindingsEditor(profile: profile, update: updateIgnoringResult)
             }
         }
@@ -615,12 +615,12 @@ struct ProfileSettingsPage: View {
     private var terminalSettings: some View {
         Form {
             Section {
-                LabeledContent("Declare terminal as:") {
+                LabeledContent("Declare terminal as") {
                     TerminalNameComboBox(text: binding(\.termName))
                 }
                 if profile.termName == "xterm-ghostty" {
-                    TextField("TERM_PROGRAM:", text: binding(\.termProgram))
-                    TextField("TERM_VERSION:", text: binding(\.termVersion))
+                    TextField("TERM_PROGRAM", text: binding(\.termProgram))
+                    TextField("TERM_VERSION", text: binding(\.termVersion))
                 }
                 Toggle("Enable OSC 8 links", isOn: binding(\.linkOsc8))
                     .help("Allow terminal programs to set links on text. Turn this off to ignore these links. Tecolot can still detect web addresses in text.")
@@ -640,7 +640,7 @@ struct ProfileSettingsPage: View {
                     }
                 ))
                 if profile.scrollbackLines != nil {
-                    TextField("Scrollback lines:", value: Binding(
+                    TextField("Scrollback lines", value: Binding(
                         get: {
                             profile.scrollbackLines ?? 10_000
                         },
@@ -651,7 +651,7 @@ struct ProfileSettingsPage: View {
                         }
                     ), format: .number)
                 }
-                Picker("Bell:", selection: binding(\.bellStyle)) {
+                Picker("Bell", selection: binding(\.bellStyle)) {
                     ForEach(BellStyle.allCases, id: \.tagName) { style in
                         Text(style.displayName).tag(style)
                     }
@@ -1011,7 +1011,7 @@ struct ProfileTextSettingsFields: View {
     var body: some View {
         HStack {
             Button(action: showFontPanel) {
-                LabeledContent("Font:") {
+                LabeledContent("Font") {
                     Text(fontDescription)
                         .foregroundStyle(.secondary)
                 }
@@ -1032,7 +1032,7 @@ struct ProfileTextSettingsFields: View {
         .onChange(of: profile) {
             configureFontPanel()
         }
-        Picker("Cursor:", selection: Binding(
+        Picker("Cursor", selection: Binding(
             get: {
                 profile.cursorStyle
             },
@@ -1056,7 +1056,7 @@ struct ProfileTextSettingsFields: View {
                 }
             }
         ))
-        LabeledContent("Background opacity:") {
+        LabeledContent("Background opacity") {
             Slider(
                 value: $backgroundOpacityPreview,
                 in: 0.3...1.0,
@@ -1097,7 +1097,7 @@ struct ProfileTextSettingsFields: View {
     private var fontDescription: String {
         let fontName = profile.fontFamily.flatMap {
             NSFont(name: $0, size: CGFloat(profile.fontSize))?.displayName
-        } ?? profile.fontFamily ?? "System Monospaced"
+        } ?? profile.fontFamily ?? "System monospaced"
         return "\(fontName) - \(Int(profile.fontSize)) pt"
     }
 
