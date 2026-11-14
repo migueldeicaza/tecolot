@@ -40,8 +40,11 @@ public struct SessionCapabilities: OptionSet, Hashable, Sendable {
     /// Suspends frames without detaching; older helpers use the legacy low-frame-rate attach fallback.
     public static let statusOnly = SessionCapabilities(rawValue: 1 << 8)
 
+    /// Title, icon title and cwd snapshots independent of frame credits.
+    public static let metadata = SessionCapabilities(rawValue: 1 << 9)
+
     /// What this build of the helper handles.
-    public static let helper: SessionCapabilities = [.search, .reset, .prompts, .images, .bidi, .keyBytes, .programStatus, .statusOnly]
+    public static let helper: SessionCapabilities = [.search, .reset, .prompts, .images, .bidi, .keyBytes, .programStatus, .statusOnly, .metadata]
 }
 
 public enum WireBuffer: UInt8, Hashable, Sendable {
@@ -1941,5 +1944,29 @@ public struct ErrorMessage: WireMessage, Hashable {
         writer.varint(code.rawValue)
         writer.varint(failedKind.rawValue)
         writer.string(message)
+    }
+}
+
+/// Optional complete metadata snapshot, sent only to peers advertising `metadata`.
+/// Older helpers keep carrying these fields in FrameMessage; protocol v1 is unchanged.
+public struct MetadataMessage: WireMessage {
+    public static let kind = MessageKind.metadata
+    public var title: String
+    public var iconTitle: String
+    public var directory: String
+    public init(title: String, iconTitle: String, directory: String) {
+        self.title = title
+        self.iconTitle = iconTitle
+        self.directory = directory
+    }
+    public init(from reader: inout WireReader) throws(WireError) {
+        title = try reader.string()
+        iconTitle = try reader.string()
+        directory = try reader.string()
+    }
+    public func encode(to writer: inout WireWriter) {
+        writer.string(title)
+        writer.string(iconTitle)
+        writer.string(directory)
     }
 }

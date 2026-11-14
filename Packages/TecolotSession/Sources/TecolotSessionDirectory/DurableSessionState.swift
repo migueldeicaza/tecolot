@@ -164,15 +164,25 @@ public struct DurableStateDirectory: Sendable {
 
     /// The saved states, newest first. Deletes the states older than
     /// `lifetime` and the folders that have no valid state.
-    public func list(now: Date = Date()) -> [DurableSessionState] {
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: url.path) else { return [] }
+    public func list(now: Date = Date(), protecting protectedIDs: Set<String> = []) -> [DurableSessionState] {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: url.path) else {
+            return []
+        }
         var states: [DurableSessionState] = []
         for name in names where SessionDirectory.isValidIdentifier(name) {
+            if protectedIDs.contains(name) {
+                if let state = read(name) {
+                    states.append(state)
+                }
+                continue
+            }
             guard let state = read(name) else {
                 // A save that did not complete, or a file that does not decode.
                 let folder = folder(for: name)
                 let modified = (try? folder.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-                if let modified, now.timeIntervalSince(modified) > 60 { remove(name) }
+                if let modified, now.timeIntervalSince(modified) > 60 {
+                    remove(name)
+                }
                 continue
             }
             if now.timeIntervalSince(state.savedAt) > Self.lifetime {
@@ -181,7 +191,9 @@ public struct DurableStateDirectory: Sendable {
             }
             states.append(state)
         }
-        return states.sorted { $0.savedAt > $1.savedAt }
+        return states.sorted {
+            $0.savedAt > $1.savedAt
+        }
     }
 
     /// Deletes the folders older than `lifetime`. Reads only the folder

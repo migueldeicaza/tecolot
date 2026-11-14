@@ -70,8 +70,8 @@ protocol GroupSwitcherPresenting {
 final class GroupSwitcherPanel: NSPanel, GroupSwitcherPresenting, NSWindowDelegate,
 NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
     private let material = NSVisualEffectView()
-    let filterField = NSSearchField()
-    let table = NSTableView()
+    let filterField = GroupFilterField()
+    let table = GroupMenuTableView()
     private let scroll = NSScrollView()
     private let groupSeparator = NSBox()
     private weak var owner: TerminalWindowController?
@@ -79,6 +79,7 @@ NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
     private weak var previousResponder: NSResponder?
     private var anchorPoint = NSPoint.zero
     private var rows: [GroupSwitcherModel.Row] = []
+    private var accessibilityMenuItems: [GroupMenuItemElement] = []
     private var clickMonitor: Any?
     private var groupsObserver: NSObjectProtocol?
     private var closing = false
@@ -141,6 +142,37 @@ NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
         filterField.wantsLayer = true
         filterField.layer?.cornerRadius = 12
         filterField.layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+        filterField.onConfirm = { [weak self] in
+            guard let self else {
+                return false
+            }
+            self.choose(self.table.selectedRow)
+            return true
+        }
+        table.menuItems = { [weak self] in
+            guard let self else {
+                return []
+            }
+            if self.accessibilityMenuItems.count != self.rows.count {
+                self.accessibilityMenuItems = self.rows.indices.map { _ in
+                    GroupMenuItemElement()
+                }
+            }
+            for (index, element) in self.accessibilityMenuItems.enumerated() {
+                element.setAccessibilityRole(.menuItem)
+                element.setAccessibilityLabel(self.rows[index].title)
+                element.setAccessibilityEnabled(true)
+                element.setAccessibilitySelected(self.table.selectedRow == index)
+                element.setAccessibilityParent(self.table)
+                if let window = self.table.window {
+                    element.setAccessibilityFrame(window.convertToScreen(self.table.convert(self.table.rect(ofRow: index), to: nil)))
+                }
+                element.onPress = { [weak self] in
+                    self?.choose(index)
+                }
+            }
+            return self.accessibilityMenuItems
+        }
         filterField.delegate = self
         filterField.sendsSearchStringImmediately = true
         filterField.setAccessibilityLabel("Filter or create a group")
@@ -535,5 +567,29 @@ private final class GroupSwitcherRowContent: NSView {
         )
         keycap.frame = NSRect(x: bounds.width - capWidth - GroupSwitcherMetrics.trailingInset, y: top + 6, width: capWidth, height: 16)
         marker.frame = NSRect(x: keycap.frame.minX - markerWidth, y: top + 7, width: 14, height: 14)
+    }
+}
+
+/// Exposes menu actions directly instead of AppKit's synthetic table-row wrappers.
+final class GroupMenuTableView: NSTableView {
+    var menuItems: (() -> [Any])?
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        .menu
+    }
+    override func accessibilityChildren() -> [Any]? {
+        menuItems?() ?? []
+    }
+}
+private final class GroupMenuItemElement: NSAccessibilityElement {
+    var onPress: (() -> Void)?
+    override func accessibilityPerformPress() -> Bool {
+        onPress?()
+        return true
+    }
+}
+final class GroupFilterField: NSSearchField {
+    var onConfirm: (() -> Bool)?
+    override func accessibilityPerformConfirm() -> Bool {
+        onConfirm?() ?? false
     }
 }

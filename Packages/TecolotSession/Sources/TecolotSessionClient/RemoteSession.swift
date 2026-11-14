@@ -195,31 +195,33 @@ public final class RemoteSession: @unchecked Sendable {
         size: WireGridSize, focused: Bool, viewer: Bool = false, scale: Int = 0,
         screenChecksumReports: Bool? = nil, framesEnabled: Bool = true
     ) {
-        channel.onMessage = { [weak self] envelope in
-            self?.handle(envelope)
-        }
-        channel.onClose = { [weak self] error in
-            self?.channelClosed(error)
-        }
-        channel.onDrained = nil
-        channel.start()
-        channel.send(
-            HelloMessage(
-                build: build, capabilities: [.programStatus, .statusOnly], clientName: clientName,
-                clientInstance: clientInstance
+        queue.async { [self] in
+            channel.onMessage = { [weak self] envelope in
+                self?.handle(envelope)
+            }
+            channel.onClose = { [weak self] error in
+                self?.channelClosed(error)
+            }
+            channel.onDrained = nil
+            channel.start()
+            channel.send(
+                HelloMessage(
+                    build: build, capabilities: [.programStatus, .statusOnly, .metadata], clientName: clientName,
+                    clientInstance: clientInstance
+                )
             )
-        )
-        if let screenChecksumReports {
-            setScreenChecksumReports(screenChecksumReports)
+            if let screenChecksumReports {
+                setScreenChecksumReports(screenChecksumReports)
+            }
+            let attach = AttachMessage(
+                size: size, maximumFramesPerSecond: framesEnabled ? maximumFramesPerSecond : 0,
+                viewer: viewer, focused: focused, scale: scale
+            )
+            framePolicy.withLock {
+                $0 = attach
+            }
+            channel.send(attach)
         }
-        let attach = AttachMessage(
-            size: size, maximumFramesPerSecond: framesEnabled ? maximumFramesPerSecond : 0,
-            viewer: viewer, focused: focused, scale: scale
-        )
-        framePolicy.withLock {
-            $0 = attach
-        }
-        channel.send(attach)
     }
 
     /// Reads the state and the cache under the lock. Keep `body` short, and do
@@ -279,7 +281,7 @@ public final class RemoteSession: @unchecked Sendable {
     /// and repaint state, so their scrollback position returns to the live bottom.
     public func setFramesEnabled(_ enabled: Bool) {
         queue.async { [self] in
-            if state.helperCapabilities.contains(.statusOnly) {
+            if state.helperCapabilities.contains([.statusOnly, .metadata]) {
                 channel.send(SetFrameRateMessage(enabled ? maximumFramesPerSecond : 0))
             } else if
                 var attach = framePolicy.withLock({
@@ -573,6 +575,17 @@ public final class RemoteSession: @unchecked Sendable {
                     $0.state.helperBuild = reply.build
                     $0.state.helperCapabilities = reply.capabilities
                 }
+                if
+                    !reply.capabilities.contains([.statusOnly, .metadata]),
+                    var attach = framePolicy.withLock({
+                        $0
+                    }), attach.maximumFramesPerSecond == 0 {
+                    attach.maximumFramesPerSecond = 1
+                    framePolicy.withLock {
+                        $0 = attach
+                    }
+                    channel.send(attach)
+                }
             case .frame:
                 try apply(envelope.decode(FrameMessage.self))
             case .rows:
@@ -588,6 +601,16 @@ public final class RemoteSession: @unchecked Sendable {
                 onEvent?(.bell)
             case .clipboardCopy:
                 onEvent?(.clipboardCopy(try envelope.decode(ClipboardCopyMessage.self).data))
+            case .metadata:
+                let metadata = try envelope.decode(MetadataMessage.self)
+                inner.withLock {
+                    $0.state.title = metadata.title
+                    $0.state.iconTitle = metadata.iconTitle
+                    $0.state.directory = metadata.directory
+                }
+                onEvent?(.title(metadata.title))
+                onEvent?(.iconTitle(metadata.iconTitle))
+                onEvent?(.directory(metadata.directory))
             case .programStatus:
                 onEvent?(.programStatus(try envelope.decode(ProgramStatusMessage.self)))
             case .notification:

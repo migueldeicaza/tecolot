@@ -33,6 +33,19 @@ struct ProgramStatusWireTests {
         #expect(try clearEnvelope?.decode(ClearProgramStatusMessage.self).records == [record])
         #expect(SessionProtocol.version == 1 && SessionProtocol.minimumVersion == 1)
     }
+    @Test func metadataIsOptionalUnderProtocolOneAndRoundTrips() throws {
+        var stream = EnvelopeStreamDecoder()
+        stream.append(EnvelopeCodec.encode(MetadataMessage(title: "Title", iconTitle: "Icon", directory: "file:///tmp")))
+        stream.append(EnvelopeCodec.encode(PingMessage(nonce: 5)))
+        let nextEnvelope = try stream.next()
+        let envelope = try #require(nextEnvelope)
+        #expect(!envelope.flags.contains(.required))
+        let metadata = try envelope.decode(MetadataMessage.self)
+        #expect(metadata.title == "Title" && metadata.iconTitle == "Icon" && metadata.directory == "file:///tmp")
+        let ping = try stream.next()
+        #expect(try ping?.decode(PingMessage.self).nonce == 5)
+        #expect(SessionProtocol.version == 1)
+    }
     @Test func boundedRecordCount() throws {
         var writer = WireWriter()
         writer.bool(true)

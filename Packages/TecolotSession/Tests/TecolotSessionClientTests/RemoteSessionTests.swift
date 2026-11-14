@@ -91,7 +91,8 @@ final class EventLog: @unchecked Sendable {
 }
 
 struct RemoteSessionTests {
-    @Test func oldHelperReattachAndHistoryFetchDoNotReportNewOutput() async throws {
+    @Test(arguments: [SessionCapabilities(), [.statusOnly]])
+    func oldHelperReattachAndHistoryFetchDoNotReportNewOutput(capabilities: SessionCapabilities) async throws {
         var fds: [Int32] = [0, 0]
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
             throw POSIXError(.EIO)
@@ -111,7 +112,7 @@ struct RemoteSessionTests {
         old.onMessage = { envelope in
             switch envelope.kind {
             case .hello:
-                old.send(HelloReplyMessage(version: SessionProtocol.version, build: "old", capabilities: [], sessionID: "old"), requestID: envelope.requestID)
+                old.send(HelloReplyMessage(version: SessionProtocol.version, build: "old", capabilities: capabilities, sessionID: "old"), requestID: envelope.requestID)
             case .attach:
                 guard let attach = try? envelope.decode(AttachMessage.self) else {
                     return
@@ -647,7 +648,7 @@ struct ProgramStatusClientTests {
         defer { session.close() }
         host.accept(socket: fds[1])
         session.start(size: WireGridSize(columns: 40, rows: 10), focused: false, framesEnabled: false)
-        host.inject("background\u{1b}]7501;state=done\u{7}")
+        host.inject("background\u{1b}]7501;state=done\u{7}\u{1b}]0;hidden metadata\u{7}\u{1b}]1;hidden icon\u{7}\u{1b}]7;file://localhost/tmp/m15\u{7}")
         try await eventually("program status event") {
             log.events.withLock { events in events.contains { event in
                 if case .programStatus(let snapshot) = event {
@@ -656,6 +657,12 @@ struct ProgramStatusClientTests {
                 return false
             } }
         }
+        try await eventually("metadata received while paused") {
+            session.state.title == "hidden metadata" && session.state.iconTitle == "hidden icon" && session.state.directory == "file://localhost/tmp/m15"
+        }
+        #expect(session.state.title == "hidden metadata")
+        #expect(session.state.iconTitle == "hidden icon")
+        #expect(session.state.directory == "file://localhost/tmp/m15")
         #expect(session.state.lastFrameSequence == 0)
         session.setFramesEnabled(true)
         try await eventually("frames resumed") {
@@ -664,5 +671,45 @@ struct ProgramStatusClientTests {
         #expect(screen(session).contains {
             $0.contains("background")
         })
+    }
+}
+
+extension ProgramStatusClientTests {
+    @Test(arguments: [SessionCapabilities(), [.statusOnly]])
+    func initiallyHiddenClientKeepsMetadataFallbackForOlderHelpers(capabilities: SessionCapabilities) async throws {
+        var fds: [Int32] = [0, 0]
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
+            throw POSIXError(.EIO)
+        }
+        let helper = MessageChannel(socket: fds[1])
+        let rates = Mutex<[Int]>([])
+        helper.onMessage = { envelope in
+            if envelope.kind == .hello {
+                helper.send(HelloReplyMessage(version: 1, build: "old", capabilities: capabilities, sessionID: "old"))
+            } else if envelope.kind == .attach, let attach = try? envelope.decode(AttachMessage.self) {
+                rates.withLock {
+                    $0.append(attach.maximumFramesPerSecond)
+                }
+            } else if envelope.kind == .setFrameRate {
+                Issue.record("metadata-incapable helper must use legacy attach fallback")
+            }
+        }
+        helper.start()
+        let session = RemoteSession(socket: fds[0], clientName: "test", build: "test")
+        defer { session.close()
+            helper.close()
+        }
+        session.start(size: .init(columns: 40, rows: 10), focused: false, framesEnabled: false)
+        try await eventually("hidden initial attach falls back to one fps") {
+            rates.withLock {
+                $0.last == 1
+            }
+        }
+        session.setFramesEnabled(true)
+        try await eventually("visible original rate restored") {
+            rates.withLock {
+                $0.last == 120
+            }
+        }
     }
 }

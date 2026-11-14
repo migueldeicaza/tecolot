@@ -45,7 +45,7 @@ struct ProgramStatusHostTests {
         #expect(client.frameCount == 0)
     }
 
-    @Test func repeatedProgressDoesNotBumpStatusVersion() {
+    @Test func repeatedProgressRearmsStatusAndFrameVersion() {
         let host = makeHost()
         host.progressReport(source: host.terminal, report: .init(state: .set, progress: 20))
         let version = host.events.withLock {
@@ -54,11 +54,57 @@ struct ProgramStatusHostTests {
         host.progressReport(source: host.terminal, report: .init(state: .set, progress: 20))
         #expect(host.events.withLock {
             $0.programStatusVersion
-        } == version)
+        } == version + 1)
         host.progressReport(source: host.terminal, report: .init(state: .set, progress: 21))
         #expect(host.events.withLock {
             $0.programStatusVersion
-        } == version + 1)
+        } == version + 2)
+    }
+
+    @Test func repeatedFallbackErrorRearmsAfterSeenClear() async throws {
+        let host = makeHost()
+        let client = try TestClient(host: host, frameRate: 0, capabilities: [.programStatus, .statusOnly])
+        defer { client.close() }
+        host.inject("\u{1b}]9;4;2\u{7}")
+        try await client.wait("first error") {
+            $0.latestProgramStatus?.progress?.state == 2
+        }
+        let time = try #require(client.latestProgramStatus?.progressReportTime)
+        client.channel.send(ClearProgramStatusMessage(records: [WireProgramStatus(state: .error, reportTime: time)]))
+        try await client.wait("seen clear") {
+            $0.latestProgramStatus?.progress == nil
+        }
+        host.inject("\u{1b}]9;4;2\u{7}")
+        try await client.wait("repeated error rearmed") {
+            $0.latestProgramStatus?.progress?.state == 2
+        }
+        #expect(client.latestProgramStatus?.progressReportTime ?? 0 > time)
+    }
+
+    @Test func pausedFramesStillDeliverMetadataOnlyToCapableClients() async throws {
+        let host = makeHost()
+        // Use the reserved capability/kind values so this test also runs before implementation.
+        let client = try TestClient(host: host, frameRate: 0, capabilities: [.statusOnly, .init(rawValue: 1 << 9)])
+        let old = try TestClient(host: host, frameRate: 0, capabilities: [.statusOnly])
+        defer { client.close()
+            old.close()
+        }
+        host.inject("\u{1b}]0;hidden title\u{7}\u{1b}]1;hidden icon\u{7}\u{1b}]7;file://localhost/tmp/hidden\u{7}")
+        try await client.wait("metadata without frames") {
+            $0.state.withLock {
+                $0.events.compactMap {
+                    try? $0.decode(MetadataMessage.self)
+                }.contains {
+                    $0.title == "hidden title" && $0.iconTitle == "hidden icon" && $0.directory == "file://localhost/tmp/hidden"
+                }
+            }
+        }
+        #expect(client.frameCount == 0 && old.frameCount == 0)
+        #expect(!old.state.withLock {
+            $0.events.contains {
+                $0.kind.rawValue == 82
+            }
+        })
     }
 
     @Test func progressOnlyChangesCoalesceButStateChangesAreImmediate() async throws {
@@ -284,6 +330,8 @@ struct ProgramStatusHostTests {
             "state=working:id=" + String(repeating: "a", count: 33),
             "state=working:id=a/b/c/d/e/f/g/h/i",
             "state=working:msg=" + String(repeating: "A", count: 2733),
+            "state=working:msg=" + Data(String(repeating: "x", count: 2049).utf8).base64EncodedString(),
+            "state=working:pad=" + String(repeating: "x", count: 4088 - "state=working:pad=".utf8.count),
             "state=working:title=" + String(repeating: "A", count: 257),
             "state=working:app=" + String(repeating: "a", count: 33),
             "state=working:" + String(repeating: "a", count: 17) + "=x",
@@ -321,5 +369,104 @@ private extension TestClient {
                 try? $0.decode(ProgramStatusMessage.self)
             }
         }
+    }
+}
+
+/// Pin the compatibility probe to the actual SwiftTerm parser, including malformed
+/// repeated fields, boundary limits, replacement and subtree/lifetime behavior.
+struct ProgramStatusProbeParityTests {
+    private final class Quiet: TerminalDelegate {
+        func send(source: Terminal, data: ArraySlice<UInt8>) {}
+    }
+    @Test func probeAgreesWithPinnedParserOnWireFormatAndDiscardLimits() {
+        let valid = [
+            "state=working", "state=done:\u{00a0}state=clear", "state=clear:state=\u{00a0}working", " state = blocked : kind = permission : progress = 42 ",
+            "state=idle:state=done:id=task:msg=SGVsbG8", "garbage:Unknown=x:state=error:title=VGl0bGU=",
+            "state=working:kind=unknown:progress=101", "state=done:id=a/b/c/d/e/f/g/h",
+            "state=working:id=" + String(repeating: "a", count: 32),
+            "state=working:app=" + String(repeating: "a", count: 32),
+            "state=working:title=" + Data(String(repeating: "x", count: 192).utf8).base64EncodedString(),
+            "state=working:msg=" + Data(String(repeating: "x", count: 2048).utf8).base64EncodedString(),
+            "state=working:pad=" + String(repeating: "x", count: 4087 - "state=working:pad=".utf8.count),
+            "state=clear", "state=clear:id=task", "state=idle:state=clear:id=task"
+        ]
+        let invalid = [
+            "?", "state=paused", "state=working:id=", "state=working:id=a//b", "state=working:id=/a",
+            "state=working:id=a/b/c/d/e/f/g/h/i", "state=working:id=" + String(repeating: "x", count: 33),
+            "state=working:id=" + String(repeating: "abcd/", count: 26),
+            "state=working:app=" + String(repeating: "x", count: 33),
+            "state=working:msg=Cg==", "state=working:msg=woU=", "state=working:msg=fw==",
+            "state=working:msg=____", "state=working:msg=YQ=", "state=working:msg=/w==",
+            "state=working:msg=Cg==:msg=b2s=", "state=working:id=a//b:id=ok",
+            "state=working:" + String(repeating: "a", count: 17) + "=x",
+            "state=working:title=" + String(repeating: "A", count: 257),
+            "state=working:msg=" + String(repeating: "A", count: 2733),
+            "state=working:" + String(repeating: "x", count: 4100)
+        ]
+        for terminator in ["\u{7}", "\u{1b}\\"] {
+            for (payload, accepted) in valid.map({
+                ($0, true)
+            }) + invalid.map({
+                ($0, false)
+            }) {
+                let terminal = Terminal(delegate: Quiet())
+                // A real accepted clear must remove the native seeded subtree.
+                let clear = payload.contains("state=clear") && !payload.contains("\u{00a0}state=clear")
+                if clear {
+                    terminal.feed(text: "\u{1b}]7501;state=done:id=task/child\u{7}")
+                }
+                terminal.feed(text: "\u{1b}]7501;" + payload + terminator)
+                #expect(
+                    clear ? terminal.programStatusRecords.isEmpty : !terminal.programStatusRecords.isEmpty == accepted,
+                    "Native parser: \(payload.prefix(70))"
+                )
+                let tracker = ProgramStatusTracker()
+                #expect(
+                    tracker.observeReport(Array(payload.utf8), records: terminal.programStatusRecords) == accepted,
+                    "Probe: \(payload.prefix(70))"
+                )
+                #expect(tracker.snapshot.uses7501 == accepted)
+            }
+        }
+    }
+
+    @Test func probeTracksReplacementLRUEvictionSubtreeClearAndLifetime() {
+        let terminal = Terminal(delegate: Quiet())
+        let tracker = ProgramStatusTracker()
+        func report(_ payload: String) {
+            terminal.feed(text: "\u{1b}]7501;" + payload + "\u{7}")
+            #expect(tracker.observeReport(Array(payload.utf8), records: terminal.programStatusRecords))
+        }
+        report("state=working:id=parent:app=claude-code:msg=SGk=")
+        report("state=done:id=parent/child")
+        #expect(tracker.snapshot.records.last?.app == "claude-code")
+        report("state=working:id=parent")
+        #expect(tracker.snapshot.records.last?.app == nil && tracker.snapshot.records.last?.message == nil)
+        report("state=clear:id=parent")
+        #expect(terminal.programStatusRecords.isEmpty && tracker.snapshot.records.isEmpty)
+        for index in 0..<256 {
+            report("state=done:id=r\(index)")
+        }
+        report("state=done:id=r0")
+        report("state=done:id=r256")
+        #expect(tracker.snapshot.records.map(\.id) == terminal.programStatusRecords.map(\.id))
+        #expect(tracker.snapshot.records.contains {
+            $0.id == "r0"
+        })
+        #expect(!tracker.snapshot.records.contains {
+            $0.id == "r1"
+        })
+        report("state=clear")
+        for state in ["idle", "working", "blocked", "done", "error"] {
+            report("state=\(state):id=\(state)")
+        }
+        terminal.feed(text: "\u{1b}]133;A\u{7}")
+        tracker.receive(terminal.programStatusRecords, isReport: false)
+        tracker.dropTransient()
+        #expect(Set(tracker.snapshot.records.map(\.state)) == [.done, .error])
+        terminal.programStatusProcessExited()
+        tracker.receive(terminal.programStatusRecords, isReport: false)
+        tracker.processExited()
+        #expect(Set(tracker.snapshot.records.map(\.state)) == [.done, .error])
     }
 }

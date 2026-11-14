@@ -16,6 +16,7 @@ enum GroupSessionEnder {
         let info: SessionInfoMessage?
         let program: String?
         var unavailableReason: String? = nil
+        var tabID: UUID? = nil
     }
 
     struct Probe {
@@ -77,7 +78,8 @@ enum GroupSessionEnder {
                         local: local,
                         info: controller.persistentView?.session.state.info,
                         program: program,
-                        unavailableReason: kind == .remote && sessionID == nil ? "the session on \(controller.remoteDestination ?? "the host") is still starting; its session ID is not available yet" : nil
+                        unavailableReason: kind == .remote && sessionID == nil ? "the session on \(controller.remoteDestination ?? "the host") is still starting; its session ID is not available yet" : nil,
+                        tabID: tab.id
                     )
                 }
             }
@@ -91,7 +93,8 @@ enum GroupSessionEnder {
                     },
                     local: nil,
                     info: nil,
-                    program: nil
+                    program: nil,
+                    tabID: tab.id
                 )
             }
         }
@@ -192,6 +195,7 @@ enum GroupSessionEnder {
         _ plan: Plan,
         confirm: (Plan) async -> Decision,
         end: (SessionRef) async throws -> Void,
+        validate: (Set<SessionRef>) throws -> Void = { _ in },
         close: () -> Void
     ) async throws -> Bool {
         let decision = plan.needsConfirmation ? await confirm(plan) : .endSessions
@@ -201,11 +205,27 @@ enum GroupSessionEnder {
         guard plan.unavailable.isEmpty || decision == .closeLeavingUnavailable else {
             return false
         }
+        var ending = Set<SessionRef>()
         for session in plan.sessions {
+            try validate(ending)
+            ending.insert(session)
             try await end(session)
         }
+        try validate(ending)
         close()
         return true
+    }
+
+    /// Only panes belonging to sessions this operation ended may disappear.
+    /// Additions, reorderings and replacement session identities remain stale.
+    static func matches(_ initial: [Pane], current: [Pane], ending: Set<SessionRef>) -> Bool {
+        let currentIDs = Set(current.map(\.id))
+        let expected = initial.filter { pane in
+            currentIDs.contains(pane.id) || !(pane.session.map(ending.contains) ?? false)
+        }
+        return expected.count == current.count && zip(expected, current).allSatisfy {
+            $0.id == $1.id && $0.kind == $1.kind && $0.session == $1.session && $0.tabID == $1.tabID
+        }
     }
 
     static func request(_ group: TerminalTabGroup, manager: TerminalWindowManager, in window: NSWindow?) {
@@ -279,18 +299,21 @@ enum GroupSessionEnder {
                         return .cancel
                     }
                 }, end: { session in
+                    try await SessionTermination.end(session)
+                }, validate: { ending in
+                    let current = panes(in: group)
                     guard
+                        matches(initial, current: current, ending: ending),
                         manager.groups.contains(where: {
                             $0 === group
-                        }), panes(in: group).map(\.id) == initial.map(\.id) else {
+                        }) || current.isEmpty && !ending.isEmpty else {
                         throw Failure.groupChanged
                     }
-                    try await SessionTermination.end(session)
                 }, close: {
                     if
                         manager.groups.contains(where: {
                             $0 === group
-                        }), panes(in: group).map(\.id) == initial.map(\.id) {
+                        }) {
                         manager.closeGroup(group)
                     }
                 })

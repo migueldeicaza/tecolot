@@ -123,6 +123,14 @@ struct ProgramActivitySettingsView: View {
                 )
                 .font(.caption).foregroundStyle(.secondary)
                 Toggle("Badge Dock icon", isOn: $dock)
+                if dock {
+                    Text("Enable Badge application icon in System Settings → Notifications → Tecolot. Earlier notification permissions may leave badges off.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Open Notification Settings") {
+                        TerminalNotifier.shared.requestBadgeAuthorization()
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
+                    }
+                }
                 Toggle("Play sounds", isOn: $sounds)
             }
             Section("States") {
@@ -130,7 +138,7 @@ struct ProgramActivitySettingsView: View {
                 Toggle("Blocked", isOn: $blocked)
                 Toggle("Error", isOn: $error)
                 Toggle("Done", isOn: $done)
-                Text("Each state controls its tab indicator, system notification, Dock badge and sound.")
+                Text("Each state controls its tab indicator. Blocked, Error and Done also control system notifications, Dock badges and sounds.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

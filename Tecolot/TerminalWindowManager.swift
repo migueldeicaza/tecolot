@@ -75,11 +75,13 @@ final class TerminalWindowManager {
     }
 
     func group(containing controller: TerminalSessionController) -> TerminalTabGroup? {
-        groups.first {
-            $0.tabs.contains {
-                $0.loadedWorkspace?.contains(controller) == true
-            }
-        }
+        controller.workspace?.owningTab?.group
+    }
+
+    /// A user move creates a visible destination, including a single-tab source.
+    func moveToNewGroup(_ tab: TerminalTab) {
+        let group = newGroup(tab: tab)
+        openWindow(group: group).activate()
     }
 
     @discardableResult

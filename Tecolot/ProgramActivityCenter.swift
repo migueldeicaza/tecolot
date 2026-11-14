@@ -85,6 +85,9 @@ final class ProgramActivityCenter {
         }
         let count = ProgramActivitySettings.shared.value.dock ? TabStatus.dockCount(Array(statuses.values)) : 0
         let label = count == 0 ? nil : String(count)
+        if count > 0 {
+            TerminalNotifier.shared.requestBadgeAuthorization()
+        }
         if NSApp.dockTile.badgeLabel != label {
             NSApp.dockTile.badgeLabel = label
         }

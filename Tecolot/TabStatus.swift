@@ -131,9 +131,15 @@ nonisolated struct TabStatus: Equatable {
         case nil:
             label = badge == .notified ? "Notified" : (badge == .quiet ? "Activity" : "")
         }
-        return label + (record?.value.message.flatMap {
+        let percentage = progress.map {
+            ", \($0)%"
+        } ?? ""
+        return label + percentage + (record?.value.message.flatMap {
             $0.isEmpty ? nil : ": " + $0
         } ?? "")
+    }
+    static func activityAccessibilityValue(count: Int) -> String {
+        "\(count) \(count == 1 ? "tab" : "tabs") with unseen activity"
     }
     static let none = TabStatus()
     /// Applies state priority, report recency, Mute and disabled-state policy across panes.

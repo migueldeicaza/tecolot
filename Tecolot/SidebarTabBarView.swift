@@ -271,6 +271,10 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
                 ($0.badge?.rawValue ?? -1) < ($1.badge?.rawValue ?? -1)
             } ?? .none
         activityBadge.configure(status, background: chrome.bar, colored: ProgramActivitySettings.shared.value.color)
+        activity.setAccessibilityLabel("Activity")
+        activity.setAccessibilityValue(TabStatus.activityAccessibilityValue(count: controller.manager.groups.flatMap(\.tabs).filter {
+            $0.status.unseen
+        }.count))
         needsLayout = true
         updateDrawingVisibility()
     }
@@ -433,11 +437,18 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         }
         header.beginRename()
     }
+    func hasVisibleCell(for tab: TerminalTab) -> Bool {
+        let row = outline.row(forItem: tab)
+        return !isHidden && window?.isVisible == true && window?.isMiniaturized == false
+            && window?.occlusionState.contains(.visible) == true && row >= 0
+            && outline.rect(ofRow: row).intersects(outline.visibleRect)
+    }
     func updateDrawingVisibility() {
         let visible = !isHidden && window?.occlusionState.contains(.visible) == true && !NSApp.isHidden
         for cell in cells.values {
             let row = outline.row(forItem: cell.tab)
             cell.setDrawingVisible(visible && row >= 0 && outline.rect(ofRow: row).intersects(outline.visibleRect))
+            cell.tab.loadedWorkspace?.updateProcessInspection()
         }
     }
     private func showHints(_ event: NSEvent) {
@@ -726,6 +737,25 @@ private final class SidebarGroupHeader: NSView {
             ($0.badge?.rawValue ?? -1) < ($1.badge?.rawValue ?? -1)
         } ?? .none : .none
         badge.configure(status, background: .windowBackgroundColor, colored: ProgramActivitySettings.shared.value.color)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityValue(status.accessibilityValue)
+        setAccessibilityExpanded(!group.isCollapsed)
+        setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(name: "Expand or Collapse Group", handler: { [weak self] in
+                self?.accessibilityPerformPress() ?? false
+            }),
+            NSAccessibilityCustomAction(name: "New Tab", handler: { [weak self] in self?.newTab()
+                return true
+            })
+        ])
+    }
+    override func accessibilityPerformPress() -> Bool {
+        guard let manager = sidebar?.controller?.manager else {
+            return false
+        }
+        manager.setCollapsed(!group.isCollapsed, group: group)
+        return true
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -824,6 +854,11 @@ private final class SidebarGroupHeader: NSView {
 
 /// Uses the measured row insets and puts disclosure at the header's trailing edge.
 final class SidebarOutlineView: NSOutlineView {
+    override func accessibilityChildren() -> [Any]? {
+        (0..<numberOfRows).compactMap {
+            view(atColumn: 0, row: $0, makeIfNecessary: true)
+        }
+    }
     override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
         var rect = super.frameOfCell(atColumn: column, row: row)
         let group = item(atRow: row) is TerminalTabGroup

@@ -207,7 +207,7 @@ struct TerminalTabSelectionAppearanceTests {
     }
 
     @Test func quitAlertUsesSingularAndPlural() {
-        #expect(TerminalClosePolicy.quitMessage(runningPaneCount: 1) == "1 local pane has running processes.")
-        #expect(TerminalClosePolicy.quitMessage(runningPaneCount: 2) == "2 local panes have running processes.")
+        #expect(TerminalClosePolicy.quitMessage(runningPaneCount: 1) == "1 local pane asks for confirmation before closing.")
+        #expect(TerminalClosePolicy.quitMessage(runningPaneCount: 2) == "2 local panes ask for confirmation before closing.")
     }
 }

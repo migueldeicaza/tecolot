@@ -78,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let runningCount = TerminalClosePolicy.runningTaskCount(in: TerminalSessionRegistry.shared.allControllers)
+        let runningCount = TerminalClosePolicy.confirmationCount(in: TerminalSessionRegistry.shared.allControllers)
         let hasLiveProcess = runningCount > 0
         guard hasLiveProcess else {
             return saveForTermination(sender)

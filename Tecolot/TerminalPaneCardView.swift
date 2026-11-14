@@ -129,7 +129,24 @@ final class TerminalPaneCardView: NSView {
         }
         configure(overflow, label: "Pane Actions", symbol: "ellipsis", action: #selector(showActions))
         header.addSubview(overflow)
+        setAccessibilityElement(true)
         setAccessibilityRole(.group)
+        header.setAccessibilityElement(true)
+        header.setAccessibilityRole(.group)
+        header.setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(name: "Split Right", handler: { [weak self] in self?.splitRight()
+                return true
+            }),
+            NSAccessibilityCustomAction(name: "Split Down", handler: { [weak self] in self?.splitDown()
+                return true
+            }),
+            NSAccessibilityCustomAction(name: "Zoom or Restore Pane", handler: { [weak self] in self?.toggleZoom()
+                return true
+            }),
+            NSAccessibilityCustomAction(name: "Close Pane", handler: { [weak self] in self?.closePane()
+                return true
+            })
+        ])
         refreshAppearance()
         observePresentation()
     }
@@ -245,6 +262,8 @@ final class TerminalPaneCardView: NSView {
         activity.configure(status, background: headerBackground, colored: ProgramActivitySettings.shared.value.color)
         activity.isHidden = status.badge == nil
         setAccessibilityValue(status.accessibilityValue)
+        header.setAccessibilityLabel(presentation.title + " pane header")
+        header.setAccessibilityValue(status.accessibilityValue)
         icon.image = TerminalAppIconResolver.shared.icon(forExecutablePath: presentation.executablePath)
         icon.contentTintColor = foreground
         icon.toolTip = TerminalAppIconResolver.identity(forExecutablePath: presentation.executablePath) ?? "Terminal"

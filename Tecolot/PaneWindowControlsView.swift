@@ -53,6 +53,10 @@ final class PaneWindowControlsView: NSView {
             ($0.badge?.rawValue ?? -1) < ($1.badge?.rawValue ?? -1)
         } ?? .none
         badge.configure(status, background: .windowBackgroundColor, colored: ProgramActivitySettings.shared.value.color)
+        activity.setAccessibilityLabel("Activity")
+        activity.setAccessibilityValue(TabStatus.activityAccessibilityValue(count: controller?.manager.groups.flatMap(\.tabs).filter {
+            $0.status.unseen
+        }.count ?? 0))
         needsLayout = true
     }
 

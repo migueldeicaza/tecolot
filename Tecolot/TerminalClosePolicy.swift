@@ -6,29 +6,39 @@ import SwiftTerm
 enum TerminalClosePolicy {
     static func quitMessage(runningPaneCount: Int) -> String {
         runningPaneCount == 1
-            ? "1 local pane has running processes."
-            : "\(runningPaneCount) local panes have running processes."
+            ? "1 local pane asks for confirmation before closing."
+            : "\(runningPaneCount) local panes ask for confirmation before closing."
     }
 
     static func requiresConfirmation(for controller: TerminalSessionController) -> Bool {
-        guard let process = controller.terminal?.process, process.running else {
+        requiresConfirmation(state: state(for: controller))
+    }
+
+    static func requiresConfirmation(state: PaneState) -> Bool {
+        guard !state.persistent, state.running else {
             return false
         }
-
-        switch controller.profile.askBeforeClosing {
+        switch state.askBeforeClosing {
         case .never:
             return false
         case .always:
             return true
         case .onlyIfProcessesRunning:
-            return childProcessCount(parentPID: process.shellPid) > 0
+            return state.childProcesses > 0
         }
+    }
+
+    static func confirmationCount(in controllers: [TerminalSessionController]) -> Int {
+        controllers.filter {
+            requiresConfirmation(for: $0)
+        }.count
     }
 
     struct PaneState {
         var persistent: Bool
         var running: Bool
         var childProcesses: Int
+        var askBeforeClosing: AskBeforeClosing = .onlyIfProcessesRunning
         var hasRunningTask: Bool {
             !persistent && running && childProcesses > 0
         }
@@ -39,7 +49,8 @@ enum TerminalClosePolicy {
         return PaneState(
             persistent: controller.isPersistent,
             running: process?.running == true,
-            childProcesses: childProcessCount(parentPID: process?.shellPid ?? 0)
+            childProcesses: childProcessCount(parentPID: process?.shellPid ?? 0),
+            askBeforeClosing: controller.profile.askBeforeClosing
         )
     }
 

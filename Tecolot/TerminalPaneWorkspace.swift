@@ -68,6 +68,7 @@ final class TerminalPaneNode: Identifiable {
 @Observable
 @MainActor
 final class TerminalPaneWorkspace {
+    @ObservationIgnored weak var owningTab: TerminalTab?
     private(set) var root: TerminalPaneNode
     private(set) var revision = 0 {
         didSet { windowManager?.persistenceDidChange?(false) }
@@ -85,6 +86,7 @@ final class TerminalPaneWorkspace {
     @ObservationIgnored var appearanceSettings = GlobalAppearanceSettings()
     @ObservationIgnored private var processTask: Task<Void, Never>?
     @ObservationIgnored private var jobIconResolvers: [UUID: TerminalForegroundJobIconResolver] = [:]
+    @ObservationIgnored private var processVisibilityObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var iconPreferencesObserver: NSObjectProtocol?
     @ObservationIgnored private var iconPreferences = PaneIconInspectionPreferences(iconCount: TabStripPreferences().iconCount)
 
@@ -99,6 +101,13 @@ final class TerminalPaneWorkspace {
         launchSpec = spec
         if spec.restoredTab == nil {
             controller.resolveLaunchIfNeeded(spec: spec)
+        }
+        for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification, NSApplication.didHideNotification, NSApplication.didUnhideNotification, .groupsDidChange] {
+            processVisibilityObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.updateProcessInspection()
+                }
+            })
         }
         iconPreferencesObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -118,6 +127,7 @@ final class TerminalPaneWorkspace {
     }
 
     deinit {
+        processVisibilityObservers.forEach(NotificationCenter.default.removeObserver)
         processTask?.cancel()
         if let iconPreferencesObserver {
             NotificationCenter.default.removeObserver(iconPreferencesObserver)
@@ -353,12 +363,33 @@ final class TerminalPaneWorkspace {
         )
     }
 
-    /// Starts or stops the foreground process check. The tab bar shows the
-    /// icons of all panes, also panes that a zoom hides and panes in tabs
-    /// that are not selected. Thus the workspace examines all panes, not
-    /// only the panes that have a card on screen.
+    /// Visible headers and tab icons need fresh jobs, including zoom-hidden panes.
+    /// Dormant and background groups keep cached identities without polling.
+    var needsProcessInspection: Bool {
+        guard
+            !NSApp.isHidden, let tab = owningTab, let group = tab.group,
+            let manager = windowManager,
+            let owner = manager.window(showing: group) as? TerminalWindowController else {
+            return false
+        }
+        if
+            let window = owner.window, window.isVisible, !window.isMiniaturized, window.occlusionState.contains(.visible),
+            group.selection == tab.id, hostView?.cardsEnabled == true, hostView?.showsPaneHeaders == true {
+            return true
+        }
+        guard TabStripPreferences().iconCount > 0 else {
+            return false
+        }
+        return manager.windows.compactMap {
+            $0 as? TerminalWindowController
+        }.contains {
+            $0.tabBar.hasVisibleCell(for: tab) || $0.sidebar.hasVisibleCell(for: tab)
+        }
+    }
+
     func updateProcessInspection() {
         guard
+            needsProcessInspection,
             TabStripPreferences.inspectsProcesses(
                 paneCards: hostView.map {
                     $0.cardsEnabled && $0.showsPaneHeaders
@@ -392,6 +423,7 @@ final class TerminalPaneWorkspace {
 
     private func inspectForegroundProcesses() async {
         guard
+            needsProcessInspection,
             TabStripPreferences.inspectsProcesses(
                 paneCards: hostView.map {
                     $0.cardsEnabled && $0.showsPaneHeaders
@@ -400,8 +432,7 @@ final class TerminalPaneWorkspace {
             ) else {
             return
         }
-        // Live background groups still inspect jobs. Drawing visibility is
-        // independent of process identity and later program-status delivery.
+        // Recheck after each suspension; no process syscalls for hidden groups.
         let panes = controllers
         let descriptors = panes.map { controller -> Int32? in
             guard let process = controller.terminal?.process, process.running else {
@@ -424,7 +455,7 @@ final class TerminalPaneWorkspace {
                 return .init(processGroup: group, processes: processes)
             }
         }.value
-        guard !Task.isCancelled else {
+        guard !Task.isCancelled, needsProcessInspection else {
             return
         }
         let liveIDs = Set(controllers.map(\.id))

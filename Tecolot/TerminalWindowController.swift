@@ -27,6 +27,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     private(set) var sidebarPreferences: SidebarPreferences
     private var sidebarObserver: NSObjectProtocol?
     private var activityObserver: NSObjectProtocol?
+    private var accessibilityObserver: NSObjectProtocol?
     private var animateChrome = false
     private var mountedTabs: [TerminalTab] = []
     private var promptVisibility: [UUID] = []
@@ -51,6 +52,14 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         _ = manager.show(group, in: self)
     }
 
+    private(set) var windowedFrame: NSRect?
+    var restorationFrame: NSRect {
+        if enteringFullScreen || window?.styleMask.contains(.fullScreen) == true {
+            return windowedFrame ?? window?.frame ?? .zero
+        }
+        return window?.frame ?? .zero
+    }
+    private var enteringFullScreen = false
     private var observationGeneration = 0
     private let preferences: TerminalWindowPreferences
     private var trafficLightObservers: [NSObjectProtocol] = []
@@ -110,8 +119,20 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         }
         activityObserver = NotificationCenter.default.addObserver(forName: .programActivityDidChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.contentHeader.refresh()
-                self?.paneHeaderControls.refresh()
+                guard let self else {
+                    return
+                }
+                self.window?.title = "\(self.group.selectedTab?.title ?? "Terminal") — \(self.group.name)"
+                self.contentHeader.refresh()
+                self.paneHeaderControls.refresh()
+            }
+        }
+        accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refresh()
+                NotificationCenter.default.post(name: .programActivityDidChange, object: self)
             }
         }
         content.onLayout = { [weak self] in
@@ -140,6 +161,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         }
         if let activityObserver {
             NotificationCenter.default.removeObserver(activityObserver)
+        }
+        if let accessibilityObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver)
         }
     }
 
@@ -328,7 +352,6 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
             for tab in group.tabs {
                 _ = tab.customName
                 _ = tab.isMuted
-                _ = tab.status
                 guard let workspace = tab.loadedWorkspace else {
                     continue
                 }
@@ -337,7 +360,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
                 _ = workspace.focusHistory
                 _ = workspace.zoomedControllerID
                 for pane in workspace.controllers {
-                    _ = pane.panePresentation
+                    _ = pane.windowPresentation
                     _ = pane.profile
                     _ = pane.themeOverride
                     _ = pane.showThemePicker
@@ -639,11 +662,28 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     func windowDidMove(_ notification: Notification) {
         manager.persistenceDidChange?(false)
     }
+    func windowWillEnterFullScreen(_ notification: Notification) {
+        windowedFrame = window?.frame
+        enteringFullScreen = true
+    }
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) {
+        enteringFullScreen = false
+        windowedFrame = nil
+    }
+
     func windowDidEnterFullScreen(_ notification: Notification) {
+        enteringFullScreen = false
+        if NSApp.isActive {
+            window?.makeKey()
+        }
+        NSApp.mainMenu?.update()
         content.needsLayout = true
         manager.persistenceDidChange?(false)
     }
     func windowDidExitFullScreen(_ notification: Notification) {
+        enteringFullScreen = false
+        windowedFrame = nil
+        NSApp.mainMenu?.update()
         manager.persistenceDidChange?(false)
         content.needsLayout = true
         scheduleTrafficLightLayout()
@@ -886,6 +926,14 @@ final class TerminalWindow: NSWindow {
     /// Rechecks the source window after a drop, including a tab that changed windows.
     func finishTabPointerGesture() {
         updateTabPointer(at: mouseLocationOutsideOfEventStream)
+    }
+
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(NSWindow.toggleFullScreen(_:)) {
+            menuItem.title = styleMask.contains(.fullScreen) ? "Exit Full Screen" : "Enter Full Screen"
+            return true
+        }
+        return super.validateMenuItem(menuItem)
     }
 
     override func sendEvent(_ event: NSEvent) {

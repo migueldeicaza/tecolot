@@ -57,6 +57,9 @@ final class HorizontalTabBarView: NSView {
         track.wantsLayer = true
         track.layer?.cornerRadius = 16
         track.bar = self
+        track.setAccessibilityElement(true)
+        track.setAccessibilityRole(.group)
+        track.setAccessibilityLabel("Tab list")
         track.addSubview(selectionSurface)
         scroll.documentView = track
         scroll.viewportChanged = { [weak self] in
@@ -120,6 +123,9 @@ final class HorizontalTabBarView: NSView {
                             return
                         }
                         if note.name == .programActivityDidChange || note.name == .groupsDidChange {
+                            if note.name == .programActivityDidChange {
+                                self.refreshActivity(changedPane: note.object as? TerminalSessionController)
+                            }
                             if self.window?.isVisible == true {
                                 self.updateActivityBadge()
                             }
@@ -199,6 +205,16 @@ final class HorizontalTabBarView: NSView {
         updateDividers()
     }
 
+    /// Progress refreshes only its cell, independently of structural window observation.
+    func refreshActivity(changedPane: TerminalSessionController?) {
+        let tab = changedPane?.owningTab
+        let key = window?.isKeyWindow == true
+        let chrome = TabStripChrome(theme: terminalTheme, opacity: opacity, key: key, appearance: effectiveAppearance)
+        for cell in cells where tab == nil || cell.tab === tab {
+            cell.configure(selected: cell.isSelected, key: key, chrome: chrome, preferences: preferences)
+        }
+    }
+
     /// Reduces unseen activity across all live groups for the trailing Activity button.
     private func updateActivityBadge() {
         let statuses = (activityManager?.groups ?? []).flatMap(\.tabs).map(\.status)
@@ -209,7 +225,7 @@ final class HorizontalTabBarView: NSView {
             status, background: chromeBackground, colored: ProgramActivitySettings.shared.value.color
         )
         let count = statuses.filter(\.unseen).count
-        activityButton.setAccessibilityValue("\(count) tabs with unseen activity")
+        activityButton.setAccessibilityValue(TabStatus.activityAccessibilityValue(count: count))
     }
     private var chromeBackground: NSColor {
         TabStripChrome(
@@ -401,11 +417,23 @@ final class HorizontalTabBarView: NSView {
             )
         }
     }
+    func hasVisibleCell(for tab: TerminalTab) -> Bool {
+        guard
+            !isHidden, window?.isVisible == true, window?.isMiniaturized == false,
+            window?.occlusionState.contains(.visible) == true,
+            let index = cells.firstIndex(where: {
+                $0.tab === tab
+            }) else {
+            return false
+        }
+        return stripLayout.visibleIndices(offset: scroll.contentView.bounds.minX).contains(index)
+    }
     func updateDrawingVisibility() {
         let visible = !isHidden && window?.occlusionState.contains(.visible) == true && !NSApp.isHidden
         let range = stripLayout.visibleIndices(offset: scroll.contentView.bounds.minX)
         for (index, cell) in cells.enumerated() {
             cell.setDrawingVisible(visible && range.contains(index))
+            cell.tab.loadedWorkspace?.updateProcessInspection()
         }
     }
     override func flagsChanged(with event: NSEvent) {
@@ -561,6 +589,9 @@ private final class TabTrackView: NSView {
     }
     var surfaceColor = NSColor.clear {
         didSet { needsDisplay = true }
+    }
+    override func accessibilityChildren() -> [Any]? {
+        bar?.cells ?? []
     }
     override var isFlipped: Bool {
         true

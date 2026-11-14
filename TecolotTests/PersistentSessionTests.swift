@@ -294,8 +294,9 @@ struct PersistentPaneTests {
         let view = try #require(controller.persistentView)
         view.findPasteboard = NSPasteboard.withUniqueName()
         defer { view.findPasteboard.releaseGlobally() }
-        // The helper starts off the main thread; the pane shows at once.
-        try await wait("session created") {
+        // Bootstrap completes on the main queue. Concurrent rendering suites can
+        // occupy the main actor for over ten seconds on a cold full-suite run.
+        try await wait("session created", timeout: 30) {
             controller.persistentSessionID != nil
         }
         let session = view.session

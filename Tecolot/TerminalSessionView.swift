@@ -109,6 +109,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     var showThemePicker = false
     private(set) var displayedWindowTitle = "Tecolot"
     private(set) var panePresentation = PanePresentation()
+    /// Metadata followed by the window structure, excluding high-frequency activity.
+    private(set) var windowPresentation = PanePresentation()
     @ObservationIgnored var launchDirectory: String?
     @ObservationIgnored private var didResolveLaunch = false
     /// The directory reports of the shell, for restoration and new tabs.
@@ -649,21 +651,15 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     var owningTab: TerminalTab? {
-        let manager = workspace?.windowManager ?? .shared
-        return manager.group(containing: self)?.tabs.first {
-            $0.loadedWorkspace?.contains(self) == true
-        }
+        workspace?.owningTab
     }
 
     var isProgramActivityVisible: Bool {
         NSApp.isActive && isProgramTabShown && surface?.window?.isKeyWindow == true
     }
     var isProgramTabShown: Bool {
-        if let tab = owningTab {
+        if let tab = owningTab, let group = tab.group {
             let manager = workspace?.windowManager ?? .shared
-            guard let group = manager.group(containing: self) else {
-                return false
-            }
             return group.selection == tab.id && manager.window(showing: group) != nil
         }
         return surface?.isHiddenOrHasHiddenAncestor == false && surface?.window != nil
@@ -1630,6 +1626,12 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if presentation != panePresentation {
             panePresentation = presentation
         }
+        var metadata = presentation
+        metadata.hasActivity = false
+        metadata.status = .none
+        if metadata != windowPresentation {
+            windowPresentation = metadata
+        }
         if let focused = workspace?.focusedController, focused !== self {
             focused.updateWindowTitle()
             return
@@ -1645,6 +1647,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return
         }
         panePresentation.executablePath = path
+        windowPresentation.executablePath = path
     }
 
     private func updateLogging() {

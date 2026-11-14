@@ -43,6 +43,9 @@ final class TabItemView: NSView {
     private var key = false
     private var chrome = TabStripChrome(theme: nil, opacity: 1, key: false, appearance: .currentDrawing())
     private let accessibleClose = TabCloseAccessibilityElement()
+    override func accessibilityChildren() -> [Any]? {
+        [accessibleClose]
+    }
     override var isFlipped: Bool {
         true
     }
@@ -111,6 +114,8 @@ final class TabItemView: NSView {
         }
         setAccessibilityElement(true)
         setAccessibilityRole(.radioButton)
+        closeButton.setAccessibilityElement(false)
+        accessibleClose.setAccessibilityEnabled(true)
         accessibleClose.setAccessibilityRole(.button)
         accessibleClose.setAccessibilityLabel("Close Tab")
         accessibleClose.setAccessibilityParent(self)
@@ -511,7 +516,7 @@ final class TabItemView: NSView {
                 guard let controller, let tab else {
                     return
                 }
-                _ = controller.manager.newGroup(tab: tab)
+                controller.manager.moveToNewGroup(tab)
             })
             let move = NSMenuItem(title: "Move to Group", action: nil, keyEquivalent: "")
             move.submenu = destinations

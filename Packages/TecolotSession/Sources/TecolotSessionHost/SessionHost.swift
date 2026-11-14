@@ -1012,6 +1012,18 @@ public final class SessionHost: @unchecked Sendable {
             snapshot.outputSerial = activityFeed
             client.channel.send(snapshot)
         }
+        let metadata = events.withLock {
+            ($0.title, $0.titleVersion, $0.iconTitle, $0.iconTitleVersion, $0.directory, $0.directoryVersion)
+        }
+        for client in attachedClients where client.capabilities.contains(.metadata) {
+            guard client.seenTitle != metadata.1 || client.seenIconTitle != metadata.3 || client.seenDirectory != metadata.5 else {
+                continue
+            }
+            client.channel.send(MetadataMessage(title: metadata.0, iconTitle: metadata.2, directory: metadata.4))
+            client.seenTitle = metadata.1
+            client.seenIconTitle = metadata.3
+            client.seenDirectory = metadata.5
+        }
         notifyMetadataIfNeeded()
         if
             events.withLock({
@@ -1812,18 +1824,12 @@ extension SessionHost: TerminalDelegate {
 
     public func progressReport(source: Terminal, report: Terminal.ProgressReport) {
         let progress = WireProgress(state: UInt8(report.state.rawValue), progress: report.progress)
-        let changed = events.withLock { state in
+        events.withLock { state in
+            // Identical reports are heartbeats and may rearm a cleared status.
             state.progressTime = .now
-            guard state.progress != progress else {
-                return false
-            }
             state.progress = progress
             state.progressVersion &+= 1
             state.bumpLatched()
-            return true
-        }
-        guard changed else {
-            return
         }
         programStatus.progress(progress)
         programStatusDidChange()

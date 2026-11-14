@@ -83,6 +83,10 @@ final class ContentHeaderView: NSView {
         setAccessibilityValue(paneStatus.accessibilityValue)
         toggleBadge.configure(status, background: .windowBackgroundColor, colored: color)
         activityBadge.configure(status, background: .windowBackgroundColor, colored: color)
+        activity.setAccessibilityLabel("Activity")
+        activity.setAccessibilityValue(TabStatus.activityAccessibilityValue(count: controller.manager.groups.flatMap(\.tabs).filter {
+            $0.status.unseen
+        }.count))
         needsLayout = true
     }
     override func layout() {

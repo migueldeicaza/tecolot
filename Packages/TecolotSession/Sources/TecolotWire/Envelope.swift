@@ -90,6 +90,8 @@ public struct MessageKind: RawRepresentable, Hashable, Sendable, CustomStringCon
     public static let notification = MessageKind(rawValue: 80)
     /// Optional status snapshots for programStatus-capable clients; old peers ignore this kind.
     public static let programStatus = MessageKind(rawValue: 81)
+    /// Optional metadata snapshots; older peers ignore unknown optional kinds.
+    public static let metadata = MessageKind(rawValue: 82)
 }
 
 /// Per-message flags.

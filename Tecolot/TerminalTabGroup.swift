@@ -8,7 +8,18 @@ final class TerminalTabGroup: Identifiable {
     let id: UUID
     var name: String
     var isNameCustom: Bool
-    var tabs: [TerminalTab]
+    var tabs: [TerminalTab] {
+        didSet {
+            for tab in oldValue where tab.group === self && !tabs.contains(where: {
+                $0 === tab
+            }) {
+                tab.group = nil
+            }
+            for tab in tabs {
+                tab.group = self
+            }
+        }
+    }
     var selection: UUID?
     var isCollapsed = false
     var lastShownAt: Date?
@@ -19,6 +30,9 @@ final class TerminalTabGroup: Identifiable {
         self.isNameCustom = isNameCustom
         self.tabs = tabs
         selection = tabs.first?.id
+        for tab in tabs {
+            tab.group = self
+        }
     }
 
     var selectedTab: TerminalTab? {

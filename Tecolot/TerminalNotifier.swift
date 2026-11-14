@@ -77,7 +77,7 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         guard admit(key, now: now) else {
             return
         }
-        let content = Self.content(title: title, body: body, source: Self.source(of: controller))
+        let content = Self.content(title: title, body: body, source: controller.panePresentation.title, group: controller.owningTab?.group?.name)
         if
             let tab = controller.owningTab,
             !tabLimits.admit(tab: tab.id, sound: true, now: now.timeIntervalSince1970) {
@@ -112,10 +112,11 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
 
     /// Applies profile, state, seen and per-tab limits before notifying about a report.
     func notifyProgramStatus(
-        _ record: WireProgramStatus, from controller: TerminalSessionController, now: Date = Date()
+        _ record: WireProgramStatus, from controller: TerminalSessionController, now: Date = Date(), appActive: Bool? = nil
     ) {
         let preferences = ProgramActivitySettings.shared.value
         guard
+            [.blocked, .error, .done].contains(record.state),
             !preferences.disabledStates.contains(record.state), controller.owningTab?.isMuted != true,
             !controller.isProgramActivityVisible,
             !controller.programStatus.seen.isSeen(pane: controller.id, record: record)
@@ -131,13 +132,13 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         let tab = controller.owningTab?.id ?? controller.id
         let status = TabStatus.reduce([TabStatus.Record(paneID: controller.id, value: record, unseen: true)])
         if
-            preferences.notifications, !NSApp.isActive,
+            preferences.notifications, !(appActive ?? NSApp.isActive),
             tabLimits.admit(tab: tab, sound: false, now: now.timeIntervalSince1970),
             admit(controller.id.uuidString, now: now) {
             let key = controller.id.uuidString
             let heading = status.accessibilityValue.components(separatedBy: ": ").first ?? "Program activity"
             let content = Self.content(
-                title: heading, body: record.message ?? record.title ?? "", source: Self.source(of: controller)
+                title: heading, body: record.message ?? record.title ?? "", source: controller.panePresentation.title, group: controller.owningTab?.group?.name
             )
             content.userInfo = ["pane": key]
             content.threadIdentifier = tab.uuidString
@@ -205,11 +206,13 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
 
     /// Without a title, the pane (or session) is the title; with one, it is
     /// the subtitle.
-    private static func content(title: String, body: String, source: String) -> UNMutableNotificationContent {
+    private static func content(title: String, body: String, source: String, group: String? = nil) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
         content.title = ProgramStatusText.sanitize(title.isEmpty ? source : title, limit: 192)
-        if !title.isEmpty {
-            content.subtitle = ProgramStatusText.sanitize(source, limit: 1024)
+        if let group {
+            content.subtitle = ProgramStatusText.sanitize(group, limit: 192)
+        } else if !title.isEmpty {
+            content.subtitle = ProgramStatusText.sanitize(source, limit: 192)
         }
         content.body = ProgramStatusText.sanitize(body)
         content.sound = .default
@@ -231,11 +234,31 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         return TerminalSessionRegistry.shared.controller(for: window) === controller
     }
 
+    static let authorizationOptions: UNAuthorizationOptions = [.alert, .sound, .badge]
+    private var requestedBadgeAuthorization = false
+
+    /// Request the added badge option even for an earlier alert/sound-only grant.
+    /// macOS may leave it disabled; Notifications settings exposes the user's switch.
+    func requestBadgeAuthorization() {
+        guard !requestedBadgeAuthorization else {
+            return
+        }
+        requestedBadgeAuthorization = true
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
+            return
+        }
+        UNUserNotificationCenter.current().requestAuthorization(options: Self.authorizationOptions) { _, _ in
+            DispatchQueue.main.async {
+                NSApp.dockTile.display()
+            }
+        }
+    }
+
     private static func deliverToNotificationCenter(_ request: UNNotificationRequest) {
         let center = UNUserNotificationCenter.current()
         center.delegate = TerminalNotifier.shared
         // The first notification asks the user for permission.
-        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+        center.requestAuthorization(options: Self.authorizationOptions) { granted, _ in
             guard granted else {
                 return
             }

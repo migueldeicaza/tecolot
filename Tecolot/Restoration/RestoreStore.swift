@@ -326,6 +326,7 @@ final class RestoreStore {
         sessionStatesOverride ?? Self.localSessionStates
     }
     private let sessionStatesOverride: DurableStateDirectory?
+    private let runningSessions: @MainActor () -> Set<String>
     /// False until the startup restore ran. Before it, the open windows are
     /// not the saved layout, and a quit must not replace the saved files.
     private(set) var isReady = false
@@ -335,6 +336,11 @@ final class RestoreStore {
         directory: URL,
         isEnabled: Bool = true,
         sessionStates: DurableStateDirectory? = nil,
+        runningSessions: @escaping @MainActor () -> Set<String> = {
+            Set(PersistentSessions.list().filter {
+                !$0.exited
+            }.map(\.id))
+        },
         manager: TerminalWindowManager? = nil,
         defaults: UserDefaults = .standard,
         issueCenter: PersistenceIssueCenter? = nil,
@@ -351,6 +357,7 @@ final class RestoreStore {
         self.startsProcesses = startsProcesses
         self.stateWriter = stateWriter
         sessionStatesOverride = sessionStates
+        self.runningSessions = runningSessions
     }
 
     deinit { pendingSave?.cancel() }
@@ -585,7 +592,7 @@ final class RestoreStore {
             }
             return RestoreWindow(
                 groupID: group.id,
-                frame: NSStringFromRect(window.frame),
+                frame: NSStringFromRect((window.windowController as? TerminalWindowController)?.restorationFrame ?? window.frame),
                 screen: window.screen?.localizedName,
                 isFullScreen: window.styleMask.contains(.fullScreen)
             )
@@ -835,9 +842,35 @@ final class RestoreStore {
         let currentBoot = BootIdentifier.current()
         let restarted = state.bootID != nil && currentBoot != nil && state.bootID != currentBoot
         let shown = TerminalSessionRegistry.shared.shownPersistentSessionIDs()
-        let running = Set(PersistentSessions.list().filter {
-            !$0.exited
-        }.map(\.id))
+        let running = runningSessions()
+        var referenced = Set<String>()
+        for group in state.groups {
+            for pane in group.tabs.flatMap({
+                $0.root.panes
+            }) where pane.kind == .persistent {
+                if let id = pane.sessionID {
+                    referenced.insert(id)
+                }
+            }
+        }
+        for group in manager.groups {
+            for tab in group.tabs {
+                let panes: [RestorePane]
+                if let saved = tab.savedSpec?.restoredTab?.tab {
+                    panes = saved.root.panes
+                } else {
+                    panes = tab.loadedWorkspace?.controllers.compactMap {
+                        $0.restorePane()
+                    } ?? []
+                }
+                for pane in panes where pane.kind == .persistent {
+                    if let id = pane.sessionID {
+                        referenced.insert(id)
+                    }
+                }
+            }
+        }
+        _ = sessionStates.list(protecting: referenced.union(running).union(shown))
         var used = Set<UUID>()
         var recovered: [TerminalTabGroup] = []
         for saved in state.groups {
@@ -949,7 +982,11 @@ final class RestoreStore {
         guard let controller = owner as? TerminalWindowController, let window = controller.window else {
             return
         }
-        window.orderFront(nil)
+        if NSApp.isActive {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            window.orderFront(nil)
+        }
         if saved?.isFullScreen == true && startsGroup {
             DispatchQueue.main.async { [weak window] in
                 window?.toggleFullScreen(nil)

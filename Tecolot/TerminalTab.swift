@@ -10,6 +10,7 @@ final class TerminalTab: Identifiable {
         case live(TerminalPaneWorkspace)
     }
 
+    @ObservationIgnored weak var group: TerminalTabGroup?
     let id: UUID
     private var workspaceState: WorkspaceState
     var loadedWorkspace: TerminalPaneWorkspace? {
@@ -26,6 +27,7 @@ final class TerminalTab: Identifiable {
         case .dormant(let spec):
             let workspace = TerminalPaneWorkspace(spec: spec, startsProcesses: startsProcesses)
             workspaceState = .live(workspace)
+            workspace.owningTab = self
             return workspace
         }
     }
@@ -60,6 +62,7 @@ final class TerminalTab: Identifiable {
         self.id = id
         workspaceState = .live(workspace)
         startsProcesses = true
+        workspace.owningTab = self
     }
 
     convenience init(spec: LaunchSpec = LaunchSpec(), startsProcesses: Bool = true) {

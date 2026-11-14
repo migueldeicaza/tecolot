@@ -21,7 +21,7 @@ public final class ProgramStatusTracker: Sendable {
         var hasExited = false
     }
     private let state = Mutex(State())
-    private static let reportProbe = Mutex(ProgramStatusReportProbe())
+    private let reportProbe = Mutex<ProgramStatusReportProbe?>(nil)
     /// Creates an empty tracker without accessing the terminal emulator.
     public init() {}
 
@@ -116,8 +116,11 @@ public final class ProgramStatusTracker: Sendable {
             }) else {
             return false
         }
-        let result = Self.reportProbe.withLock {
-            $0.validate(payload)
+        let result = reportProbe.withLock { probe in
+            if probe == nil {
+                probe = ProgramStatusReportProbe()
+            }
+            return probe!.validate(payload)
         }
         guard result.accepted else {
             return false
@@ -278,13 +281,16 @@ private final class ProgramStatusReportProbe: @unchecked Sendable {
             return (false, false, nil)
         }
         terminal.clearProgramStatus()
+        // SwiftTerm trims ASCII space and 0x09...0x0D only. Unicode trimming
+        // can turn a malformed pair into a clear that the native parser ignored.
+        let whitespace = CharacterSet(charactersIn: " \t\n\r\u{000b}\u{000c}")
         var fields: [String: String] = [:]
         for pair in String(decoding: payload, as: UTF8.self).split(separator: ":") {
             guard let equal = pair.firstIndex(of: "=") else {
                 continue
             }
-            let key = pair[..<equal].trimmingCharacters(in: .whitespacesAndNewlines)
-            let value = pair[pair.index(after: equal)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = pair[..<equal].trimmingCharacters(in: whitespace)
+            let value = pair[pair.index(after: equal)...].trimmingCharacters(in: whitespace)
             if
                 value.utf8.allSatisfy({
                     (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0)

@@ -23,6 +23,7 @@ final class ProgramActivitySeenStore {
     private(set) var revision = 0
     @ObservationIgnored private let directory: URL
     @ObservationIgnored private let debounceInterval: TimeInterval
+    @ObservationIgnored private let willEncode: @Sendable () -> Void
     @ObservationIgnored private let queue = DispatchQueue(label: "tecolot.program-activity-seen")
     @ObservationIgnored private var pendingSave: DispatchWorkItem?
     @ObservationIgnored private var markers: [String: UInt64]
@@ -30,10 +31,12 @@ final class ProgramActivitySeenStore {
     /// Loads the small JSON document. Tests supply a private temporary directory.
     init(
         directory: URL = RestoreStore.applicationSupport.appendingPathComponent("ProgramActivity", isDirectory: true),
-        debounceInterval: TimeInterval = 0.25, legacyDefaults: UserDefaults? = nil
+        debounceInterval: TimeInterval = 0.25, legacyDefaults: UserDefaults? = nil,
+        willEncode: @escaping @Sendable () -> Void = {}
     ) {
         self.directory = directory
         self.debounceInterval = debounceInterval
+        self.willEncode = willEncode
         let url = directory.appendingPathComponent("seen.json")
         if
             let data = try? Data(contentsOf: url),
@@ -91,12 +94,12 @@ final class ProgramActivitySeenStore {
         }
         revision += 1
         pendingSave?.cancel()
-        guard let data = try? JSONEncoder().encode(Document(markers: markers)) else {
-            return
-        }
+        let snapshot = markers
         let directory = directory
+        let willEncode = willEncode
         let work = DispatchWorkItem {
-            _ = Self.write(data, directory: directory)
+            willEncode()
+            _ = Self.encodeAndWrite(snapshot, directory: directory)
         }
         pendingSave = work
         queue.asyncAfter(deadline: .now() + debounceInterval, execute: work)
@@ -107,13 +110,20 @@ final class ProgramActivitySeenStore {
     func flush() -> Bool {
         pendingSave?.cancel()
         pendingSave = nil
+        let snapshot = markers
+        let directory = directory
+        let willEncode = willEncode
+        return queue.sync {
+            willEncode()
+            return Self.encodeAndWrite(snapshot, directory: directory)
+        }
+    }
+
+    nonisolated private static func encodeAndWrite(_ markers: [String: UInt64], directory: URL) -> Bool {
         guard let data = try? JSONEncoder().encode(Document(markers: markers)) else {
             return false
         }
-        let directory = directory
-        return queue.sync {
-            Self.write(data, directory: directory)
-        }
+        return write(data, directory: directory)
     }
 
     /// Uses the same private-directory and atomic-file helpers as restoration.

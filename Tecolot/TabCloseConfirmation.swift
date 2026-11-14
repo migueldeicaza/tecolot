@@ -20,7 +20,7 @@ enum TabCloseConfirmation {
         }
         let alert = NSAlert()
         alert.messageText = title
-        alert.informativeText = "A process is still running."
+        alert.informativeText = "Closing will end the local shells and their programs."
         alert.addButton(withTitle: "Close")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
@@ -39,7 +39,7 @@ enum TabCloseConfirmation {
 @MainActor
 enum GroupCloseConfirmation {
     static func requiresConfirmation(_ group: TerminalTabGroup) -> Bool {
-        TerminalClosePolicy.runningTaskCount(in: group.tabs.flatMap {
+        TerminalClosePolicy.confirmationCount(in: group.tabs.flatMap {
             $0.loadedWorkspace?.controllers ?? []
         }) > 0
     }
