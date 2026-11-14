@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftTerm
 
 private struct PreferencesV0 {
     var newTabsUseCurrentDirectory: Bool?
@@ -49,7 +50,9 @@ final class PreferenceMigrator {
         "startupGroupIDs",
         "SecureKeyboardEntry",
         "LogHostOutput",
-        "useMetalRenderer"
+        "useMetalRenderer",
+        TerminalNotificationPreferences.bellStyleKey,
+        TerminalNotificationPreferences.allowsProgramNotificationsKey
     ]
 
     init(
@@ -120,6 +123,7 @@ final class PreferenceMigrator {
         let source = readV0()
         let migrated = migrateV0(source, profiles: profiles)
         apply(migrated)
+        migrateBellPreferences(profiles: profiles)
         defaults.set(Self.currentVersion, forKey: Self.schemaKey)
         if defaults.synchronize() {
             issueCenter.resolve(domain: .preferences, sourceURL: sourceURL)
@@ -157,6 +161,35 @@ final class PreferenceMigrator {
             defaults.removeObject(forKey: key)
         }
         migrate(profiles: profiles)
+    }
+
+    private func migrateBellPreferences(profiles: ProfileStore) {
+        guard !TerminalNotificationPreferences.bellMigrationSeeded(defaults: defaults),
+              !issueCenter.issues.contains(where: {
+                  $0.domain == .profiles || $0.domain == .legacyApplicationSupport
+              }) else {
+            return
+        }
+        let profile = profiles.defaultProfile
+        if defaults.object(forKey: TerminalNotificationPreferences.bellStyleKey) == nil {
+            defaults.set(profile.bellStyle.tagName, forKey: TerminalNotificationPreferences.bellStyleKey)
+        }
+        if defaults.object(forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey) == nil {
+            defaults.set(profile.allowsNotifications, forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey)
+        }
+        var differed: [String] = []
+        if profiles.profiles.contains(where: { $0.bellStyle != profile.bellStyle }) {
+            differed.append("bell")
+        }
+        if profiles.profiles.contains(where: { $0.allowsNotifications != profile.allowsNotifications }) {
+            differed.append("notifications")
+        }
+        if !differed.isEmpty {
+            defaults.set(differed, forKey: TerminalNotificationPreferences.bellMigrationDifferedKey)
+        }
+        // UserDefaults can retain an equal numeric value's type when writing a Bool.
+        defaults.removeObject(forKey: TerminalNotificationPreferences.bellMigrationSeededKey)
+        defaults.set(true, forKey: TerminalNotificationPreferences.bellMigrationSeededKey)
     }
 
     private func snapshotData() throws -> Data {

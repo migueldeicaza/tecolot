@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftTerm
 
 /// Edits live preferences for tab layout, appearance and the sidebar.
 struct TabInterfaceSettingsView: View {
@@ -143,8 +144,49 @@ struct ProgramActivitySettingsView: View {
                 Text("Each state controls its tab indicator. Blocked, Error and Done also control system notifications, Dock badges and sounds.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            FromProgramsSettingsSection()
         }
         .formStyle(.grouped)
         .navigationTitle("Notifications")
+    }
+}
+
+private struct FromProgramsSettingsSection: View {
+    @AppStorage(TerminalNotificationPreferences.bellStyleKey) private var bellStyle = "sound"
+    @AppStorage(TerminalNotificationPreferences.allowsProgramNotificationsKey) private var allowsNotifications = true
+    @AppStorage(TerminalNotificationPreferences.bellMigrationNoteDismissedKey) private var noteDismissed = false
+
+    var body: some View {
+        Section {
+            if TerminalNotificationPreferences.showsMigrationNote(
+                differed: TerminalNotificationPreferences.bellMigrationDiffered(), dismissed: noteDismissed
+            ) {
+                HStack(alignment: .top) {
+                    Text("Bell and program notifications now apply to all profiles. They were set from your default profile.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        noteDismissed = true
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss")
+                }
+            }
+            Picker("Bell", selection: $bellStyle) {
+                ForEach(BellStyle.allCases, id: \.tagName) { style in
+                    Text(style.displayName).tag(style.tagName)
+                }
+            }
+            Toggle("Allow programs to send notifications", isOn: $allowsNotifications)
+        } header: {
+            Text("From programs")
+        } footer: {
+            Text("Programs send notifications with OSC 9 or OSC 777. Tecolot shows them when the pane is not in front.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 }

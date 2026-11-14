@@ -124,7 +124,6 @@ public enum ProfileApplier {
         }
         view.feed(text: "\u{1b}[\(cursorStyleParameter) q")
         view.changeScrollback (profile.scrollbackLines)
-        view.bellStyle = profile.bellStyle
     }
 
     /// The native font described by the profile, falling back to the

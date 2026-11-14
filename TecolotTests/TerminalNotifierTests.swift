@@ -1,6 +1,7 @@
 import AppKit
 import Testing
 import TecolotSessionDirectory
+import TecolotWire
 import UserNotifications
 @testable import Tecolot
 
@@ -10,6 +11,23 @@ import UserNotifications
 @MainActor
 enum TestNotifications {
     private static var requests: [UNNotificationRequest] = []
+    private static var defaultsInUse = false
+
+    /// Async tests share the notifier; keep their defaults overrides from overlapping.
+    static func useDefaults(_ defaults: UserDefaults) async throws -> UserDefaults {
+        while defaultsInUse {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        defaultsInUse = true
+        let previous = TerminalNotifier.shared.defaults
+        TerminalNotifier.shared.defaults = defaults
+        return previous
+    }
+
+    static func restoreDefaults(_ defaults: UserDefaults) {
+        TerminalNotifier.shared.defaults = defaults
+        defaultsInUse = false
+    }
 
     static func install() {
         TerminalNotifier.shared.deliver = {
@@ -38,6 +56,13 @@ struct TerminalNotifierTests {
     }
 
     @Test func localPanesPostNotificationsFromPrograms() async throws {
+        let domain = "terminal-notifier-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        let oldDefaults = try await TestNotifications.useDefaults(defaults)
+        defer {
+            TestNotifications.restoreDefaults(oldDefaults)
+            defaults.removePersistentDomain(forName: domain)
+        }
         TestNotifications.install()
         let controller = TerminalSessionController(startsProcess: false)
         let terminal = try #require(controller.makeTerminalView() as? AppTerminalView)
@@ -51,20 +76,24 @@ struct TerminalNotifierTests {
         #expect(contents.map(\.body) == ["Done", "Tests passed"])
     }
 
-    @Test func notificationsFollowTheProfileAndARateLimit() {
+    @Test func notificationsFollowGlobalPreferencesAndARateLimit() throws {
+        let domain = "terminal-notifier-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
         TestNotifications.install()
+        let notifier = TerminalNotifier()
+        notifier.defaults = defaults
+        notifier.deliver = TerminalNotifier.shared.deliver
         let controller = TerminalSessionController(startsProcess: false)
-        var profile = TerminalProfile(name: "Quiet")
-        profile.allowsNotifications = false
-        controller.applyProfile(profile)
-        TerminalNotifier.shared.notify(title: "", body: "muted", from: controller)
+        defer { controller.terminate() }
+        defaults.set(false, forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey)
+        notifier.notify(title: "", body: "muted", from: controller)
         #expect(TestNotifications.contents(for: controller).isEmpty)
 
-        profile.allowsNotifications = true
-        controller.applyProfile(profile)
+        defaults.set(true, forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey)
         let start = Date()
         for index in 0 ..< 8 {
-            TerminalNotifier.shared.notify(
+            notifier.notify(
                 title: "",
                 body: "\(index)",
                 from: controller,
@@ -73,7 +102,7 @@ struct TerminalNotifierTests {
         }
         #expect(TestNotifications.contents(for: controller).count == TerminalNotifier.rateLimit)
         // After the window, the pane can post again.
-        TerminalNotifier.shared.notify(
+        notifier.notify(
             title: "",
             body: "later",
             from: controller,
@@ -84,8 +113,12 @@ struct TerminalNotifierTests {
 
     /// The rate limit forgets panes that posted nothing for a while, for
     /// example closed panes.
-    @Test func theRateLimitForgetsQuietPanes() {
+    @Test func theRateLimitForgetsQuietPanes() throws {
+        let domain = "terminal-notifier-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
         let notifier = TerminalNotifier()
+        notifier.defaults = defaults
         notifier.deliver = { _ in }
         let later = Date().addingTimeInterval(3600)
         notifier.notify(title: "", body: "one", from: TerminalSessionController(startsProcess: false), now: later)
@@ -103,8 +136,12 @@ struct TerminalNotifierTests {
     /// record. The app shows each new one once, but not the ones that came
     /// before it started.
     @Test func detachedSessionsPostTheirNotifications() throws {
+        let domain = "terminal-notifier-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
         var requests: [UNNotificationRequest] = []
         let notifier = TerminalNotifier()
+        notifier.defaults = defaults
         notifier.deliver = {
             requests.append($0)
         }
@@ -152,6 +189,37 @@ struct TerminalNotifierTests {
         watcher.check()
         #expect(requests.count == 2)
         #expect(requests.last?.content.title == "zsh")
+
+        defaults.set(false, forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey)
+        notifier.notify(SessionNotification(serial: 3, title: "", body: "Disabled"), session: second)
+        #expect(requests.count == 2)
+        defaults.set(true, forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey)
+        notifier.notify(SessionNotification(serial: 4, title: "", body: "Enabled again"), session: second)
+        #expect(requests.count == 3)
+    }
+
+    @Test func programStatusNotificationsIgnoreTheProgramNotificationSwitch() throws {
+        let domain = "terminal-notifier-status-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        defaults.set(false, forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey)
+        let notifier = TerminalNotifier()
+        notifier.defaults = defaults
+        var requests: [UNNotificationRequest] = []
+        notifier.deliver = { requests.append($0) }
+        let controller = TerminalSessionController(startsProcess: false)
+        defer { controller.terminate() }
+
+        defaults.set(true, forKey: ProgramActivityPreferences.notificationsKey)
+        defaults.set(true, forKey: ProgramActivityPreferences.soundsKey)
+        defaults.set(true, forKey: ProgramActivityPreferences.stateKey(.done))
+
+        notifier.notifyProgramStatus(
+            WireProgramStatus(state: .done, message: "Finished", reportTime: 1), from: controller, appActive: false
+        )
+        #expect(requests.count == 1)
+        #expect(requests.first?.content.body == "Finished")
+        #expect(requests.first?.content.sound != nil)
     }
 
     @Test func profilesKeepTheNotificationSetting() throws {

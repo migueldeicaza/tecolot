@@ -24,6 +24,7 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
     /// Shows the notification. Tests replace it so that they do not post real
     /// notifications.
     var deliver: (UNNotificationRequest) -> Void = TerminalNotifier.deliverToNotificationCenter
+    var defaults: UserDefaults = .standard
 
     /// Panes that posted notifications, so that a click can show the pane.
     private var panes: [String: WeakController] = [:]
@@ -57,13 +58,13 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         weak var controller: TerminalSessionController?
     }
 
-    /// Shows a notification for a program in `controller`, unless the profile
+    /// Shows a notification for a program in `controller`, unless preferences
     /// turned them off, the user looks at that pane now, or the pane sent too
     /// many.
     func notify(title: String, body: String, from controller: TerminalSessionController, now: Date = Date()) {
         controller.programStatus.noteNotification(isSeen: controller.isProgramActivityVisible)
         guard
-            controller.profile.allowsNotifications, controller.owningTab?.isMuted != true,
+            TerminalNotificationPreferences.allowsProgramNotifications(defaults: defaults), controller.owningTab?.isMuted != true,
             !Self.isInFront(controller)
         else {
             return
@@ -110,11 +111,11 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
             }.joined(separator: " › ")
     }
 
-    /// Applies profile, state, seen and per-tab limits before notifying about a report.
+    /// Applies program activity preferences, state, seen and per-tab limits before notifying about a report.
     func notifyProgramStatus(
         _ record: WireProgramStatus, from controller: TerminalSessionController, now: Date = Date(), appActive: Bool? = nil
     ) {
-        let preferences = ProgramActivitySettings.shared.value
+        let preferences = ProgramActivityPreferences(defaults: defaults)
         guard
             [.blocked, .error, .done].contains(record.state),
             !preferences.disabledStates.contains(record.state), controller.owningTab?.isMuted != true,
@@ -125,9 +126,6 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         }
         if record.state == .blocked {
             requestAttention(from: controller, now: now)
-        }
-        guard controller.profile.allowsNotifications else {
-            return
         }
         let tab = controller.owningTab?.id ?? controller.id
         let status = TabStatus.reduce([TabStatus.Record(paneID: controller.id, value: record, unseen: true)])
@@ -172,7 +170,7 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
             notify(title: notification.title, body: notification.body, from: controller, now: now)
             return
         }
-        guard Self.profile(for: record).allowsNotifications, admit("session " + record.id, now: now) else {
+        guard TerminalNotificationPreferences.allowsProgramNotifications(defaults: defaults), admit("session " + record.id, now: now) else {
             return
         }
         let row = SessionBrowserRow(record: record, status: .detached, shownHere: false)
@@ -217,12 +215,6 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         content.body = ProgramStatusText.sanitize(body)
         content.sound = .default
         return content
-    }
-
-    private static func profile(for record: SessionRecord) -> TerminalProfile {
-        let profiles = AppModel.shared.profiles
-        return record.labels["profileID"].flatMap(UUID.init(uuidString:)).flatMap(profiles.profile(withID:))
-            ?? profiles.defaultProfile
     }
 
     /// True when the pane is the focused pane of the key window of the

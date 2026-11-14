@@ -436,7 +436,15 @@ struct ProgramActivityTests {
         #expect(!ActivityNavigation.acceptsKeyEvent(try event(other), popoverWindow: popover, ownerWindow: owner))
     }
 
-    @Test func localBellUsesLiveViewStyleAndFlashesOnce() throws {
+    @Test func localBellUsesGlobalStyleAndFlashesOnce() throws {
+        let domain = "program-activity-bell-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        let oldDefaults = TerminalNotifier.shared.defaults
+        TerminalNotifier.shared.defaults = defaults
+        defer {
+            TerminalNotifier.shared.defaults = oldDefaults
+            defaults.removePersistentDomain(forName: domain)
+        }
         let controller = TerminalSessionController(startsProcess: false)
         let view = try #require(controller.makeTerminalView() as? AppTerminalView)
         let oldSound = TerminalNotifier.shared.sound
@@ -454,16 +462,17 @@ struct ProgramActivityTests {
         view.wantsLayer = true
         let layer = try #require(view.layer)
         let before = layer.sublayers?.count ?? 0
-        view.bellStyle = .visual  // Live view setting must override the profile.
+        // Global changes apply to this open view without applying its profile again.
+        defaults.set(BellStyle.visual.tagName, forKey: TerminalNotificationPreferences.bellStyleKey)
         controller.noteBell(now: Date(timeIntervalSince1970: 10))
         #expect((layer.sublayers?.count ?? 0) == before + 1)
         controller.noteBell(now: Date(timeIntervalSince1970: 10.05))
         #expect((layer.sublayers?.count ?? 0) == before + 1)  // Native 100 ms debounce.
         #expect(sounds == 0)
-        view.bellStyle = .none
+        defaults.set(BellStyle.none.tagName, forKey: TerminalNotificationPreferences.bellStyleKey)
         controller.noteBell(now: Date(timeIntervalSince1970: 11))
         #expect((layer.sublayers?.count ?? 0) == before + 1 && sounds == 0)
-        view.bellStyle = .soundAndVisual
+        defaults.set(BellStyle.soundAndVisual.tagName, forKey: TerminalNotificationPreferences.bellStyleKey)
         controller.noteBell(now: Date(timeIntervalSince1970: 12))
         #expect((layer.sublayers?.count ?? 0) == before + 2 && sounds == 1)
     }
@@ -515,10 +524,16 @@ struct ProgramActivityIntegrationTests {
         #expect(condition(), sourceLocation: sourceLocation)
     }
     @Test func localDelegateFallbackRISAndScreenSwitch() async throws {
+        let domain = "program-activity-delegate-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.set(false, forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey)
+        let oldDefaults = try await TestNotifications.useDefaults(defaults)
+        TestNotifications.install()
+        defer {
+            TestNotifications.restoreDefaults(oldDefaults)
+            defaults.removePersistentDomain(forName: domain)
+        }
         let controller = TerminalSessionController(startsProcess: false)
-        var profile = TerminalProfile(name: "No notifications")
-        profile.allowsNotifications = false
-        controller.applyProfile(profile)
         let view = try #require(controller.makeTerminalView() as? AppTerminalView)
         defer { controller.terminate() }
         view.feed(text: "\u{1b}]9;4;1;40\u{7}")
@@ -557,7 +572,10 @@ struct ProgramActivityIntegrationTests {
         #expect(controller.programStatus.records.first?.state == .error)
     }
 
-    @Test func tabLimitSourceMuteAndProfileOptOut() throws {
+    @Test func tabLimitSourceMuteAndGlobalOptOut() throws {
+        let domain = "program-activity-notifications-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         let tab = TerminalTab(startsProcesses: false), group = manager.newGroup(tab: tab)
         defer { manager.closeGroup(group) }
@@ -566,6 +584,7 @@ struct ProgramActivityIntegrationTests {
         tab.workspace.split(first, orientation: .horizontal)
         let second = try #require(tab.workspace.controllers.last)
         let notifier = TerminalNotifier()
+        notifier.defaults = defaults
         var contents: [UNNotificationContent] = []
         notifier.deliver = {
             contents.append($0.content)
@@ -582,9 +601,7 @@ struct ProgramActivityIntegrationTests {
         notifier.notify(title: "Build", body: "Muted", from: first, now: now.addingTimeInterval(4))
         #expect(contents.count == 2)
         tab.isMuted = false
-        var profile = first.profile
-        profile.allowsNotifications = false
-        first.applyProfile(profile)
+        defaults.set(false, forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey)
         notifier.notify(title: "Build", body: "Opt out", from: first, now: now.addingTimeInterval(6))
         #expect(contents.count == 2)
     }

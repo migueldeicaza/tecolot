@@ -190,7 +190,7 @@ final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuAction
 
     // SwiftTerm's sound delegate is public but not open, so calling super would
     // bypass the shared per-tab sound limit. The controller preserves its visual
-    // bell and the live view.bellStyle setting while delivering sound once.
+    // bell using the app-wide preference while delivering sound once.
     nonisolated override func bell(source: Terminal) {
         programStatusTracker.initializeBuffer(source)
         eventDelivery.sendBell()

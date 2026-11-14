@@ -206,6 +206,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var termVersion: String
     /// Set or unset values after Tecolot prepares the child environment.
     public var environmentVariables: [TerminalEnvironmentVariable]
+    // Kept for migration and downgrade safety; no runtime readers. Remove in a later release.
     /// How the terminal responds to the bell character
     public var bellStyle: BellStyle
     /// Programs can show desktop notifications (OSC 9, OSC 777)

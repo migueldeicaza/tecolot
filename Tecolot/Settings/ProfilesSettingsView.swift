@@ -651,16 +651,6 @@ struct ProfileSettingsPage: View {
                         }
                     ), format: .number)
                 }
-                Picker("Bell", selection: binding(\.bellStyle)) {
-                    ForEach(BellStyle.allCases, id: \.tagName) { style in
-                        Text(style.displayName).tag(style)
-                    }
-                }
-                Toggle("Show notifications from programs", isOn: binding(\.allowsNotifications))
-            } footer: {
-                Text("Programs send notifications with OSC 9 or OSC 777. Tecolot shows them when the pane is not in front.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }

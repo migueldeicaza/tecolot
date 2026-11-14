@@ -655,7 +655,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// Preserves local native bell visuals and the pre-M4 persistent bell policy.
     /// Sound and inactive-app attention share the per-tab limits with program status.
     func noteBell(now: Date = Date()) {
-        let style = terminal?.bellStyle ?? profile.bellStyle
+        let style = TerminalNotificationPreferences.bellStyle(defaults: TerminalNotifier.shared.defaults)
         let policy = ProgramActivityBell.policy(style: style, local: terminal != nil)
         if owningTab?.isMuted != true {
             if policy.sound {
