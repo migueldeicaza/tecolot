@@ -107,10 +107,10 @@ struct PaneAppearanceSettingsTests {
     }
 
     @Test func tabIconCountClampsOnlyForSideTabs() {
-        #expect(TabInterfaceSettingsView.displayedIconCount(stored: 5, tabsOnSide: true) == 3)
-        #expect(TabInterfaceSettingsView.displayedIconCount(stored: 5, tabsOnSide: false) == 5)
-        #expect(TabInterfaceSettingsView.displayedIconCount(stored: 2, tabsOnSide: true) == 2)
-        #expect(TabInterfaceSettingsView.displayedIconCount(stored: 2, tabsOnSide: false) == 2)
+        #expect(TabsSettingsView.displayedIconCount(stored: 5, tabsOnSide: true) == 3)
+        #expect(TabsSettingsView.displayedIconCount(stored: 5, tabsOnSide: false) == 5)
+        #expect(TabsSettingsView.displayedIconCount(stored: 2, tabsOnSide: true) == 2)
+        #expect(TabsSettingsView.displayedIconCount(stored: 2, tabsOnSide: false) == 2)
     }
 
     @Test func aSinglePaneKeepsNeutralDecorationEvenWithHighlightEnabled() throws {
