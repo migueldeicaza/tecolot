@@ -128,7 +128,7 @@ enum WindowOpener {
         let inheritProfile = defaults.object(forKey: "newTabsUseCurrentProfile") as? Bool ?? true
         var spec = LaunchSpec(
             profileID: inheritProfile ? profileID : nil,
-            workingDirectory: remoteDestination == nil && inheritDirectory ? workingDirectory : nil
+            workingDirectory: inheritDirectory ? workingDirectory : nil
         )
         spec.remoteDestination = remoteDestination
         if spec.remoteDestination != nil {

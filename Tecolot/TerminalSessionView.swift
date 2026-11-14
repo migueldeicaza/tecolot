@@ -1965,12 +1965,10 @@ extension TerminalSessionController {
         remoteOpenFailed = false
         let restoring = restoring ?? (sessionID == nil ? remotePendingRestore : nil)
         var launch = PersistentSessions.makeRemoteLaunch(
-            profile: profile, destination: remoteDestination ?? link.destination
+            profile: profile, destination: remoteDestination ?? link.destination,
+            workingDirectory: restoring != nil ? directoryTracker.launch : launchDirectory
         )
         launch.restoreSessionID = restoring
-        if restoring != nil {
-            launch.workingDirectory = directoryTracker.launch
-        }
         let socket = link.openPane(
             sessionID: sessionID, launch: sessionID == nil ? launch : nil,
             created: { [weak self] id in
