@@ -123,11 +123,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @Observable
 @MainActor
 final class SecureKeyboardEntry {
+    nonisolated static let enabledKey = "SecureKeyboardEntry"
+    nonisolated static let enabledDefault = false
+
     static let shared = SecureKeyboardEntry()
 
     @ObservationIgnored private var enabledByThisApp = false
     @ObservationIgnored private let appliesState: Bool
-    var isEnabled = false {
+    var isEnabled = SecureKeyboardEntry.enabledDefault {
         didSet {
             applyState()
         }
@@ -135,7 +138,7 @@ final class SecureKeyboardEntry {
 
     private init() {
         appliesState = true
-        isEnabled = UserDefaults.standard.bool(forKey: "SecureKeyboardEntry")
+        isEnabled = UserDefaults.standard.bool(forKey: SecureKeyboardEntry.enabledKey)
         applyState()
     }
 
@@ -157,7 +160,7 @@ final class SecureKeyboardEntry {
         guard appliesState else {
             return
         }
-        UserDefaults.standard.set(isEnabled, forKey: "SecureKeyboardEntry")
+        UserDefaults.standard.set(isEnabled, forKey: SecureKeyboardEntry.enabledKey)
         if isEnabled {
             guard !enabledByThisApp else {
                 return
@@ -202,6 +205,9 @@ struct NewItemCommands: Commands {
 }
 
 struct TabSelectionCommands: Commands {
+    nonisolated static let useCommandDigitsForTabsKey = "useCommandDigitsForTabs"
+    nonisolated static let useCommandDigitsForTabsDefault = true
+
     @State private var commandState = TerminalCommandState()
 
     var body: some Commands {
@@ -242,7 +248,7 @@ struct TabSelectionCommands: Commands {
     }
 
     private func selectTab(at index: Int) {
-        guard UserDefaults.standard.bool(forKey: "useCommandDigitsForTabs"), let owner else {
+        guard UserDefaults.standard.bool(forKey: TabSelectionCommands.useCommandDigitsForTabsKey), let owner else {
             return
         }
         owner.selectNumberedTab(index)
@@ -553,9 +559,9 @@ struct TecolotApp: App {
 
     init() {
         UserDefaults.standard.register(defaults: [
-            "useCommandDigitsForTabs": true,
-            "startupMode": "default",
-            "useMetalRenderer": true
+            TabSelectionCommands.useCommandDigitsForTabsKey: TabSelectionCommands.useCommandDigitsForTabsDefault,
+            StartupGroups.startupModeKey: StartupGroups.startupModeDefault,
+            TerminalSessionController.useMetalRendererKey: TerminalSessionController.useMetalRendererDefault
         ])
     }
 

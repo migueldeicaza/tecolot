@@ -13,12 +13,12 @@ struct PaneCardSpacingTests {
         let suite = "PaneCardSpacing-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set(style == "above" ? "horizontal" : "vertical", forKey: "tabStyle")
-        defaults.set(style.hasPrefix("right") ? "right" : "left", forKey: "sidebarPosition")
-        defaults.set(style.hasSuffix("hidden"), forKey: "sidebarHidden")
-        defaults.set(271, forKey: "sidebarWidth")
+        defaults.set(style == "above" ? "horizontal" : "vertical", forKey: ProgramActivityPreferences.tabStyleKey)
+        defaults.set(style.hasPrefix("right") ? "right" : "left", forKey: SidebarPreferences.positionKey)
+        defaults.set(style.hasSuffix("hidden"), forKey: SidebarPreferences.hiddenKey)
+        defaults.set(271, forKey: SidebarPreferences.widthKey)
         defaults.set("comfortable", forKey: GlobalAppearanceSettings.paneStyleKey)
-        defaults.set(true, forKey: GlobalAppearanceSettings.paneCardsEnabledKey)
+        defaults.set(true, forKey: GlobalAppearanceSettings.showPaneHeadersKey)
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
         let count = try #require(Int(topology.prefix(1)))

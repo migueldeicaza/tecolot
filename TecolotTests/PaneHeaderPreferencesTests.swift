@@ -10,9 +10,9 @@ struct PaneHeaderPreferencesTests {
         let suite = "PaneHeaders-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set(style == "above" ? "horizontal" : "vertical", forKey: "tabStyle")
-        defaults.set(style.hasPrefix("right") ? "right" : "left", forKey: "sidebarPosition")
-        defaults.set(style.hasSuffix("hidden"), forKey: "sidebarHidden")
+        defaults.set(style == "above" ? "horizontal" : "vertical", forKey: ProgramActivityPreferences.tabStyleKey)
+        defaults.set(style.hasPrefix("right") ? "right" : "left", forKey: SidebarPreferences.positionKey)
+        defaults.set(style.hasSuffix("hidden"), forKey: SidebarPreferences.hiddenKey)
         defaults.set(enabled, forKey: GlobalAppearanceSettings.showPaneHeadersKey)
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         manager.makeWindow = {

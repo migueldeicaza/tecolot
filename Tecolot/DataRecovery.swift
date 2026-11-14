@@ -40,17 +40,17 @@ final class PreferenceMigrator {
     private let applySecureKeyboardEntry: @MainActor (Bool) -> Void
 
     private let managedKeys = [
-        "newTabsUseCurrentDirectory",
-        "newTabsUseCurrentProfile",
-        "useCommandDigitsForTabs",
-        "restoredRowsLimit",
-        "startupMode",
-        "startupProfileID",
-        "startupWindowGroupID",
-        "startupGroupIDs",
-        "SecureKeyboardEntry",
-        "LogHostOutput",
-        "useMetalRenderer",
+        WindowOpener.newTabsUseCurrentDirectoryKey,
+        WindowOpener.newTabsUseCurrentProfileKey,
+        TabSelectionCommands.useCommandDigitsForTabsKey,
+        RestoreStore.restoredRowsLimitKey,
+        StartupGroups.startupModeKey,
+        StartupGroups.startupProfileIDKey,
+        StartupGroups.startupWindowGroupIDKey,
+        StartupGroups.startupGroupIDsKey,
+        SecureKeyboardEntry.enabledKey,
+        TerminalSessionController.logHostOutputKey,
+        TerminalSessionController.useMetalRendererKey,
         TerminalNotificationPreferences.bellStyleKey,
         TerminalNotificationPreferences.allowsProgramNotificationsKey
     ]
@@ -218,16 +218,16 @@ final class PreferenceMigrator {
 
     private func readV0() -> PreferencesV0 {
         PreferencesV0(
-            newTabsUseCurrentDirectory: boolean(forKey: "newTabsUseCurrentDirectory"),
-            newTabsUseCurrentProfile: boolean(forKey: "newTabsUseCurrentProfile"),
-            useCommandDigitsForTabs: boolean(forKey: "useCommandDigitsForTabs"),
-            restoredRowsLimit: defaults.object(forKey: "restoredRowsLimit") as? Int,
-            startupMode: defaults.string(forKey: "startupMode"),
-            startupProfileID: defaults.string(forKey: "startupProfileID"),
-            startupWindowGroupID: defaults.string(forKey: "startupWindowGroupID"),
-            secureKeyboardEntry: boolean(forKey: "SecureKeyboardEntry"),
-            logHostOutput: boolean(forKey: "LogHostOutput"),
-            useMetalRenderer: boolean(forKey: "useMetalRenderer")
+            newTabsUseCurrentDirectory: boolean(forKey: WindowOpener.newTabsUseCurrentDirectoryKey),
+            newTabsUseCurrentProfile: boolean(forKey: WindowOpener.newTabsUseCurrentProfileKey),
+            useCommandDigitsForTabs: boolean(forKey: TabSelectionCommands.useCommandDigitsForTabsKey),
+            restoredRowsLimit: defaults.object(forKey: RestoreStore.restoredRowsLimitKey) as? Int,
+            startupMode: defaults.string(forKey: StartupGroups.startupModeKey),
+            startupProfileID: defaults.string(forKey: StartupGroups.startupProfileIDKey),
+            startupWindowGroupID: defaults.string(forKey: StartupGroups.startupWindowGroupIDKey),
+            secureKeyboardEntry: boolean(forKey: SecureKeyboardEntry.enabledKey),
+            logHostOutput: boolean(forKey: TerminalSessionController.logHostOutputKey),
+            useMetalRenderer: boolean(forKey: TerminalSessionController.useMetalRendererKey)
         )
     }
 
@@ -236,53 +236,53 @@ final class PreferenceMigrator {
         profiles: ProfileStore
     ) -> PreferencesV1 {
         let validModes = Set(["default", "profile", "windowGroup", "groups"])
-        var startupMode = source.startupMode ?? "default"
+        var startupMode = source.startupMode ?? StartupGroups.startupModeDefault
         if !validModes.contains(startupMode) {
-            startupMode = "default"
+            startupMode = StartupGroups.startupModeDefault
         }
 
         var startupProfileID = source.startupProfileID
         let startupWindowGroupID = source.startupWindowGroupID
         if startupMode == "profile" {
-            let rawID = startupProfileID ?? ""
+            let rawID = startupProfileID ?? StartupGroups.startupProfileIDDefault
             if let id = UUID(uuidString: rawID) {
                 let profileDataIsIncomplete = issueCenter.issues.contains {
                     $0.domain == .profiles || $0.domain == .legacyApplicationSupport
                 }
                 if profiles.profile(withID: id) == nil, !profileDataIsIncomplete {
                     startupProfileID = nil
-                    startupMode = "default"
+                    startupMode = StartupGroups.startupModeDefault
                 }
             } else {
                 startupProfileID = nil
-                startupMode = "default"
+                startupMode = StartupGroups.startupModeDefault
             }
         }
         return PreferencesV1(
-            newTabsUseCurrentDirectory: source.newTabsUseCurrentDirectory ?? true,
-            newTabsUseCurrentProfile: source.newTabsUseCurrentProfile ?? true,
-            useCommandDigitsForTabs: source.useCommandDigitsForTabs ?? true,
-            restoredRowsLimit: min(max(source.restoredRowsLimit ?? 1_000, 0), 100_000),
+            newTabsUseCurrentDirectory: source.newTabsUseCurrentDirectory ?? WindowOpener.newTabsUseCurrentDirectoryDefault,
+            newTabsUseCurrentProfile: source.newTabsUseCurrentProfile ?? WindowOpener.newTabsUseCurrentProfileDefault,
+            useCommandDigitsForTabs: source.useCommandDigitsForTabs ?? TabSelectionCommands.useCommandDigitsForTabsDefault,
+            restoredRowsLimit: min(max(source.restoredRowsLimit ?? RestoreStore.restoredRowsLimitDefault, 0), 100_000),
             startupMode: startupMode,
             startupProfileID: startupProfileID,
             startupWindowGroupID: startupWindowGroupID,
-            secureKeyboardEntry: source.secureKeyboardEntry ?? false,
-            logHostOutput: source.logHostOutput ?? false,
-            useMetalRenderer: source.useMetalRenderer ?? true
+            secureKeyboardEntry: source.secureKeyboardEntry ?? SecureKeyboardEntry.enabledDefault,
+            logHostOutput: source.logHostOutput ?? TerminalSessionController.logHostOutputDefault,
+            useMetalRenderer: source.useMetalRenderer ?? TerminalSessionController.useMetalRendererDefault
         )
     }
 
     private func apply(_ preferences: PreferencesV1) {
-        defaults.set(preferences.newTabsUseCurrentDirectory, forKey: "newTabsUseCurrentDirectory")
-        defaults.set(preferences.newTabsUseCurrentProfile, forKey: "newTabsUseCurrentProfile")
-        defaults.set(preferences.useCommandDigitsForTabs, forKey: "useCommandDigitsForTabs")
-        defaults.set(preferences.restoredRowsLimit, forKey: "restoredRowsLimit")
-        defaults.set(preferences.startupMode, forKey: "startupMode")
-        setOptional(preferences.startupProfileID, forKey: "startupProfileID")
-        setOptional(preferences.startupWindowGroupID, forKey: "startupWindowGroupID")
-        defaults.set(preferences.secureKeyboardEntry, forKey: "SecureKeyboardEntry")
-        defaults.set(preferences.logHostOutput, forKey: "LogHostOutput")
-        defaults.set(preferences.useMetalRenderer, forKey: "useMetalRenderer")
+        defaults.set(preferences.newTabsUseCurrentDirectory, forKey: WindowOpener.newTabsUseCurrentDirectoryKey)
+        defaults.set(preferences.newTabsUseCurrentProfile, forKey: WindowOpener.newTabsUseCurrentProfileKey)
+        defaults.set(preferences.useCommandDigitsForTabs, forKey: TabSelectionCommands.useCommandDigitsForTabsKey)
+        defaults.set(preferences.restoredRowsLimit, forKey: RestoreStore.restoredRowsLimitKey)
+        defaults.set(preferences.startupMode, forKey: StartupGroups.startupModeKey)
+        setOptional(preferences.startupProfileID, forKey: StartupGroups.startupProfileIDKey)
+        setOptional(preferences.startupWindowGroupID, forKey: StartupGroups.startupWindowGroupIDKey)
+        defaults.set(preferences.secureKeyboardEntry, forKey: SecureKeyboardEntry.enabledKey)
+        defaults.set(preferences.logHostOutput, forKey: TerminalSessionController.logHostOutputKey)
+        defaults.set(preferences.useMetalRenderer, forKey: TerminalSessionController.useMetalRendererKey)
         applySecureKeyboardEntry(preferences.secureKeyboardEntry)
     }
 

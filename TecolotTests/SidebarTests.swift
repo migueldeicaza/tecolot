@@ -268,7 +268,7 @@ struct SidebarTests {
         let suite = "SidebarGeometry-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set(271, forKey: "sidebarWidth")
+        defaults.set(271, forKey: SidebarPreferences.widthKey)
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         manager.makeWindow = {
             TerminalWindowController(group: $0, manager: manager, defaults: defaults)
@@ -304,7 +304,7 @@ struct SidebarTests {
             SidebarPreferences.setStyle(style, defaults: defaults)
             owner.refreshSidebarPreferences()
             for hidden in [false, true] {
-                defaults.set(hidden, forKey: "sidebarHidden")
+                defaults.set(hidden, forKey: SidebarPreferences.hiddenKey)
                 owner.refreshSidebarPreferences()
                 let root = try #require(window.contentView)
                 root.layoutSubtreeIfNeeded()
@@ -391,7 +391,7 @@ struct SidebarTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         SidebarPreferences.setStyle(.right, defaults: defaults)
-        defaults.set(271, forKey: "sidebarWidth")
+        defaults.set(271, forKey: SidebarPreferences.widthKey)
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         manager.makeWindow = {
             TerminalWindowController(group: $0, manager: manager, defaults: defaults)
@@ -485,7 +485,7 @@ struct SidebarTests {
         #expect(SidebarPreferences(defaults: defaults).style == .above)
         SidebarPreferences.toggleStyle(defaults: defaults)
         #expect(SidebarPreferences(defaults: defaults).style == .right)
-        defaults.set(true, forKey: "sidebarHidden")
+        defaults.set(true, forKey: SidebarPreferences.hiddenKey)
         #expect(SidebarPreferences(defaults: defaults).hidden)
         // In Above, digit nine chooses the ninth numbered cell, even with overflow.
         SidebarPreferences.setStyle(.above, defaults: defaults)
@@ -509,7 +509,7 @@ struct SidebarHeaderPointerTests {
         let suite = "SidebarHeaderPointer-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set("vertical", forKey: "tabStyle")
+        defaults.set("vertical", forKey: ProgramActivityPreferences.tabStyleKey)
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         manager.makeWindow = {
             TerminalWindowController(group: $0, manager: manager, defaults: defaults)
@@ -555,7 +555,7 @@ struct SidebarHeaderPointerTests {
         let suite = "SidebarHeaderLabel-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set("vertical", forKey: "tabStyle")
+        defaults.set("vertical", forKey: ProgramActivityPreferences.tabStyleKey)
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         manager.makeWindow = {
             TerminalWindowController(group: $0, manager: manager, defaults: defaults)

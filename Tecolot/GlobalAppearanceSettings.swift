@@ -108,14 +108,19 @@ nonisolated struct GlobalAppearanceSettings: Equatable {
         }
     }
 
-    static let paneCardsEnabledKey = "paneCardsEnabled"
     // Keep the shipped key so an existing off preference stays off.
-    static let showPaneHeadersKey = paneCardsEnabledKey
+    static let showPaneHeadersKey = "paneCardsEnabled"
+    static let showPaneHeadersDefault = true
     static let paneCardsBackdropKey = "paneCardsBackdrop"
+    static let paneCardsBackdropDefault = Backdrop.chrome
     static let terminalPaddingKey = "terminalPadding"
+    static let terminalPaddingDefault = TerminalPadding.minimal
     static let paneStyleKey = "paneStyle"
+    static let paneStyleDefault = PaneStyle.comfortable
     static let highlightActivePaneKey = "highlightActivePane"
+    static let highlightActivePaneDefault = true
     static let paneHighlightColorKey = "paneHighlightColor"
+    static let paneHighlightColorDefault = ""
 
     /// An optional override; absence keeps the live system accent color.
     nonisolated struct HighlightColor: Codable, Equatable {
@@ -157,11 +162,11 @@ nonisolated struct GlobalAppearanceSettings: Equatable {
         }
     }
     /// The legacy property/key now controls headers; PaneStyle controls card decoration.
-    var paneCardsEnabled = true
-    var paneCardsBackdrop = Backdrop.chrome
-    var terminalPadding = TerminalPadding.minimal
-    var paneStyle = PaneStyle.comfortable
-    var highlightActivePane = true
+    var paneCardsEnabled = Self.showPaneHeadersDefault
+    var paneCardsBackdrop = Self.paneCardsBackdropDefault
+    var terminalPadding = Self.terminalPaddingDefault
+    var paneStyle = Self.paneStyleDefault
+    var highlightActivePane = Self.highlightActivePaneDefault
     var paneHighlightColor: HighlightColor?
 
     /// Resolve on use so an unset override follows later system accent changes.
@@ -177,7 +182,7 @@ nonisolated struct GlobalAppearanceSettings: Equatable {
     /// The padding in UserDefaults, for code that has no workspace.
     static var storedTerminalPadding: TerminalPadding {
         UserDefaults.standard.string(forKey: terminalPaddingKey)
-            .flatMap(TerminalPadding.init(rawValue:)) ?? GlobalAppearanceSettings().terminalPadding
+            .flatMap(TerminalPadding.init(rawValue:)) ?? terminalPaddingDefault
     }
 
     /// The space around the cards and between them, in the comfortable

@@ -3,6 +3,19 @@ import QuartzCore
 
 /// Global style and sidebar geometry, shared by all terminal windows.
 struct SidebarPreferences: Equatable {
+    static let positionKey = "sidebarPosition"
+    static let positionDefault = "left"
+    static let hiddenKey = "sidebarHidden"
+    static let hiddenDefault = false
+    static let widthKey = "sidebarWidth"
+    static let widthDefault = 240.0
+    static let textSizeKey = "sidebarTextSize"
+    static let textSizeDefault = 0.0
+    static let preserveWidthKey = "preserveWidthWhenResizingSidebar"
+    static let preserveWidthDefault = true
+    static let gestureKey = "sidebarGesture"
+    static let gestureDefault = "swipe"
+
     enum Style: String, CaseIterable {
         case above, left, right
     }
@@ -14,30 +27,30 @@ struct SidebarPreferences: Equatable {
     let gesture: String
 
     init(defaults: UserDefaults = .standard) {
-        style = defaults.string(forKey: "tabStyle") == "vertical"
-            ? (defaults.string(forKey: "sidebarPosition") == "right" ? .right : .left) : .above
-        hidden = defaults.bool(forKey: "sidebarHidden")
-        width = Self.clampWidth(defaults.object(forKey: "sidebarWidth") == nil ? 240 : defaults.double(forKey: "sidebarWidth"))
-        let size = defaults.double(forKey: "sidebarTextSize")
+        style = defaults.string(forKey: ProgramActivityPreferences.tabStyleKey) == "vertical"
+            ? (defaults.string(forKey: SidebarPreferences.positionKey) == "right" ? .right : .left) : .above
+        hidden = defaults.bool(forKey: SidebarPreferences.hiddenKey)
+        width = Self.clampWidth(defaults.object(forKey: SidebarPreferences.widthKey) == nil ? Self.widthDefault : defaults.double(forKey: SidebarPreferences.widthKey))
+        let size = defaults.double(forKey: SidebarPreferences.textSizeKey)
         let systemSize = defaults.integer(forKey: "NSTableViewDefaultSizeMode")
         textSize = size > 0 ? size : (systemSize == 1 ? 11 : systemSize == 3 ? 15 : 13)
-        preserveWidth = defaults.object(forKey: "preserveWidthWhenResizingSidebar") as? Bool ?? true
-        gesture = defaults.string(forKey: "sidebarGesture") ?? "swipe"
+        preserveWidth = defaults.object(forKey: SidebarPreferences.preserveWidthKey) as? Bool ?? Self.preserveWidthDefault
+        gesture = defaults.string(forKey: SidebarPreferences.gestureKey) ?? Self.gestureDefault
     }
 
     static func clampWidth(_ width: CGFloat) -> CGFloat {
-        min(480, max(167, width.isFinite ? width : 240))
+        min(480, max(167, width.isFinite ? width : Self.widthDefault))
     }
 
     static func setStyle(_ style: Style, defaults: UserDefaults = .standard) {
         if style != .above {
-            defaults.set(style.rawValue, forKey: "sidebarPosition")
+            defaults.set(style.rawValue, forKey: SidebarPreferences.positionKey)
         }
-        defaults.set(style == .above ? "horizontal" : "vertical", forKey: "tabStyle")
+        defaults.set(style == .above ? "horizontal" : "vertical", forKey: ProgramActivityPreferences.tabStyleKey)
     }
 
     static func toggleStyle(defaults: UserDefaults = .standard) {
-        defaults.set(defaults.string(forKey: "tabStyle") == "vertical" ? "horizontal" : "vertical", forKey: "tabStyle")
+        defaults.set(defaults.string(forKey: ProgramActivityPreferences.tabStyleKey) == "vertical" ? "horizontal" : "vertical", forKey: ProgramActivityPreferences.tabStyleKey)
     }
 }
 

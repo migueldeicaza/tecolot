@@ -12,8 +12,8 @@ import UserNotifications
 struct Round15RegressionTests {
     private func fixture(style: String = "horizontal") throws -> (TerminalWindowManager, TerminalTabGroup, TerminalWindowController, UserDefaults) {
         let defaults = try #require(UserDefaults(suiteName: "m15-\(UUID())"))
-        defaults.set(style, forKey: "tabStyle")
-        defaults.set(false, forKey: "sidebarHidden")
+        defaults.set(style, forKey: ProgramActivityPreferences.tabStyleKey)
+        defaults.set(false, forKey: SidebarPreferences.hiddenKey)
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         manager.makeWindow = {
             TerminalWindowController(group: $0, manager: manager, defaults: defaults)

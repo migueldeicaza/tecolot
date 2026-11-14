@@ -5,24 +5,28 @@ import SwiftTerm
 /// App-wide bell and OSC notification preferences, separate from program activity.
 enum TerminalNotificationPreferences {
     static let bellStyleKey = "bellStyle"
+    static let bellStyleDefault = BellStyle.sound
     static let allowsProgramNotificationsKey = "allowsProgramNotifications"
+    static let allowsProgramNotificationsDefault = true
     static let bellMigrationSeededKey = "bellMigrationSeeded"
+    static let bellMigrationSeededDefault = false
     static let bellMigrationDifferedKey = "bellMigrationDiffered"
     static let bellMigrationNoteDismissedKey = "bellMigrationNoteDismissed"
+    static let bellMigrationNoteDismissedDefault = false
 
     static func bellStyle(defaults: UserDefaults = .standard) -> BellStyle {
         guard let tag = defaults.object(forKey: bellStyleKey) as? String else {
-            return .sound
+            return bellStyleDefault
         }
-        return BellStyle(tagName: tag) ?? .sound
+        return BellStyle(tagName: tag) ?? bellStyleDefault
     }
 
     static func allowsProgramNotifications(defaults: UserDefaults = .standard) -> Bool {
-        boolean(forKey: allowsProgramNotificationsKey, defaults: defaults) ?? true
+        boolean(forKey: allowsProgramNotificationsKey, defaults: defaults) ?? allowsProgramNotificationsDefault
     }
 
     static func bellMigrationSeeded(defaults: UserDefaults = .standard) -> Bool {
-        boolean(forKey: bellMigrationSeededKey, defaults: defaults) ?? false
+        boolean(forKey: bellMigrationSeededKey, defaults: defaults) ?? bellMigrationSeededDefault
     }
 
     static func bellMigrationDiffered(defaults: UserDefaults = .standard) -> [String]? {
@@ -34,7 +38,7 @@ enum TerminalNotificationPreferences {
     }
 
     static func bellMigrationNoteDismissed(defaults: UserDefaults = .standard) -> Bool {
-        boolean(forKey: bellMigrationNoteDismissedKey, defaults: defaults) ?? false
+        boolean(forKey: bellMigrationNoteDismissedKey, defaults: defaults) ?? bellMigrationNoteDismissedDefault
     }
 
     static func showsMigrationNote(differed: [String]?, dismissed: Bool) -> Bool {

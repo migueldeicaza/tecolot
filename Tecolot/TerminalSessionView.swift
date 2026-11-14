@@ -46,6 +46,11 @@ struct PanePresentation: Equatable {
 
 @Observable
 final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegate {
+    nonisolated static let useMetalRendererKey = "useMetalRenderer"
+    nonisolated static let useMetalRendererDefault = true
+    nonisolated static let logHostOutputKey = "LogHostOutput"
+    nonisolated static let logHostOutputDefault = false
+
     /// Stays the same when the pane is restored after a relaunch.
     let id: UUID
     let programStatus: PaneProgramStatus
@@ -62,7 +67,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     private var postedDirectory: String?
     @ObservationIgnored private var zoomGesture: NSMagnificationGestureRecognizer?
     @ObservationIgnored private var keyEventMonitor: Any?
-    private var logging = false
+    private var logging = TerminalSessionController.logHostOutputDefault
 
     @ObservationIgnored private(set) var terminal: LocalProcessTerminalView?
     /// The view of a persistent pane; its shell runs in tecolot-sessiond.
@@ -1018,7 +1023,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     var useMetalRenderer: Bool {
         get { persistentView?.isUsingMetalRenderer ?? terminal?.isUsingMetalRenderer ?? false }
         set {
-            UserDefaults.standard.set(newValue, forKey: "useMetalRenderer")
+            UserDefaults.standard.set(newValue, forKey: TerminalSessionController.useMetalRendererKey)
             TerminalSessionRegistry.shared.setUseMetalRenderer(newValue)
         }
     }
@@ -1197,7 +1202,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     private func configureTerminal(_ terminal: LocalProcessTerminalView) {
         terminal.metalBufferingMode = .perFrameAggregated
-        setUseMetalRenderer(UserDefaults.standard.object(forKey: "useMetalRenderer") as? Bool ?? true)
+        setUseMetalRenderer(UserDefaults.standard.object(forKey: TerminalSessionController.useMetalRendererKey) as? Bool ?? TerminalSessionController.useMetalRendererDefault)
         applyAppearance()
         terminal.processDelegate = self
         // Tecolot uses Command keys for its menus and profile bindings.
@@ -1226,7 +1231,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             }
         }
 
-        logging = NSUserDefaultsController.shared.defaults.bool(forKey: "LogHostOutput")
+        logging = NSUserDefaultsController.shared.defaults.bool(forKey: TerminalSessionController.logHostOutputKey)
         updateLogging()
     }
 
@@ -1685,7 +1690,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     private func updateLogging() {
-        NSUserDefaultsController.shared.defaults.set(logging, forKey: "LogHostOutput")
+        NSUserDefaultsController.shared.defaults.set(logging, forKey: TerminalSessionController.logHostOutputKey)
         let path = logging ? "\(FileManager.default.homeDirectoryForCurrentUser.path)/Downloads/Logs" : nil
         terminal?.setHostLogging(directory: path)
     }
@@ -2302,7 +2307,7 @@ extension TerminalSessionController {
             isConfigured = true
             // The same renderer settings as local panes (configureTerminal).
             persistentView.metalBufferingMode = .perFrameAggregated
-            setUseMetalRenderer(UserDefaults.standard.object(forKey: "useMetalRenderer") as? Bool ?? true)
+            setUseMetalRenderer(UserDefaults.standard.object(forKey: TerminalSessionController.useMetalRendererKey) as? Bool ?? TerminalSessionController.useMetalRendererDefault)
             applyAppearance()
             persistentView.shouldSendCommandKeyToTerminal = { [weak persistentView] event in
                 let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])

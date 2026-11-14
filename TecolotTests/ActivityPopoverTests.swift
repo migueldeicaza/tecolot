@@ -46,7 +46,7 @@ struct ActivityPopoverTests {
         let suite = "ActivityKeys-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set("horizontal", forKey: "tabStyle")
+        defaults.set("horizontal", forKey: ProgramActivityPreferences.tabStyleKey)
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         manager.makeWindow = {
             TerminalWindowController(group: $0, manager: manager, defaults: defaults)

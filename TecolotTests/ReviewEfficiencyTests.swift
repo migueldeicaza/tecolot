@@ -113,9 +113,9 @@ struct ReviewEfficiencyTests {
         let suite = "ReviewSidebar-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set("vertical", forKey: "tabStyle")
-        defaults.set("left", forKey: "sidebarPosition")
-        defaults.set(false, forKey: "sidebarHidden")
+        defaults.set("vertical", forKey: ProgramActivityPreferences.tabStyleKey)
+        defaults.set("left", forKey: SidebarPreferences.positionKey)
+        defaults.set(false, forKey: SidebarPreferences.hiddenKey)
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         let group = manager.newGroup(tab: TerminalTab(startsProcesses: false))
         var resumes: [Bool] = []

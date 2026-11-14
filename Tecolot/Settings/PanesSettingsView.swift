@@ -3,12 +3,12 @@ import SwiftUI
 
 /// App-wide pane appearance, retaining the existing preference keys.
 struct PanesSettingsView: View {
-    @AppStorage(GlobalAppearanceSettings.terminalPaddingKey) private var padding = GlobalAppearanceSettings.TerminalPadding.minimal
-    @AppStorage(GlobalAppearanceSettings.paneStyleKey) private var style = GlobalAppearanceSettings.PaneStyle.comfortable
-    @AppStorage(GlobalAppearanceSettings.showPaneHeadersKey) private var headers = true
-    @AppStorage(GlobalAppearanceSettings.paneCardsBackdropKey) private var backdrop = GlobalAppearanceSettings.Backdrop.chrome
-    @AppStorage(GlobalAppearanceSettings.highlightActivePaneKey) private var highlight = true
-    @AppStorage(GlobalAppearanceSettings.paneHighlightColorKey) private var colorOverride = ""
+    @AppStorage(GlobalAppearanceSettings.terminalPaddingKey) private var padding = GlobalAppearanceSettings.terminalPaddingDefault
+    @AppStorage(GlobalAppearanceSettings.paneStyleKey) private var style = GlobalAppearanceSettings.paneStyleDefault
+    @AppStorage(GlobalAppearanceSettings.showPaneHeadersKey) private var headers = GlobalAppearanceSettings.showPaneHeadersDefault
+    @AppStorage(GlobalAppearanceSettings.paneCardsBackdropKey) private var backdrop = GlobalAppearanceSettings.paneCardsBackdropDefault
+    @AppStorage(GlobalAppearanceSettings.highlightActivePaneKey) private var highlight = GlobalAppearanceSettings.highlightActivePaneDefault
+    @AppStorage(GlobalAppearanceSettings.paneHighlightColorKey) private var colorOverride = GlobalAppearanceSettings.paneHighlightColorDefault
 
     private var settings: GlobalAppearanceSettings {
         var value = GlobalAppearanceSettings()
@@ -59,7 +59,7 @@ struct PanesSettingsView: View {
                     ColorPicker("Highlight color", selection: color, supportsOpacity: true)
                         .accessibilityLabel("Highlight color")
                     Button("Use Accent Color") {
-                        colorOverride = ""
+                        colorOverride = GlobalAppearanceSettings.paneHighlightColorDefault
                     }
                     .disabled(settings.paneHighlightColor == nil)
                 }

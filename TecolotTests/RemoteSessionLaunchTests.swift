@@ -58,7 +58,7 @@ struct RemoteSessionLaunchTests {
         #expect(launch.workingDirectory == directory)
         #expect(launch.command == nil)
         #expect(launch.labels["destination"] == "studioultra.local")
-        defaults.set(false, forKey: "newTabsUseCurrentDirectory")
+        defaults.set(false, forKey: WindowOpener.newTabsUseCurrentDirectoryKey)
         let fresh = WindowOpener.inheritedTabSpec(
             profileID: profile.id,
             workingDirectory: directory,

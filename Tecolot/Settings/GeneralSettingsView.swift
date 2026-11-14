@@ -6,13 +6,13 @@ struct GeneralSettingsView: View {
     @EnvironmentObject private var profiles: ProfileStore
     private let groups: TerminalWindowManager
     @Bindable private var secureKeyboardEntry: SecureKeyboardEntry
-    @AppStorage("newTabsUseCurrentDirectory") private var newTabsUseCurrentDirectory = true
-    @AppStorage("newTabsUseCurrentProfile") private var newTabsUseCurrentProfile = true
-    @AppStorage("restoredRowsLimit") private var restoredRowsLimit = 1_000
-    @AppStorage("startupMode") private var startupMode = "default"
-    @AppStorage("startupProfileID") private var startupProfileID = ""
+    @AppStorage(WindowOpener.newTabsUseCurrentDirectoryKey) private var newTabsUseCurrentDirectory = WindowOpener.newTabsUseCurrentDirectoryDefault
+    @AppStorage(WindowOpener.newTabsUseCurrentProfileKey) private var newTabsUseCurrentProfile = WindowOpener.newTabsUseCurrentProfileDefault
+    @AppStorage(RestoreStore.restoredRowsLimitKey) private var restoredRowsLimit = RestoreStore.restoredRowsLimitDefault
+    @AppStorage(StartupGroups.startupModeKey) private var startupMode = StartupGroups.startupModeDefault
+    @AppStorage(StartupGroups.startupProfileIDKey) private var startupProfileID = StartupGroups.startupProfileIDDefault
     @State private var startupSelectionRevision = 0
-    @AppStorage("useMetalRenderer") private var useMetalRenderer = true
+    @AppStorage(TerminalSessionController.useMetalRendererKey) private var useMetalRenderer = TerminalSessionController.useMetalRendererDefault
     @State private var errorMessage: String?
 
     @MainActor

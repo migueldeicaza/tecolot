@@ -4,7 +4,7 @@ import AppKit
 @MainActor
 final class TerminalWindowPreferences: NSObject {
     nonisolated private static let keys = [
-        GlobalAppearanceSettings.paneCardsEnabledKey,
+        GlobalAppearanceSettings.showPaneHeadersKey,
         GlobalAppearanceSettings.paneCardsBackdropKey,
         GlobalAppearanceSettings.terminalPaddingKey,
         GlobalAppearanceSettings.paneStyleKey,
@@ -53,11 +53,11 @@ final class TerminalWindowPreferences: NSObject {
 extension GlobalAppearanceSettings {
     init(defaults: UserDefaults) {
         self.init()
-        paneCardsEnabled = defaults.object(forKey: Self.paneCardsEnabledKey) as? Bool ?? paneCardsEnabled
-        paneCardsBackdrop = defaults.string(forKey: Self.paneCardsBackdropKey).flatMap(Backdrop.init(rawValue:)) ?? paneCardsBackdrop
-        terminalPadding = defaults.string(forKey: Self.terminalPaddingKey).flatMap(TerminalPadding.init(rawValue:)) ?? terminalPadding
-        paneStyle = defaults.string(forKey: Self.paneStyleKey).flatMap(PaneStyle.init(rawValue:)) ?? paneStyle
-        highlightActivePane = defaults.object(forKey: Self.highlightActivePaneKey) as? Bool ?? highlightActivePane
+        paneCardsEnabled = defaults.object(forKey: Self.showPaneHeadersKey) as? Bool ?? Self.showPaneHeadersDefault
+        paneCardsBackdrop = defaults.string(forKey: Self.paneCardsBackdropKey).flatMap(Backdrop.init(rawValue:)) ?? Self.paneCardsBackdropDefault
+        terminalPadding = defaults.string(forKey: Self.terminalPaddingKey).flatMap(TerminalPadding.init(rawValue:)) ?? Self.terminalPaddingDefault
+        paneStyle = defaults.string(forKey: Self.paneStyleKey).flatMap(PaneStyle.init(rawValue:)) ?? Self.paneStyleDefault
+        highlightActivePane = defaults.object(forKey: Self.highlightActivePaneKey) as? Bool ?? Self.highlightActivePaneDefault
         paneHighlightColor = defaults.string(forKey: Self.paneHighlightColorKey).flatMap(HighlightColor.decode)
     }
 }

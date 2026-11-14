@@ -3,17 +3,17 @@ import SwiftTerm
 
 /// Edits live preferences for tab layout, appearance and the sidebar.
 struct TabsSettingsView: View {
-    @AppStorage("tabStyle") private var tabStyle = "horizontal"
-    @AppStorage("sidebarPosition") private var sidebarPosition = "left"
-    @AppStorage(TabStripPreferences.fillKey) private var fill = false
-    @AppStorage(TabStripPreferences.iconCountKey) private var icons = 3
-    @AppStorage("useCommandDigitsForTabs") private var useCommandDigitsForTabs = true
-    @AppStorage("sidebarTextSize") private var sidebarTextSize = 0.0
-    @AppStorage("preserveWidthWhenResizingSidebar") private var preserveWidth = true
-    @AppStorage("sidebarGesture") private var sidebarGesture = "swipe"
-    @AppStorage(TabStripPreferences.colorModeKey) private var color = "always"
-    @AppStorage(TabStripPreferences.animationStyleKey) private var animation = "natural"
-    @AppStorage(TabStripPreferences.preferGeneratedTitlesKey) private var generatedTitles = true
+    @AppStorage(ProgramActivityPreferences.tabStyleKey) private var tabStyle = ProgramActivityPreferences.tabStyleDefault
+    @AppStorage(SidebarPreferences.positionKey) private var sidebarPosition = SidebarPreferences.positionDefault
+    @AppStorage(TabStripPreferences.fillKey) private var fill = TabStripPreferences.fillDefault
+    @AppStorage(TabStripPreferences.iconCountKey) private var icons = TabStripPreferences.iconCountDefault
+    @AppStorage(TabSelectionCommands.useCommandDigitsForTabsKey) private var useCommandDigitsForTabs = TabSelectionCommands.useCommandDigitsForTabsDefault
+    @AppStorage(SidebarPreferences.textSizeKey) private var sidebarTextSize = SidebarPreferences.textSizeDefault
+    @AppStorage(SidebarPreferences.preserveWidthKey) private var preserveWidth = SidebarPreferences.preserveWidthDefault
+    @AppStorage(SidebarPreferences.gestureKey) private var sidebarGesture = SidebarPreferences.gestureDefault
+    @AppStorage(TabStripPreferences.colorModeKey) private var color = TabStripPreferences.colorModeDefault.rawValue
+    @AppStorage(TabStripPreferences.animationStyleKey) private var animation = TabStripPreferences.animationStyleDefault
+    @AppStorage(TabStripPreferences.preferGeneratedTitlesKey) private var generatedTitles = TabStripPreferences.preferGeneratedTitlesDefault
 
     private var style: Binding<String> {
         Binding(get: {

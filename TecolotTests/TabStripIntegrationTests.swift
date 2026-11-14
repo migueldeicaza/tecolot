@@ -357,7 +357,7 @@ struct TabStripPointerTests {
     @Test func tabHoverSuspendsNativeWindowMovementBeforeMouseDown() throws {
         let suite = "TabStripPointer-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.set("horizontal", forKey: "tabStyle")
+        defaults.set("horizontal", forKey: ProgramActivityPreferences.tabStyleKey)
         defer { defaults.removePersistentDomain(forName: suite) }
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         manager.makeWindow = {
@@ -386,7 +386,7 @@ struct TabStripPointerTests {
     @Test func titlebarTabCentersRouteMouseHitsToCells() throws {
         let suite = "TabStripPointer-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.set("horizontal", forKey: "tabStyle")
+        defaults.set("horizontal", forKey: ProgramActivityPreferences.tabStyleKey)
         defer { defaults.removePersistentDomain(forName: suite) }
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         manager.makeWindow = {

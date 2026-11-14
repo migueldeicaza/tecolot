@@ -44,6 +44,11 @@ enum TerminalProfileWindowSizer {
 /// Launch facade shared by commands, scripting, intents and restoration.
 @MainActor
 enum WindowOpener {
+    nonisolated static let newTabsUseCurrentDirectoryKey = "newTabsUseCurrentDirectory"
+    nonisolated static let newTabsUseCurrentDirectoryDefault = true
+    nonisolated static let newTabsUseCurrentProfileKey = "newTabsUseCurrentProfile"
+    nonisolated static let newTabsUseCurrentProfileDefault = true
+
     @discardableResult
     static func openWindow(spec: LaunchSpec, initialFrame: TerminalWindowInitialFrame = .profile) -> NSWindow? {
         let manager = TerminalWindowManager.shared
@@ -124,8 +129,8 @@ enum WindowOpener {
         remoteDestination: String?,
         defaults: UserDefaults = .standard
     ) -> LaunchSpec {
-        let inheritDirectory = defaults.object(forKey: "newTabsUseCurrentDirectory") as? Bool ?? true
-        let inheritProfile = defaults.object(forKey: "newTabsUseCurrentProfile") as? Bool ?? true
+        let inheritDirectory = defaults.object(forKey: WindowOpener.newTabsUseCurrentDirectoryKey) as? Bool ?? WindowOpener.newTabsUseCurrentDirectoryDefault
+        let inheritProfile = defaults.object(forKey: WindowOpener.newTabsUseCurrentProfileKey) as? Bool ?? WindowOpener.newTabsUseCurrentProfileDefault
         var spec = LaunchSpec(
             profileID: inheritProfile ? profileID : nil,
             workingDirectory: inheritDirectory ? workingDirectory : nil

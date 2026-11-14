@@ -59,8 +59,8 @@ struct RemoteDestinationTests {
         )
         #expect(local.workingDirectory == "/local/path")
         #expect(!local.persistent)
-        defaults.set(false, forKey: "newTabsUseCurrentProfile")
-        defaults.set(false, forKey: "newTabsUseCurrentDirectory")
+        defaults.set(false, forKey: WindowOpener.newTabsUseCurrentProfileKey)
+        defaults.set(false, forKey: WindowOpener.newTabsUseCurrentDirectoryKey)
         let noProfile = WindowOpener.inheritedTabSpec(
             profileID: profileID,
             workingDirectory: "/remote/path",

@@ -8,10 +8,10 @@ struct IntegratedPaneHeaderTests {
     private func makeWindow(_ style: String, panes: Int, compact: Bool = false) throws -> (TerminalWindowManager, TerminalWindowController, TerminalTab, UserDefaults, String) {
         let suite = "IntegratedPaneHeader-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.set("vertical", forKey: "tabStyle")
-        defaults.set(style.hasPrefix("left") ? "left" : "right", forKey: "sidebarPosition")
-        defaults.set(style.hasSuffix("hidden"), forKey: "sidebarHidden")
-        defaults.set(271, forKey: "sidebarWidth")
+        defaults.set("vertical", forKey: ProgramActivityPreferences.tabStyleKey)
+        defaults.set(style.hasPrefix("left") ? "left" : "right", forKey: SidebarPreferences.positionKey)
+        defaults.set(style.hasSuffix("hidden"), forKey: SidebarPreferences.hiddenKey)
+        defaults.set(271, forKey: SidebarPreferences.widthKey)
         defaults.set(compact ? "compact" : "comfortable", forKey: GlobalAppearanceSettings.paneStyleKey)
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         let tab = TerminalTab(startsProcesses: false)

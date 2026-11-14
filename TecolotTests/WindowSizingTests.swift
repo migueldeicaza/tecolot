@@ -110,7 +110,7 @@ struct ManagerWindowSizingTests {
         var profile = TerminalProfile(name: "Small")
         profile.columns = 70
         profile.rows = 18
-        defaults.set("horizontal", forKey: "tabStyle")
+        defaults.set("horizontal", forKey: ProgramActivityPreferences.tabStyleKey)
         let preferences = SidebarPreferences(defaults: defaults)
         let terminal = TerminalProfileWindowSizer.contentSize(for: profile)
         store.prepare(window, profile: profile, style: preferences, policy: .profile, cascadeFrom: source)

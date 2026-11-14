@@ -290,6 +290,9 @@ struct RestoredTab {
 
 @MainActor
 final class RestoreStore {
+    nonisolated static let restoredRowsLimitKey = "restoredRowsLimit"
+    nonisolated static let restoredRowsLimitDefault = 1_000
+
     /// The app's store. Tests never read or write the app's files.
     static let shared = RestoreStore(
         directory: RestoreStore.defaultDirectory,
@@ -400,7 +403,7 @@ final class RestoreStore {
     }
 
     nonisolated static var restoredRowsLimit: Int {
-        min(max(UserDefaults.standard.object(forKey: "restoredRowsLimit") as? Int ?? 1_000, 0), 100_000)
+        min(max(UserDefaults.standard.object(forKey: RestoreStore.restoredRowsLimitKey) as? Int ?? RestoreStore.restoredRowsLimitDefault, 0), 100_000)
     }
 
     var windowsURL: URL {

@@ -194,7 +194,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         guard sidebarPreferences.style != .above else {
             return
         }
-        defaults.set(!sidebarPreferences.hidden, forKey: "sidebarHidden")
+        defaults.set(!sidebarPreferences.hidden, forKey: SidebarPreferences.hiddenKey)
         refreshSidebarPreferences()
     }
 
@@ -208,7 +208,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
             }
             window.setFrame(frame, display: true)
         }
-        defaults.set(Double(width), forKey: "sidebarWidth")
+        defaults.set(Double(width), forKey: SidebarPreferences.widthKey)
         refreshSidebarPreferences()
     }
 

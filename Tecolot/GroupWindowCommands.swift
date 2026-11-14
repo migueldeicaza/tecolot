@@ -4,7 +4,7 @@ import SwiftUI
 struct GroupWindowCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     @State private var commandState = TerminalCommandState()
-    @AppStorage(GlobalAppearanceSettings.showPaneHeadersKey) private var showPaneHeaders = true
+    @AppStorage(GlobalAppearanceSettings.showPaneHeadersKey) private var showPaneHeaders = GlobalAppearanceSettings.showPaneHeadersDefault
     private var target: TerminalWindowCommandTarget? {
         _ = commandState.window
         return TerminalWindowCommandTarget.resolve(keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow)

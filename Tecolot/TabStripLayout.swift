@@ -76,10 +76,15 @@ nonisolated enum TabAnimationPolicy: Equatable {
 /// Preferences for tab content shared by the strip and sidebar.
 nonisolated struct TabStripPreferences: Equatable {
     static let iconCountKey = "showTabIcons"
+    static let iconCountDefault = 3
     static let colorModeKey = "tabIconColorMode"
+    static let colorModeDefault = ColorMode.always
     static let fillKey = "fillAvailableTabSpace"
+    static let fillDefault = false
     static let animationStyleKey = "tabAnimationStyle"
+    static let animationStyleDefault = "natural"
     static let preferGeneratedTitlesKey = "preferGeneratedTabTitles"
+    static let preferGeneratedTitlesDefault = true
     enum ColorMode: String { case always, activeTabs, activePanes, never }
     var iconCount: Int
     var colorMode: ColorMode
@@ -88,11 +93,11 @@ nonisolated struct TabStripPreferences: Equatable {
     var preferGeneratedTitles: Bool
 
     init(defaults: UserDefaults = .standard) {
-        iconCount = min(5, max(0, defaults.object(forKey: Self.iconCountKey) as? Int ?? 3))
-        colorMode = defaults.string(forKey: Self.colorModeKey).flatMap(ColorMode.init(rawValue:)) ?? .always
+        iconCount = min(5, max(0, defaults.object(forKey: Self.iconCountKey) as? Int ?? Self.iconCountDefault))
+        colorMode = defaults.string(forKey: Self.colorModeKey).flatMap(ColorMode.init(rawValue:)) ?? Self.colorModeDefault
         fill = defaults.bool(forKey: Self.fillKey)
-        animationStyle = defaults.string(forKey: Self.animationStyleKey) ?? "natural"
-        preferGeneratedTitles = defaults.object(forKey: Self.preferGeneratedTitlesKey) as? Bool ?? true
+        animationStyle = defaults.string(forKey: Self.animationStyleKey) ?? Self.animationStyleDefault
+        preferGeneratedTitles = defaults.object(forKey: Self.preferGeneratedTitlesKey) as? Bool ?? Self.preferGeneratedTitlesDefault
     }
 
     func colorsTile(selected: Bool, index: Int) -> Bool {

@@ -64,12 +64,12 @@ extension RestoreStore {
             return false
         }
         if
-            defaults.string(forKey: "startupMode") == "windowGroup",
-            let oldID = defaults.string(forKey: "startupWindowGroupID").flatMap(UUID.init(uuidString:)),
+            defaults.string(forKey: StartupGroups.startupModeKey) == "windowGroup",
+            let oldID = defaults.string(forKey: StartupGroups.startupWindowGroupIDKey).flatMap(UUID.init(uuidString:)),
             let ids = mappings[oldID] {
-            defaults.set(ids.map(\.uuidString), forKey: "startupGroupIDs")
-            defaults.set("groups", forKey: "startupMode")
-            defaults.removeObject(forKey: "startupWindowGroupID")
+            defaults.set(ids.map(\.uuidString), forKey: StartupGroups.startupGroupIDsKey)
+            defaults.set("groups", forKey: StartupGroups.startupModeKey)
+            defaults.removeObject(forKey: StartupGroups.startupWindowGroupIDKey)
         }
         return archiveWindowGroups(source, backups: backups)
     }

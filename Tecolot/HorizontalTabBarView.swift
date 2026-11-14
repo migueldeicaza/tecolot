@@ -439,7 +439,7 @@ final class HorizontalTabBarView: NSView {
     override func flagsChanged(with event: NSEvent) {
         hintTask?.cancel()
         guard
-            window?.isKeyWindow == true, UserDefaults.standard.bool(forKey: "useCommandDigitsForTabs"),
+            window?.isKeyWindow == true, UserDefaults.standard.bool(forKey: TabSelectionCommands.useCommandDigitsForTabsKey),
             event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
         else {
             hideHints()

@@ -3,18 +3,18 @@ import SwiftTerm
 
 /// Edits notification, Dock and per-state program activity preferences.
 struct NotificationsSettingsView: View {
-    @AppStorage(ProgramActivityPreferences.showTabsKey) private var tabs = true
-    @AppStorage(ProgramActivityPreferences.notificationsKey) private var notifications = true
-    @AppStorage(ProgramActivityPreferences.dockKey) private var dock = true
-    @AppStorage(ProgramActivityPreferences.soundsKey) private var sounds = false
-    @AppStorage("programActivityWorking") private var working = true
-    @AppStorage("programActivityBlocked") private var blocked = true
-    @AppStorage("programActivityError") private var error = true
-    @AppStorage("programActivityDone") private var done = true
-    @AppStorage(ProgramActivityPreferences.bounceKey) private var bounce = true
-    @AppStorage(ProgramActivityPreferences.announceKey) private var announce = true
-    @AppStorage(ProgramActivityPreferences.colorKey) private var statusColor = true
-    @AppStorage(ProgramActivityPreferences.tickerSpeedKey) private var speed = 33.4
+    @AppStorage(ProgramActivityPreferences.showTabsKey) private var tabs = ProgramActivityPreferences.showTabsDefault
+    @AppStorage(ProgramActivityPreferences.notificationsKey) private var notifications = ProgramActivityPreferences.notificationsDefault
+    @AppStorage(ProgramActivityPreferences.dockKey) private var dock = ProgramActivityPreferences.dockDefault
+    @AppStorage(ProgramActivityPreferences.soundsKey) private var sounds = ProgramActivityPreferences.soundsDefault
+    @AppStorage(ProgramActivityPreferences.workingKey) private var working = ProgramActivityPreferences.workingDefault
+    @AppStorage(ProgramActivityPreferences.blockedKey) private var blocked = ProgramActivityPreferences.blockedDefault
+    @AppStorage(ProgramActivityPreferences.errorKey) private var error = ProgramActivityPreferences.errorDefault
+    @AppStorage(ProgramActivityPreferences.doneKey) private var done = ProgramActivityPreferences.doneDefault
+    @AppStorage(ProgramActivityPreferences.bounceKey) private var bounce = ProgramActivityPreferences.bounceDefault
+    @AppStorage(ProgramActivityPreferences.announceKey) private var announce = ProgramActivityPreferences.announceDefault
+    @AppStorage(ProgramActivityPreferences.colorKey) private var statusColor = ProgramActivityPreferences.colorDefault
+    @AppStorage(ProgramActivityPreferences.tickerSpeedKey) private var speed = ProgramActivityPreferences.tickerSpeedDefault
     var body: some View {
         Form {
             Section("Program activity") {
@@ -60,9 +60,9 @@ struct NotificationsSettingsView: View {
 }
 
 private struct FromProgramsSettingsSection: View {
-    @AppStorage(TerminalNotificationPreferences.bellStyleKey) private var bellStyle = "sound"
-    @AppStorage(TerminalNotificationPreferences.allowsProgramNotificationsKey) private var allowsNotifications = true
-    @AppStorage(TerminalNotificationPreferences.bellMigrationNoteDismissedKey) private var noteDismissed = false
+    @AppStorage(TerminalNotificationPreferences.bellStyleKey) private var bellStyle = TerminalNotificationPreferences.bellStyleDefault.tagName
+    @AppStorage(TerminalNotificationPreferences.allowsProgramNotificationsKey) private var allowsNotifications = TerminalNotificationPreferences.allowsProgramNotificationsDefault
+    @AppStorage(TerminalNotificationPreferences.bellMigrationNoteDismissedKey) private var noteDismissed = TerminalNotificationPreferences.bellMigrationNoteDismissedDefault
 
     var body: some View {
         Section {

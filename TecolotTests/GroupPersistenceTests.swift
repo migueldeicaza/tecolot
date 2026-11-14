@@ -186,16 +186,16 @@ struct GroupPersistenceTests {
         let single = SavedWindowGroup(name: "Personal", windows: [window])
         let source = root.appendingPathComponent("window-groups.json")
         try WindowGroupsMigrator().encodeCurrent([old, single]).write(to: source)
-        defaults.set("windowGroup", forKey: "startupMode")
-        defaults.set(old.id.uuidString, forKey: "startupWindowGroupID")
+        defaults.set("windowGroup", forKey: StartupGroups.startupModeKey)
+        defaults.set(old.id.uuidString, forKey: StartupGroups.startupWindowGroupIDKey)
         var state = RestoreState(bootID: nil, savedAt: Date(), groups: [group("WORK")], windows: [])
         #expect(store.migrateWindowGroups(in: &state))
         #expect(state.groups.map(\.name) == ["WORK", "Work 2", "Work 2 2", "Personal"])
         #expect(state.groups.dropFirst().allSatisfy {
             $0.isNameCustom && $0.selectedTabIndex == 1
         })
-        #expect(defaults.string(forKey: "startupMode") == "groups")
-        #expect(defaults.stringArray(forKey: "startupGroupIDs") == state.groups[1...2].map {
+        #expect(defaults.string(forKey: StartupGroups.startupModeKey) == "groups")
+        #expect(defaults.stringArray(forKey: StartupGroups.startupGroupIDsKey) == state.groups[1...2].map {
             $0.id.uuidString
         })
         let pane = state.groups[1].tabs[0].root.panes[0]
@@ -226,8 +226,8 @@ struct GroupPersistenceTests {
         let old = SavedWindowGroup(name: "Startup", windows: [window, window])
         let other = SavedWindowGroup(name: "Background", windows: [window])
         try WindowGroupsMigrator().encodeCurrent([old, other]).write(to: root.appendingPathComponent("window-groups.json"))
-        defaults.set("windowGroup", forKey: "startupMode")
-        defaults.set(old.id.uuidString, forKey: "startupWindowGroupID")
+        defaults.set("windowGroup", forKey: StartupGroups.startupModeKey)
+        defaults.set(old.id.uuidString, forKey: StartupGroups.startupWindowGroupIDKey)
         #expect(!store.restore())
         #expect(manager.groups.flatMap(\.tabs).allSatisfy {
             $0.isDormant
@@ -491,8 +491,8 @@ struct GroupPersistenceTests {
         }
         let recent = group("Recent", shown: Date()), a = group("Chosen A"), b = group("Chosen B")
         try write(RestoreState(bootID: nil, savedAt: Date(), groups: [recent, a, b], windows: [], windowGroupsMigrated: true), to: store)
-        defaults.set("groups", forKey: "startupMode")
-        defaults.set([b.id.uuidString, UUID().uuidString, a.id.uuidString], forKey: "startupGroupIDs")
+        defaults.set("groups", forKey: StartupGroups.startupModeKey)
+        defaults.set([b.id.uuidString, UUID().uuidString, a.id.uuidString], forKey: StartupGroups.startupGroupIDsKey)
         #expect(!store.restore())
         manager.openStartupWindows(defaults: defaults) { _ in
             Issue.record("Expected the chosen groups")
@@ -513,9 +513,9 @@ struct GroupPersistenceTests {
         let old = group("Old", shown: Date(timeIntervalSince1970: 1))
         let recent = group("Recent", shown: Date(timeIntervalSince1970: 2)), never = group("Never")
         try write(RestoreState(bootID: nil, savedAt: Date(), groups: [old, recent, never], windows: [], windowGroupsMigrated: true), to: store)
-        defaults.set(mode, forKey: "startupMode")
-        defaults.set(UUID().uuidString, forKey: "startupProfileID")
-        defaults.set([UUID().uuidString], forKey: "startupGroupIDs")
+        defaults.set(mode, forKey: StartupGroups.startupModeKey)
+        defaults.set(UUID().uuidString, forKey: StartupGroups.startupProfileIDKey)
+        defaults.set([UUID().uuidString], forKey: StartupGroups.startupGroupIDsKey)
         #expect(!store.restore())
         manager.openStartupWindows(defaults: defaults) { _ in
             Issue.record("History must precede a new window")
@@ -541,9 +541,9 @@ struct GroupPersistenceTests {
         let old = SavedWindowGroup(name: "Template", windows: [window])
         try WindowGroupsMigrator().encodeCurrent([old]).write(to: root.appendingPathComponent("window-groups.json"))
         let profileID = UUID()
-        defaults.set(mode, forKey: "startupMode")
-        defaults.set(profileID.uuidString, forKey: "startupProfileID")
-        defaults.set([UUID().uuidString], forKey: "startupGroupIDs")
+        defaults.set(mode, forKey: StartupGroups.startupModeKey)
+        defaults.set(profileID.uuidString, forKey: StartupGroups.startupProfileIDKey)
+        defaults.set([UUID().uuidString], forKey: StartupGroups.startupGroupIDsKey)
         #expect(!store.restore())
         #expect(manager.mostRecentBackgroundGroup == nil)
         var opened: [LaunchSpec] = []

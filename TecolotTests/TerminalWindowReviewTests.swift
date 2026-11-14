@@ -99,7 +99,7 @@ struct TerminalWindowPreferencesTests {
             changes += 1
         }
         defaults.set("frame", forKey: "lastTerminalWindowFrame")
-        defaults.set(false, forKey: "useCommandDigitsForTabs")
+        defaults.set(false, forKey: TabSelectionCommands.useCommandDigitsForTabsKey)
         await nextTurn()
         #expect(changes == 0)
         defaults.set("compact", forKey: GlobalAppearanceSettings.paneStyleKey)

@@ -17,7 +17,9 @@ struct SettingsView: View {
 
     @State private var destination: SettingsDestination? = .general
     static let selectedProfileIDKey = "settingsSelectedProfileID"
-    @AppStorage(selectedProfileIDKey) private var selectedProfileID = ""
+    static let selectedProfileIDDefault = ""
+
+    @AppStorage(selectedProfileIDKey) private var selectedProfileID = SettingsView.selectedProfileIDDefault
     @State private var profileErrorMessage: String?
 
     @MainActor
@@ -141,7 +143,7 @@ struct SettingsView: View {
 
     private var activeProfileID: TerminalProfile.ID? {
         get { UUID(uuidString: selectedProfileID) }
-        nonmutating set { selectedProfileID = newValue?.uuidString ?? "" }
+        nonmutating set { selectedProfileID = newValue?.uuidString ?? SettingsView.selectedProfileIDDefault }
     }
 
     private var activeProfileSelection: Binding<TerminalProfile.ID?> {

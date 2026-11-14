@@ -454,7 +454,7 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
     private func showHints(_ event: NSEvent) {
         hintsTask?.cancel()
         guard
-            !isHidden, window?.isKeyWindow == true, UserDefaults.standard.bool(forKey: "useCommandDigitsForTabs"),
+            !isHidden, window?.isKeyWindow == true, UserDefaults.standard.bool(forKey: TabSelectionCommands.useCommandDigitsForTabsKey),
             event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else {
             hints = false
             for cell in cells.values {
