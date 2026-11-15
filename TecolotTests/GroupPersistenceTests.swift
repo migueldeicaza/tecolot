@@ -364,6 +364,33 @@ struct GroupPersistenceTests {
         #expect(store.takeSavedState()?.groups[1].tabs[0].wasDormant == true)
     }
 
+    @Test func retryAfterDiscardingDamagedStateResumesPersistence() async throws {
+        let writes = RecordedRestoreWrites()
+        let (root, _, manager, _, store) = fixture(writes: writes)
+        defer { stop(manager)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try DurableStateDirectory.makePrivateDirectory(store.directory)
+        try Data("broken json".utf8).write(to: store.windowsURL)
+        #expect(!store.restore())
+        let startup = manager.newGroup(tab: TerminalTab(startsProcesses: false))
+        _ = manager.openWindow(group: startup)
+        try FileManager.default.removeItem(at: store.windowsURL)
+        store.retryRestorationRecovery()
+        try #require(manager.persistenceDidChange != nil)
+        #expect(store.observationGeneration > 0)
+        #expect(store.takeSavedState()?.groups.map(\.id) == [startup.id])
+        let generation = store.observationGeneration
+        startup.tabs[0].customName = "Recovered session"
+        try await waitForWrites(store, recorded: writes, count: 1)
+        #expect(writes.states.last?.groups.first?.tabs.first?.name == "Recovered session")
+        #expect(store.observationGeneration > generation)
+        let next = manager.newGroup(tab: TerminalTab(startsProcesses: false))
+        _ = manager.openWindow(group: next)
+        try await waitForWrites(store, recorded: writes, count: 2)
+        #expect(Set(writes.states.last?.groups.map(\.id) ?? []) == Set([startup.id, next.id]))
+    }
+
     @Test func retryMergesRecoveredGroupsBeforeSavingAndKeepsStartupGroup() throws {
         let (root, _, manager, _, store) = fixture()
         defer { stop(manager)

@@ -753,7 +753,8 @@ final class RestoreStore {
         guard isEnabled else {
             return
         }
-        guard var state = takeSavedState(), canWrite else {
+        var state = takeSavedState() ?? RestoreState(bootID: nil, savedAt: Date(), windows: [])
+        guard canWrite else {
             return
         }
         isReady = true
