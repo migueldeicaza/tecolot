@@ -3,6 +3,37 @@ import Testing
 @testable import Tecolot
 
 struct GlobalAppearanceSettingsTests {
+    @MainActor
+    @Test func opaqueBackdropRemovesExclusionMasksWhenResized() throws {
+        let backdrop = TerminalWorkspaceBackdropView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        backdrop.excludeCards([CGRect(x: 20, y: 20, width: 150, height: 100)])
+        let paints = try #require(backdrop.layer?.sublayers?.filter { $0.mask != nil })
+        try #require(paints.count == 3)
+        backdrop.excludeCards([])
+        #expect(paints.allSatisfy { $0.mask == nil })
+        backdrop.frame.size = NSSize(width: 800, height: 600)
+        backdrop.layoutSubtreeIfNeeded()
+        backdrop.excludeCards([])
+        #expect(paints.allSatisfy { $0.mask == nil })
+    }
+
+    @MainActor
+    @Test func unchangedExclusionsRebuildMasksAfterResize() throws {
+        let backdrop = TerminalWorkspaceBackdropView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        let frames = [CGRect(x: 20, y: 20, width: 150, height: 100)]
+        backdrop.excludeCards(frames)
+        let paints = try #require(backdrop.layer?.sublayers?.filter { $0.mask != nil })
+        try #require(paints.count == 3)
+        backdrop.frame.size = NSSize(width: 800, height: 600)
+        backdrop.layoutSubtreeIfNeeded()
+        backdrop.excludeCards(frames)
+        for paint in paints {
+            let mask = try #require(paint.mask as? CAShapeLayer)
+            #expect(mask.frame == backdrop.bounds)
+            #expect(mask.path?.boundingBox == backdrop.bounds)
+        }
+    }
+
     @Test func defaultsEnableCardsAndChrome() {
         let settings = GlobalAppearanceSettings()
         #expect(settings.paneCardsEnabled)

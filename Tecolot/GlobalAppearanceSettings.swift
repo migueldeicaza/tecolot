@@ -277,7 +277,14 @@ final class TerminalWorkspaceBackdropView: NSView {
 
     /// Chrome is painted once around terminals; translucent terminal fills keep their own alpha.
     func excludeCards(_ frames: [CGRect]) {
-        guard frames != exclusions else {
+        if frames.isEmpty {
+            exclusions = []
+            for paint in [flat, gradient, tint] {
+                paint.mask = nil
+            }
+            return
+        }
+        guard frames != exclusions || flat.mask?.frame != bounds else {
             return
         }
         exclusions = frames
