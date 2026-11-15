@@ -479,6 +479,15 @@ struct PersistentPaneTests {
 
     @Test func progressAndNotificationsReachPersistentPanes() async throws {
         setenv("TECOLOT_RUNTIME_DIR", "/tmp/tecolot-tests-\(getpid())", 1)
+        // The notifier is shared. Hold its defaults so that a parallel test
+        // which turns program notifications off cannot swallow this one.
+        let domain = "persistent-pane-notifications-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        let oldDefaults = try await TestNotifications.useDefaults(defaults)
+        defer {
+            TestNotifications.restoreDefaults(oldDefaults)
+            defaults.removePersistentDomain(forName: domain)
+        }
         TestNotifications.install()
         let profile = AppModel.shared.profiles.defaultProfile
         var spec = LaunchSpec(profileID: profile.id, workingDirectory: "/tmp")
