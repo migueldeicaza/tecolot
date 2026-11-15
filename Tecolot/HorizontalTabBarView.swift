@@ -18,6 +18,7 @@ final class HorizontalTabBarView: NSView {
     private let activityPopover = ActivityPopover()
     private(set) var cells: [TabItemView] = []
     lazy var dragController = TabDragController(bar: self)
+    private var defaultsObserver: DefaultsValueObserver<TabStripPreferences>?
     private var preferences = TabStripPreferences()
     private var activityPreferences = ProgramActivitySettings.shared.value
     private var terminalTheme: TerminalTheme?
@@ -113,7 +114,7 @@ final class HorizontalTabBarView: NSView {
         for name in [
             NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
             NSWindow.didChangeOcclusionStateNotification, NSApplication.didHideNotification,
-            NSApplication.didUnhideNotification, UserDefaults.didChangeNotification,
+            NSApplication.didUnhideNotification,
             .programActivityDidChange, .groupsDidChange, .programActivityPreferencesDidChange,
         ] {
             observers.append(
@@ -131,9 +132,7 @@ final class HorizontalTabBarView: NSView {
                             }
                             return
                         }
-                        if
-                            note.name == UserDefaults.didChangeNotification
-                            || note.name == .programActivityPreferencesDidChange {
+                        if note.name == .programActivityPreferencesDidChange {
                             let next = TabStripPreferences()
                             let nextActivity = ProgramActivitySettings.shared.value
                             guard next != self.preferences || nextActivity != self.activityPreferences else {
@@ -152,6 +151,16 @@ final class HorizontalTabBarView: NSView {
                     }
                 }
             )
+        }
+        defaultsObserver = DefaultsValueObserver(defaults: .standard, keys: TabStripPreferences.observedKeys, read: TabStripPreferences.init(defaults:))
+        defaultsObserver?.onChange = { [weak self] next in
+            guard let self else { return }
+            self.preferences = next
+            self.controller?.refreshTabPreferences()
+            self.refreshChrome()
+            self.needsLayout = true
+            self.updateDrawingVisibility()
+            if self.window?.isKeyWindow != true { self.hideHints() }
         }
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
             MainActor.assumeIsolated {

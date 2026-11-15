@@ -85,6 +85,7 @@ nonisolated struct TabStripPreferences: Equatable {
     static let animationStyleDefault = "natural"
     static let preferGeneratedTitlesKey = "preferGeneratedTabTitles"
     static let preferGeneratedTitlesDefault = true
+    static let observedKeys = [iconCountKey, colorModeKey, fillKey, animationStyleKey, preferGeneratedTitlesKey]
     enum ColorMode: String { case always, activeTabs, activePanes, never }
     var iconCount: Int
     var colorMode: ColorMode

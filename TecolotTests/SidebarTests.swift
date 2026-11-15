@@ -191,7 +191,7 @@ struct SidebarTests {
         #expect(owner.group === current)
     }
 
-    @Test func liveStyleChangesReachEveryWindowAndOutlineNavigationRetainsFocus() throws {
+    @Test func liveStyleChangesReachEveryWindowAndOutlineNavigationRetainsFocus() async throws {
         let suite = "SidebarWindows-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -207,7 +207,9 @@ struct SidebarTests {
         let a = try #require(manager.openWindow(group: first) as? TerminalWindowController)
         let b = try #require(manager.openWindow(group: second) as? TerminalWindowController)
         SidebarPreferences.setStyle(.left, defaults: defaults)
-        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
         #expect(a.sidebarPreferences.style == .left)
         #expect(b.sidebarPreferences.style == .left)
         a.window?.makeFirstResponder(a.sidebar.outline)
@@ -219,7 +221,9 @@ struct SidebarTests {
         #expect(first.selection == next.id)
         #expect(a.window?.firstResponder === next.loadedWorkspace?.focusedController?.surface)
         a.toggleSidebar()
-        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
         #expect(a.sidebar.isHidden && b.sidebar.isHidden)
     }
 

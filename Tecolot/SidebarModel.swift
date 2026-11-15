@@ -16,6 +16,10 @@ struct SidebarPreferences: Equatable {
     static let gestureKey = "sidebarGesture"
     static let gestureDefault = "swipe"
 
+    static let systemSizeKey = "NSTableViewDefaultSizeMode"
+    static let observedKeys = [ProgramActivityPreferences.tabStyleKey, positionKey, hiddenKey,
+                               widthKey, textSizeKey, preserveWidthKey, gestureKey, systemSizeKey]
+
     enum Style: String, CaseIterable {
         case above, left, right
     }
@@ -32,7 +36,7 @@ struct SidebarPreferences: Equatable {
         hidden = defaults.bool(forKey: SidebarPreferences.hiddenKey)
         width = Self.clampWidth(defaults.object(forKey: SidebarPreferences.widthKey) == nil ? Self.widthDefault : defaults.double(forKey: SidebarPreferences.widthKey))
         let size = defaults.double(forKey: SidebarPreferences.textSizeKey)
-        let systemSize = defaults.integer(forKey: "NSTableViewDefaultSizeMode")
+        let systemSize = defaults.integer(forKey: Self.systemSizeKey)
         textSize = size > 0 ? size : (systemSize == 1 ? 11 : systemSize == 3 ? 15 : 13)
         preserveWidth = defaults.object(forKey: SidebarPreferences.preserveWidthKey) as? Bool ?? Self.preserveWidthDefault
         gesture = defaults.string(forKey: SidebarPreferences.gestureKey) ?? Self.gestureDefault

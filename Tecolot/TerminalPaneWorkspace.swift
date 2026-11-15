@@ -117,7 +117,7 @@ final class TerminalPaneWorkspace {
     @ObservationIgnored private var processTask: Task<Void, Never>?
     @ObservationIgnored private var jobIconResolvers: [UUID: TerminalForegroundJobIconResolver] = [:]
     @ObservationIgnored private var processVisibilityObservers: [NSObjectProtocol] = []
-    @ObservationIgnored private var iconPreferencesObserver: NSObjectProtocol?
+    @ObservationIgnored private var iconPreferencesObserver: DefaultsValueObserver<Int>?
     @ObservationIgnored private var iconPreferences = PaneIconInspectionPreferences(iconCount: TabStripPreferences().iconCount)
 
     init(spec: LaunchSpec = LaunchSpec(), startsProcesses: Bool = true, participatesInWindow: Bool = true) {
@@ -140,19 +140,13 @@ final class TerminalPaneWorkspace {
                 }
             })
         }
-        iconPreferencesObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else {
-                    return
-                }
-                let count = min(5, max(0, UserDefaults.standard.object(forKey: TabStripPreferences.iconCountKey) as? Int ?? TabStripPreferences.iconCountDefault))
-                self.iconPreferences.update(iconCount: count) {
-                    self.updateProcessInspection()
-                }
+        iconPreferencesObserver = DefaultsValueObserver(defaults: .standard, keys: [TabStripPreferences.iconCountKey]) {
+            min(5, max(0, $0.object(forKey: TabStripPreferences.iconCountKey) as? Int ?? TabStripPreferences.iconCountDefault))
+        }
+        iconPreferencesObserver?.onChange = { [weak self] count in
+            guard let self else { return }
+            self.iconPreferences.update(iconCount: count) {
+                self.updateProcessInspection()
             }
         }
     }
@@ -160,9 +154,6 @@ final class TerminalPaneWorkspace {
     deinit {
         processVisibilityObservers.forEach(NotificationCenter.default.removeObserver)
         processTask?.cancel()
-        if let iconPreferencesObserver {
-            NotificationCenter.default.removeObserver(iconPreferencesObserver)
-        }
     }
 
     @ObservationIgnored private var didConsiderPaneTree = false

@@ -25,7 +25,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     private let resizeHandle = SidebarResizeHandle()
     private let defaults: UserDefaults
     private(set) var sidebarPreferences: SidebarPreferences
-    private var sidebarObserver: NSObjectProtocol?
+    private var sidebarObserver: DefaultsValueObserver<SidebarPreferences>?
     private var activityObserver: NSObjectProtocol?
     private var accessibilityObserver: NSObjectProtocol?
     private var animateChrome = false
@@ -112,10 +112,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         content.onSwipe = { [weak self] event in
             self?.handleSidebarSwipe(event)
         }
-        sidebarObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.refreshSidebarPreferences()
-            }
+        sidebarObserver = DefaultsValueObserver(defaults: defaults, keys: SidebarPreferences.observedKeys, read: SidebarPreferences.init(defaults:))
+        sidebarObserver?.onChange = { [weak self] _ in
+            self?.refreshSidebarPreferences()
         }
         activityObserver = NotificationCenter.default.addObserver(forName: .programActivityDidChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -155,9 +154,6 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     deinit {
         for observer in trafficLightObservers {
             NotificationCenter.default.removeObserver(observer)
-        }
-        if let sidebarObserver {
-            NotificationCenter.default.removeObserver(sidebarObserver)
         }
         if let activityObserver {
             NotificationCenter.default.removeObserver(activityObserver)

@@ -13,25 +13,15 @@ final class ProgramActivitySettings {
     static let shared = ProgramActivitySettings()
     private(set) var value: ProgramActivityPreferences
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private var observer: NSObjectProtocol?
+    @ObservationIgnored private var observer: DefaultsValueObserver<ProgramActivityPreferences>?
 
     /// Tests may provide an isolated defaults domain.
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         value = ProgramActivityPreferences(defaults: defaults)
-        observer = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.refresh()
-            }
-        }
-    }
-
-    deinit {
-        if let observer {
-            NotificationCenter.default.removeObserver(observer)
+        observer = DefaultsValueObserver(defaults: defaults, keys: ProgramActivityPreferences.observedKeys, read: ProgramActivityPreferences.init(defaults:))
+        observer?.onChange = { [weak self] _ in
+            self?.refresh()
         }
     }
 

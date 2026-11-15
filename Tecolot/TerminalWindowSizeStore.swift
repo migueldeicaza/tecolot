@@ -20,11 +20,39 @@ final class TerminalWindowSizeStore {
     private var observers: [ObjectIdentifier: WindowObserver] = [:]
     private var suppressedWindowIDs: Set<ObjectIdentifier> = []
 
+    private var pendingFrame: NSRect?
+    private var pendingSave: DispatchWorkItem?
+    private var terminationObserver: NSObjectProtocol?
+    private let saveInterval: TimeInterval
+    private let didSave: () -> Void
     private let defaults: UserDefaults
     private let profileContentSize: (TerminalProfile) -> NSSize
-    init(defaults: UserDefaults = .standard, profileContentSize: @escaping (TerminalProfile) -> NSSize = TerminalProfileWindowSizer.contentSize) {
+    init(defaults: UserDefaults = .standard, saveInterval: TimeInterval = 0.1, didSave: @escaping () -> Void = {}, profileContentSize: @escaping (TerminalProfile) -> NSSize = TerminalProfileWindowSizer.contentSize) {
         self.defaults = defaults
+        self.saveInterval = saveInterval
+        self.didSave = didSave
         self.profileContentSize = profileContentSize
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.flush() }
+        }
+    }
+
+    deinit {
+        pendingSave?.cancel()
+        if let terminationObserver {
+            NotificationCenter.default.removeObserver(terminationObserver)
+        }
+    }
+
+    /// Saves the latest normal frame synchronously at lifecycle boundaries.
+    func flush() {
+        pendingSave?.cancel()
+        pendingSave = nil
+        guard let frame = pendingFrame else { return }
+        pendingFrame = nil
+        save(frame)
     }
 
     /// Gives every manager-created window a profile/saved size and an explicit position.
@@ -114,7 +142,11 @@ final class TerminalWindowSizeStore {
                 }
                 self?.recordFrame(of: window)
             },
+            didEndResize: { [weak self] in
+                self?.flush()
+            },
             didClose: { [weak self] in
+                self?.flush()
                 self?.observers.removeValue(forKey: identifier)
                 self?.suppressedWindowIDs.remove(identifier)
             }
@@ -161,7 +193,13 @@ final class TerminalWindowSizeStore {
         guard !suppressedWindowIDs.contains(identifier), isNormal(window) else {
             return
         }
-        save(window.frame)
+        pendingFrame = window.frame
+        guard pendingSave == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.flush() }
+        }
+        pendingSave = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + saveInterval, execute: work)
     }
 
     private func isNormal(_ window: NSWindow) -> Bool {
@@ -202,6 +240,7 @@ final class TerminalWindowSizeStore {
         guard isValid(frame) else {
             return
         }
+        didSave()
         defaults.set(NSStringFromRect(frame), forKey: DefaultsKey.lastFrame)
         defaults.set(NSStringFromSize(frame.size), forKey: DefaultsKey.lastFrameSize)
     }
@@ -224,10 +263,12 @@ private final class WindowObserver {
     private let resizeObserver: NSObjectProtocol
     private let moveObserver: NSObjectProtocol
     private let closeObserver: NSObjectProtocol
+    private let endResizeObserver: NSObjectProtocol
 
     init(
         window: NSWindow,
         didChangeFrame: @escaping () -> Void,
+        didEndResize: @escaping () -> Void,
         didClose: @escaping () -> Void
     ) {
         resizeObserver = NotificationCenter.default.addObserver(
@@ -244,6 +285,12 @@ private final class WindowObserver {
         ) { _ in
             didChangeFrame()
         }
+        endResizeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didEndLiveResizeNotification, object: window, queue: .main
+        ) { _ in
+            didChangeFrame()
+            didEndResize()
+        }
         closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
@@ -257,5 +304,6 @@ private final class WindowObserver {
         NotificationCenter.default.removeObserver(resizeObserver)
         NotificationCenter.default.removeObserver(moveObserver)
         NotificationCenter.default.removeObserver(closeObserver)
+        NotificationCenter.default.removeObserver(endResizeObserver)
     }
 }

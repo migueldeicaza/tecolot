@@ -27,6 +27,8 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
     private var observers: [NSObjectProtocol] = []
     private var flagsMonitor: Any?
     private var hintsTask: Task<Void, Never>?
+    private var defaultsObserver: DefaultsValueObserver<TabStripPreferences>?
+    private var textSizeObserver: DefaultsValueObserver<CGFloat>?
     private var hints = false
     private var reloading = false
     private var observationGeneration = 0
@@ -90,7 +92,6 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
             Notification.Name.groupsDidChange,
             .programActivityDidChange,
             .programActivityPreferencesDidChange,
-            UserDefaults.didChangeNotification,
             NSView.boundsDidChangeNotification,
             NSWindow.didBecomeKeyNotification,
             NSWindow.didResignKeyNotification,
@@ -113,6 +114,12 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
                 }
             })
         }
+        defaultsObserver = DefaultsValueObserver(defaults: .standard, keys: TabStripPreferences.observedKeys, read: TabStripPreferences.init(defaults:))
+        defaultsObserver?.onChange = { [weak self] _ in self?.reload() }
+        textSizeObserver = DefaultsValueObserver(defaults: .standard, keys: [SidebarPreferences.textSizeKey, SidebarPreferences.systemSizeKey]) {
+            SidebarPreferences(defaults: $0).textSize
+        }
+        textSizeObserver?.onChange = { [weak self] _ in self?.reload() }
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             self?.showHints(event)
             return event

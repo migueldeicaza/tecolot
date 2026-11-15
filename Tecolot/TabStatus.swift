@@ -32,6 +32,10 @@ nonisolated struct ProgramActivityPreferences: Equatable {
     static let idleKey = "programActivityIdle"
     static let idleDefault = true
 
+    static let observedKeys = [showTabsKey, notificationsKey, dockKey, soundsKey, colorKey,
+                               bounceKey, announceKey, tickerSpeedKey, workingKey, blockedKey,
+                               errorKey, doneKey, idleKey]
+
     var showTabs = Self.showTabsDefault
     var notifications = Self.notificationsDefault
     var dock = Self.dockDefault
