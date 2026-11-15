@@ -22,6 +22,7 @@ extension RestoreStore {
             issueCenter.report(issue)
             return false
         }
+        var migrated = state
         var mappings: [UUID: [UUID]] = [:]
         for old in result.value ?? [] {
             var ids: [UUID] = []
@@ -30,7 +31,7 @@ extension RestoreStore {
                 var name = base
                 var suffix = 2
                 while
-                    state.groups.contains(where: {
+                    migrated.groups.contains(where: {
                         $0.name.caseInsensitiveCompare(name) == .orderedSame
                     }) {
                     name = "\(base) \(suffix)"
@@ -53,16 +54,17 @@ extension RestoreStore {
                     selectedTabIndex: min(max(window.selectedTabIndex, 0), tabs.count - 1),
                     tabs: tabs
                 )
-                state.groups.append(group)
+                migrated.groups.append(group)
                 ids.append(group.id)
             }
             mappings[old.id] = ids
         }
-        state.windowGroupsMigrated = true
+        migrated.windowGroupsMigrated = true
         // Commit the IDs before archiving the source or changing preferences.
-        guard writeLaunchState(state) else {
+        guard writeLaunchState(migrated) else {
             return false
         }
+        state = migrated
         if
             defaults.string(forKey: StartupGroups.startupModeKey) == "windowGroup",
             let oldID = defaults.string(forKey: StartupGroups.startupWindowGroupIDKey).flatMap(UUID.init(uuidString:)),

@@ -242,6 +242,34 @@ struct GroupPersistenceTests {
         #expect(manager.backgroundGroups[0].tabs[0].isDormant)
     }
 
+    @Test func failedLegacyImportCommitLeavesStateUnchangedForRetry() throws {
+        let (root, defaults, manager, _, store) = fixture()
+        defer { stop(manager)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let tab = SavedTerminalTab(profileID: UUID())
+        let old = SavedWindowGroup(name: "Imported", windows: [
+            SavedTerminalWindow(frame: "{{0, 0}, {800, 600}}", tabs: [tab], selectedTabIndex: 0)
+        ])
+        // A directory at the destination makes the atomic commit fail.
+        try DurableStateDirectory.makePrivateDirectory(store.windowsURL)
+        let source = root.appendingPathComponent("window-groups.json")
+        try WindowGroupsMigrator().encodeCurrent([old]).write(to: source)
+        defaults.set("windowGroup", forKey: StartupGroups.startupModeKey)
+        defaults.set(old.id.uuidString, forKey: StartupGroups.startupWindowGroupIDKey)
+        let original = RestoreState(bootID: nil, savedAt: Date(timeIntervalSince1970: 100), groups: [group("Existing")], windows: [])
+        var state = original
+        #expect(!store.migrateWindowGroups(in: &state))
+        #expect(state == original)
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(defaults.string(forKey: StartupGroups.startupModeKey) == "windowGroup")
+        try FileManager.default.removeItem(at: store.windowsURL)
+        #expect(store.migrateWindowGroups(in: &state))
+        #expect(state.groups.map(\.name) == ["Existing", "Imported"])
+        #expect(state.windowGroupsMigrated)
+        #expect(store.takeSavedState() == state)
+    }
+
     @Test func failedLegacyImportReportsRecoveryAndLeavesSource() throws {
         let (root, _, manager, _, store) = fixture()
         defer { stop(manager)
