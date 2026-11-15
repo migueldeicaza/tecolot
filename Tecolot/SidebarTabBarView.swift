@@ -444,6 +444,15 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         }
         header.beginRename()
     }
+    /// Window visibility can change while these rows keep their viewport geometry.
+    var tabsInViewport: [TerminalTab] {
+        guard !isHidden else { return [] }
+        return cells.values.compactMap { cell in
+            let row = outline.row(forItem: cell.tab)
+            return row >= 0 && outline.rect(ofRow: row).intersects(outline.visibleRect) ? cell.tab : nil
+        }
+    }
+
     func hasVisibleCell(for tab: TerminalTab) -> Bool {
         let row = outline.row(forItem: tab)
         return !isHidden && window?.isVisible == true && window?.isMiniaturized == false

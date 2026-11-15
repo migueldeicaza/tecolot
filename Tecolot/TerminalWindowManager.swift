@@ -39,10 +39,48 @@ final class TerminalWindowManager {
     @ObservationIgnored private let nameGenerator: GroupNameGenerator
     @ObservationIgnored private let windowSizeStore: TerminalWindowSizeStore
 
-    init(registry: TerminalSessionRegistry? = nil, nameGenerator: GroupNameGenerator = GroupNameGenerator(), windowSizeStore: TerminalWindowSizeStore? = nil) {
+    nonisolated static let processVisibilityNotifications = [
+        NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+        NSWindow.didDeminiaturizeNotification, NSApplication.didHideNotification, NSApplication.didUnhideNotification
+    ]
+    @ObservationIgnored private let notificationCenter: NotificationCenter
+    @ObservationIgnored private var processVisibilityObservers: [NSObjectProtocol] = []
+
+    init(registry: TerminalSessionRegistry? = nil, nameGenerator: GroupNameGenerator = GroupNameGenerator(), windowSizeStore: TerminalWindowSizeStore? = nil, notificationCenter: NotificationCenter = .default) {
         self.registry = registry ?? .shared
         self.nameGenerator = nameGenerator
         self.windowSizeStore = windowSizeStore ?? .shared
+        self.notificationCenter = notificationCenter
+        for name in Self.processVisibilityNotifications {
+            processVisibilityObservers.append(notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    for workspace in self.processInspectionWorkspaces(affectedWindow: note.object as? NSWindow) {
+                        workspace.updateProcessInspection()
+                    }
+                }
+            })
+        }
+    }
+
+    deinit {
+        processVisibilityObservers.forEach(notificationCenter.removeObserver)
+    }
+
+    /// Include sidebar rows for other open groups: their icons may be visible here.
+    /// Unowned workspaces and background groups cannot inspect processes.
+    func processInspectionWorkspaces(affectedWindow: NSWindow? = nil) -> [TerminalPaneWorkspace] {
+        var seen = Set<ObjectIdentifier>()
+        return windows.compactMap { $0 as? TerminalWindowController }.filter {
+            affectedWindow == nil || $0.window === affectedWindow
+        }.flatMap { owner in
+            (owner.group.tabs + owner.sidebar.tabsInViewport).compactMap { tab in
+                guard let group = tab.group, window(showing: group) != nil,
+                      let workspace = tab.loadedWorkspace,
+                      seen.insert(ObjectIdentifier(workspace)).inserted else { return nil }
+                return workspace
+            }
+        }
     }
 
     var backgroundGroups: [TerminalTabGroup] {

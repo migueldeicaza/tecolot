@@ -116,7 +116,6 @@ final class TerminalPaneWorkspace {
     @ObservationIgnored private let processInspectionUpdates = ProcessInspectionUpdates()
     @ObservationIgnored private var processTask: Task<Void, Never>?
     @ObservationIgnored private var jobIconResolvers: [UUID: TerminalForegroundJobIconResolver] = [:]
-    @ObservationIgnored private var processVisibilityObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var iconPreferencesObserver: DefaultsValueObserver<Int>?
     @ObservationIgnored private var iconPreferences = PaneIconInspectionPreferences(iconCount: TabStripPreferences().iconCount)
 
@@ -133,13 +132,6 @@ final class TerminalPaneWorkspace {
         if spec.restoredTab == nil {
             controller.resolveLaunchIfNeeded(spec: spec)
         }
-        for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification, NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
-            processVisibilityObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.updateProcessInspection()
-                }
-            })
-        }
         iconPreferencesObserver = DefaultsValueObserver(defaults: .standard, keys: [TabStripPreferences.iconCountKey]) {
             min(5, max(0, $0.object(forKey: TabStripPreferences.iconCountKey) as? Int ?? TabStripPreferences.iconCountDefault))
         }
@@ -152,7 +144,6 @@ final class TerminalPaneWorkspace {
     }
 
     deinit {
-        processVisibilityObservers.forEach(NotificationCenter.default.removeObserver)
         processTask?.cancel()
     }
 
