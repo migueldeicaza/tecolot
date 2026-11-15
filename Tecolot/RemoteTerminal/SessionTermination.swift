@@ -9,6 +9,7 @@
 import AppKit
 import TecolotSessionClient
 import TecolotSessionDirectory
+import TecolotWire
 
 /// A persistent session on this Mac or on a remote host.
 struct SessionRef: Hashable {
@@ -21,22 +22,34 @@ struct SessionRef: Hashable {
 enum SessionTermination {
     /// Ends a helper session through the same path used by the Sessions window.
     static func end(_ session: SessionRef, link: HostLink? = nil) async throws {
-        if let destination = session.destination {
-            guard let link = link ?? RemoteHosts.shared.connectedLink(destination: destination) else {
-                throw GroupSessionEnder.Failure.hostUnavailable(destination)
-            }
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                link.terminateSession(id: session.id) {
-                    continuation.resume(with: $0)
+        try await ignoringMissingSession(session) {
+            if let destination = session.destination {
+                guard let link = link ?? RemoteHosts.shared.connectedLink(destination: destination) else {
+                    throw GroupSessionEnder.Failure.hostUnavailable(destination)
                 }
-            }
-        } else {
-            let directory = try PersistentSessions.directory()
-            try await Task.detached {
-                do {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    link.terminateSession(id: session.id) {
+                        continuation.resume(with: $0)
+                    }
+                }
+            } else {
+                let directory = try PersistentSessions.directory()
+                try await Task.detached {
                     try directory.terminate(session.id)
-                } catch SessionDirectoryError.noSuchSession { /* Already ended. */ }
-            }.value
+                }.value
+            }
+        }
+    }
+
+    /// Older bridges report directory errors as unavailable with their exact description.
+    static func ignoringMissingSession(_ session: SessionRef, operation: () async throws -> Void) async throws {
+        do {
+            try await operation()
+        } catch SessionDirectoryError.noSuchSession {
+            // Already ended.
+        } catch LinkClientError.remote(let error) where
+            error.code == .unavailable && error.message == "no session \(session.id)" {
+            // Already ended on the remote host.
         }
     }
 

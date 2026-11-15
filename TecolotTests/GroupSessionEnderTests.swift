@@ -1,11 +1,29 @@
 import AppKit
 import Testing
+import TecolotSessionClient
 import TecolotSessionDirectory
 import TecolotWire
 @testable import Tecolot
 
 @MainActor
 struct GroupSessionEnderTests {
+    @Test func alreadyEndedRemoteSessionAllowsGroupClose() async throws {
+        let session = SessionRef(id: "missing", destination: "host")
+        let plan = await GroupSessionEnder.plan([pane(.remote, session: session)]) { _ in (nil, nil) }
+        var closed = false
+        try await GroupSessionEnder.perform(plan, confirm: { _ in .endSessions }, end: { ref in
+            try await SessionTermination.ignoringMissingSession(ref) {
+                throw LinkClientError.remote(ErrorMessage(code: .unavailable, failedKind: .terminateSession, message: "no session missing"))
+            }
+        }, close: { closed = true })
+        #expect(closed)
+        for error in [LinkClientError.closed, .remote(ErrorMessage(code: .unavailable, failedKind: .terminateSession, message: "authentication failed"))] {
+            await #expect(throws: LinkClientError.self) {
+                try await SessionTermination.ignoringMissingSession(session) { throw error }
+            }
+        }
+    }
+
     private func pane(
         _ kind: RestorePaneKind,
         local: TerminalClosePolicy.PaneState? = nil,
