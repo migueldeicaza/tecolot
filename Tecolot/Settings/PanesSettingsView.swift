@@ -99,7 +99,7 @@ final class PaneSettingsPreviewView: NSView {
     private let outlines = PaneCardOutlineOverlay(frame: .zero)
 
     init(settings: GlobalAppearanceSettings) {
-        let workspace = TerminalPaneWorkspace(startsProcesses: false)
+        let workspace = TerminalPaneWorkspace(startsProcesses: false, participatesInWindow: false)
         if let first = workspace.focusedController {
             workspace.split(first, direction: .right)
         }

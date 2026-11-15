@@ -150,6 +150,30 @@ struct PaneAppearanceSettingsTests {
         #expect(second.value == first.value)
     }
 
+    @Test func previewDoesNotRegisterOrChangeWindowChrome() throws {
+        let preview = PaneSettingsPreviewView(settings: .init())
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 180),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.isRestorable = true
+        window.isOpaque = true
+        window.contentView = preview
+        preview.layoutSubtreeIfNeeded()
+        let registry = TerminalSessionRegistry.shared
+        for controller in preview.host.workspace.controllers {
+            controller.didBecomeFocused()
+            controller.previewBackgroundOpacity(0.5)
+            #expect(!registry.allControllers.contains { $0 === controller })
+        }
+        #expect(registry.controller(for: window) == nil)
+        #expect(registry.controllers(for: window).isEmpty)
+        #expect(registry.workspace(for: window) == nil)
+        #expect(WindowOpener.frontTerminalWindow(in: [window]) == nil)
+        #expect(window.isRestorable)
+        #expect(window.isOpaque)
+    }
+
     @Test func previewUsesTheSameCustomOutlineAndToggleAsWindows() throws {
         var settings = GlobalAppearanceSettings()
         let color = try #require(GlobalAppearanceSettings.HighlightColor(color: .systemOrange.withAlphaComponent(0.5)))

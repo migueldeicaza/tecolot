@@ -571,7 +571,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return
         }
         workspace?.markFocused(self)
-        TerminalSessionRegistry.shared.focus(controller: self, for: window)
+        if workspace?.participatesInWindow != false {
+            TerminalSessionRegistry.shared.focus(controller: self, for: window)
+        }
         if NSApp.isActive, window.isKeyWindow, surface?.isHiddenOrHasHiddenAncestor == false {
             markProgramActivitySeenIfVisible()
         }
@@ -1469,6 +1471,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     private func registerWindowIfAvailable() {
+        guard workspace?.participatesInWindow != false else {
+            return
+        }
         if observedWindow !== surface?.window {
             if let windowKeyObserver {
                 NotificationCenter.default.removeObserver(windowKeyObserver)

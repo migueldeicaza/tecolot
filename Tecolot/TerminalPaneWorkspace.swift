@@ -104,6 +104,8 @@ final class TerminalPaneWorkspace {
     private(set) var creationOrder: [UUID] = []
     private(set) var focusedControllerID: UUID
     private(set) var zoomedControllerID: UUID?
+    /// Previews draw real panes without participating in terminal window behavior.
+    let participatesInWindow: Bool
     @ObservationIgnored private let startsProcesses: Bool
     @ObservationIgnored weak var hostView: TerminalPaneHostView?
     @ObservationIgnored weak var windowManager: TerminalWindowManager?
@@ -118,7 +120,8 @@ final class TerminalPaneWorkspace {
     @ObservationIgnored private var iconPreferencesObserver: NSObjectProtocol?
     @ObservationIgnored private var iconPreferences = PaneIconInspectionPreferences(iconCount: TabStripPreferences().iconCount)
 
-    init(spec: LaunchSpec = LaunchSpec(), startsProcesses: Bool = true) {
+    init(spec: LaunchSpec = LaunchSpec(), startsProcesses: Bool = true, participatesInWindow: Bool = true) {
+        self.participatesInWindow = participatesInWindow
         self.startsProcesses = startsProcesses
         let controller = TerminalSessionController(startsProcess: startsProcesses)
         root = TerminalPaneNode(content: .terminal(controller))
@@ -380,7 +383,7 @@ final class TerminalPaneWorkspace {
     }
 
     func updateWindowTransparency() {
-        guard let window = controllers.compactMap(\.surface?.window).first else {
+        guard participatesInWindow, let window = controllers.compactMap(\.surface?.window).first else {
             return
         }
         TerminalWindowTransparency.apply(
