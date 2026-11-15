@@ -48,6 +48,31 @@ struct SidebarTests {
         manager.makeWindow = nil
     }
 
+    @Test func collapseOfAGroupShownElsewhereReachesEverySidebar() throws {
+        let suite = "SidebarCollapse-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        manager.makeWindow = {
+            TerminalWindowController(group: $0, manager: manager, defaults: defaults)
+        }
+        defer { stop(manager) }
+        let current = manager.newGroup(tab: live("One"))
+        let owner = try #require(manager.openWindow(group: current) as? TerminalWindowController)
+        let other = manager.newGroup(tab: live("Two"))
+        _ = manager.openWindow(group: other)
+        let background = manager.newGroup(tab: live("Three"))
+        owner.sidebar.reload()
+        #expect(owner.sidebar.model?.numberedTabs.map(\.tab.title) == ["One", "Two", "Three"])
+        // Neither group is shown in `owner`, but its sidebar lists both.
+        manager.setCollapsed(true, group: background)
+        #expect(owner.sidebar.model?.numberedTabs.map(\.tab.title) == ["One", "Two"])
+        manager.setCollapsed(true, group: other)
+        #expect(owner.sidebar.model?.numberedTabs.map(\.tab.title) == ["One"])
+        manager.collapseOthers(background)
+        #expect(owner.sidebar.model?.numberedTabs.map(\.tab.title) == ["Three"])
+    }
+
     @Test func orderedKindsCollapseFilterAndDigitDestinations() {
         let manager = manager()
         defer { stop(manager) }
