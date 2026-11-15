@@ -72,13 +72,17 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
             return
         }
         let key = controller.id.uuidString
-        guard admit(key, now: now) else {
+        guard canAdmit(key, now: now) else {
             return
         }
         if let tab = controller.owningTab {
-            guard tabLimits.admit(tab: tab.id, sound: false, now: now.timeIntervalSince1970) else {
+            guard tabLimits.canAdmit(tab: tab.id, sound: false, now: now.timeIntervalSince1970) else {
                 return
             }
+        }
+        _ = admit(key, now: now)
+        if let tab = controller.owningTab {
+            _ = tabLimits.admit(tab: tab.id, sound: false, now: now.timeIntervalSince1970)
         }
         let content = Self.content(title: title, body: body, source: controller.panePresentation.title, group: controller.owningTab?.group?.name)
         if
@@ -133,9 +137,11 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         let status = TabStatus.reduce([TabStatus.Record(paneID: controller.id, value: record, unseen: true)])
         if
             preferences.notifications, !(appActive ?? NSApp.isActive),
-            tabLimits.admit(tab: tab, sound: false, now: now.timeIntervalSince1970),
-            admit(controller.id.uuidString, now: now) {
+            tabLimits.canAdmit(tab: tab, sound: false, now: now.timeIntervalSince1970),
+            canAdmit(controller.id.uuidString, now: now) {
             let key = controller.id.uuidString
+            _ = admit(key, now: now)
+            _ = tabLimits.admit(tab: tab, sound: false, now: now.timeIntervalSince1970)
             let heading = status.accessibilityValue.components(separatedBy: ": ").first ?? "Program activity"
             let content = Self.content(
                 title: heading, body: record.message ?? record.title ?? "", source: controller.panePresentation.title, group: controller.owningTab?.group?.name
@@ -183,6 +189,10 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         content.userInfo = ["session": record.id]
         content.threadIdentifier = record.id
         deliver(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+
+    private func canAdmit(_ key: String, now: Date) -> Bool {
+        (recent[key] ?? []).filter { now.timeIntervalSince($0) < Self.rateWindow }.count < Self.rateLimit
     }
 
     /// Records a notification of `key` at `now`, unless it posted

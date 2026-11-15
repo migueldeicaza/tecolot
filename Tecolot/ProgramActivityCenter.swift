@@ -113,6 +113,12 @@ nonisolated struct ProgramActivityRateLimiter {
         return true
     }
 
+    /// Checks a slot without spending it while another limiter may still deny delivery.
+    func canAdmit(tab: UUID, sound: Bool, now: TimeInterval) -> Bool {
+        let values = sound ? sounds : notifications
+        return values[tab].map { now - $0 >= 2 } ?? true
+    }
+
     /// Admits one notification or one sound per tab in each two-second window.
     mutating func admit(tab: UUID, sound: Bool, now: TimeInterval) -> Bool {
         var values = sound ? sounds : notifications

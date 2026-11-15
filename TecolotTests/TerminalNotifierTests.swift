@@ -106,6 +106,69 @@ struct TerminalNotifierTests {
         #expect(TestNotifications.contents(for: controller).isEmpty)
     }
 
+    @Test(arguments: [false, true], [false, true])
+    func rejectedNotificationsDoNotConsumeOtherLimiters(programStatus: Bool, rejectTab: Bool) throws {
+        let domain = "terminal-notifier-limits-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        defaults.set(true, forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey)
+        defaults.set(true, forKey: ProgramActivityPreferences.notificationsKey)
+        defaults.set(false, forKey: ProgramActivityPreferences.soundsKey)
+        let notifier = TerminalNotifier()
+        notifier.defaults = defaults
+        var bodies: [String] = []
+        notifier.deliver = { bodies.append($0.content.body) }
+        let tab = TerminalTab(startsProcesses: false)
+        let workspace = tab.workspace
+        defer { workspace.terminateAll() }
+        let first = try #require(workspace.focusedController)
+        workspace.split(first, direction: .right)
+        let second = try #require(workspace.focusedController)
+        func notify(_ pane: TerminalSessionController, _ body: String, at time: Double) {
+            let now = Date(timeIntervalSince1970: 100 + time)
+            if programStatus {
+                notifier.notifyProgramStatus(WireProgramStatus(state: .done, message: body, reportTime: 1), from: pane, now: now, appActive: false)
+            } else {
+                notifier.notify(title: "", body: body, from: pane, now: now)
+            }
+        }
+        if rejectTab {
+            notify(first, "First", at: 0)
+            for index in 0..<TerminalNotifier.rateLimit {
+                notify(second, "Rejected", at: 1 + Double(index) / 10)
+            }
+            notify(second, "Allowed", at: 2)
+            #expect(bodies == ["First", "Allowed"])
+        } else {
+            for index in 0..<TerminalNotifier.rateLimit {
+                notify(first, "First", at: Double(index * 2))
+            }
+            notify(first, "Rejected", at: 10)
+            notify(second, "Allowed", at: 10.1)
+            #expect(bodies.count == TerminalNotifier.rateLimit + 1)
+            #expect(bodies.last == "Allowed")
+        }
+    }
+
+    @Test func repeatedOSCNotificationsKeepTheTwoSecondDropPolicy() throws {
+        let domain = "terminal-notifier-repeat-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        defaults.set(true, forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey)
+        let notifier = TerminalNotifier()
+        notifier.defaults = defaults
+        var requests: [UNNotificationRequest] = []
+        notifier.deliver = { requests.append($0) }
+        let tab = TerminalTab(startsProcesses: false)
+        let pane = try #require(tab.workspace.focusedController)
+        defer { tab.workspace.terminateAll() }
+        let now = Date(timeIntervalSince1970: 100)
+        notifier.notify(title: "", body: "First", from: pane, now: now)
+        notifier.notify(title: "", body: "Second", from: pane, now: now.addingTimeInterval(1))
+        #expect(requests.map(\.content.body) == ["First"])
+        #expect(requests.first?.content.sound != nil)
+    }
+
     @Test func paneRateRejectionDoesNotSpendAnotherPanesTabSlot() throws {
         let domain = "terminal-notifier-pane-limit-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: domain))
