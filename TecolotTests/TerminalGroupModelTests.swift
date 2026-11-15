@@ -97,6 +97,20 @@ struct TerminalWindowManagerTests {
         }, sourceLocation: sourceLocation)
     }
 
+    @Test(arguments: [false, true])
+    func duplicateWithNoCapturableTabsCreatesNothing(showInWindow: Bool) {
+        let manager = manager()
+        let source = manager.newGroup(tab: tab())
+        var saves = 0
+        manager.persistenceDidChange = { _ in saves += 1 }
+        let copy: TerminalTabGroup? = manager.duplicate(source, showInWindow: showInWindow)
+        #expect(copy == nil)
+        #expect(manager.groups.count == 1 && manager.groups[0] === source)
+        #expect(manager.windows.isEmpty)
+        #expect(saves == 0)
+        manager.closeGroup(source)
+    }
+
     @Test func showSwitchAndNavigationEnforceTheSingleViewRule() throws {
         let manager = manager()
         let first = manager.newGroup(tab: tab())

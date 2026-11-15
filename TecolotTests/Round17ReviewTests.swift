@@ -140,7 +140,7 @@ struct Round17ReviewTests {
         manager.addTab(chosen, to: source)
         manager.addTab(dormant(), to: source)
         source.selection = chosen.id
-        let copy = manager.duplicate(source, showInWindow: false)
+        let copy = try #require(manager.duplicate(source, showInWindow: false))
         #expect(copy.tabs.count == 2)
         let selected = try #require(copy.selectedTab?.savedSpec?.restoredTab?.tab.root.panes.first)
         #expect(selected.kind == .remote)

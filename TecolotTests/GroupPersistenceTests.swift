@@ -709,7 +709,7 @@ struct GroupPersistenceTests {
         let tab = TerminalTab(dormant: RestoreStore.launchSpec(for: RestoredTab(tab: saved, panes: [:])))
         let source = manager.newGroup(tab: tab)
         defer { stop(manager) }
-        let copy = manager.duplicate(source, showInWindow: false)
+        let copy = try #require(manager.duplicate(source, showInWindow: false))
         let duplicate = try #require(copy.tabs[0].savedSpec?.restoredTab)
         #expect(tab.isDormant && copy.tabs[0].isDormant)
         #expect(copy.id != source.id && copy.name != source.name && !copy.isNameCustom)

@@ -536,7 +536,7 @@ final class TerminalWindowManager {
     /// Duplicate descriptions, never attachments. Remote panes start fresh
     /// sessions on the same host; local persistent panes also get new sessions.
     @discardableResult
-    func duplicate(_ group: TerminalTabGroup, showInWindow: Bool = true) -> TerminalTabGroup {
+    func duplicate(_ group: TerminalTabGroup, showInWindow: Bool = true) -> TerminalTabGroup? {
         var texts: [ScrollbackSnapshot.Pending] = []
         var caches: [RemoteRowCopy] = []
         var selectedCopyID: UUID?
@@ -581,6 +581,12 @@ final class TerminalWindowManager {
                     startsFresh: true
                 ))
             }))))
+        }
+        guard !tabs.isEmpty else {
+            if showInWindow {
+                NSSound.beep()
+            }
+            return nil
         }
         let duplicate = TerminalTabGroup(name: nameGenerator.generate(existingNames: groups.map(\.name)), tabs: tabs)
         if let selectedCopyID {

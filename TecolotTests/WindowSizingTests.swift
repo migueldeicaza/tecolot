@@ -82,7 +82,9 @@ struct ManagerWindowSizingTests {
         let owner = try #require(manager.openWindow(group: source) as? TerminalWindowController)
         let frame = NSRect(x: 130, y: 180, width: 680, height: 450)
         owner.window?.setFrame(frame, display: false)
-        let copy = manager.duplicate(source)
+        // Duplication needs a live terminal to capture, even with processes disabled.
+        _ = source.tabs[0].workspace.focusedController?.makeTerminalView()
+        let copy = try #require(manager.duplicate(source))
         let copiedWindow = try #require(manager.window(showing: copy) as? TerminalWindowController)
         #expect(copiedWindow.window?.frame == frame.offsetBy(dx: 20, dy: -20))
         manager.moveToNewWindow(second, from: source)
