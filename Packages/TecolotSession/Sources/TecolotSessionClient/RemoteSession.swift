@@ -321,19 +321,23 @@ public final class RemoteSession: @unchecked Sendable {
         channel.send(ClearProgramStatusMessage(records: records))
     }
     public func setFocus(_ focused: Bool) {
-        framePolicy.withLock {
-            $0?.focused = focused
+        queue.async { [self] in
+            framePolicy.withLock {
+                $0?.focused = focused
+            }
+            channel.send(FocusMessage(focused: focused))
         }
-        channel.send(FocusMessage(focused: focused))
     }
     public func resize(_ size: WireGridSize, scale: Int = 0) {
-        framePolicy.withLock {
-            $0?.size = size
-            if scale > 0 {
-                $0?.scale = scale
+        queue.async { [self] in
+            framePolicy.withLock {
+                $0?.size = size
+                if scale > 0 {
+                    $0?.scale = scale
+                }
             }
+            channel.send(ResizeMessage(size: size, scale: scale))
         }
-        channel.send(ResizeMessage(size: size, scale: scale))
     }
     public func setTheme(_ theme: SetThemeMessage) {
         channel.send(theme)

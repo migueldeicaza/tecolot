@@ -91,6 +91,39 @@ final class EventLog: @unchecked Sendable {
 }
 
 struct RemoteSessionTests {
+    @Test func settersQueuedAfterStartUpdateLegacyReattach() async throws {
+        var fds: [Int32] = [0, 0]
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
+            throw POSIXError(.EIO)
+        }
+        let helper = MessageChannel(readFD: fds[1], writeFD: fds[1])
+        let attaches = Mutex<[AttachMessage]>([])
+        helper.onMessage = { envelope in
+            if envelope.kind == .attach, let attach = try? envelope.decode(AttachMessage.self) {
+                attaches.withLock { $0.append(attach) }
+            }
+        }
+        helper.start()
+        let session = RemoteSession(socket: fds[0], clientName: "test", build: "test")
+        defer { session.close(); helper.close() }
+        // Hold start on its queue so the setters deterministically arrive first.
+        session.queue.suspend()
+        session.start(size: WireGridSize(columns: 80, rows: 24), focused: true, scale: 100)
+        let currentSize = WireGridSize(columns: 132, rows: 43)
+        session.resize(currentSize, scale: 200)
+        session.setFocus(false)
+        session.setFramesEnabled(false)
+        session.queue.resume()
+        try await eventually("initial attach") { attaches.withLock { $0.count == 1 } }
+        helper.send(HelloReplyMessage(version: 1, build: "old helper", capabilities: [], sessionID: "test"))
+        try await eventually("legacy reattach") { attaches.withLock { $0.count == 2 } }
+        let attach = try #require(attaches.withLock { $0.last })
+        #expect(attach.size == currentSize)
+        #expect(attach.scale == 200)
+        #expect(!attach.focused)
+        #expect(attach.maximumFramesPerSecond == 1)
+    }
+
     @Test(arguments: [SessionCapabilities(), [.statusOnly, .metadata]])
     func frameVisibilityWaitsForHelloAndAppliesLatestRequest(capabilities: SessionCapabilities) async throws {
         var fds: [Int32] = [0, 0]
