@@ -321,7 +321,11 @@ final class TerminalWindowManager {
             tab.loadedWorkspace?.terminateAll()
         }
         if let owner {
-            if let fallback = mostRecentBackgroundGroup {
+            if let fallback = backgroundGroups.filter({
+                $0.lastShownAt != nil && !$0.tabs.contains(where: \.isDormant)
+            }).max(by: {
+                ($0.lastShownAt ?? .distantPast) < ($1.lastShownAt ?? .distantPast)
+            }) {
                 _ = show(fallback, in: owner)
             } else {
                 closeWindow(owner)
