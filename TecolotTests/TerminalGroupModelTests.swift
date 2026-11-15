@@ -254,6 +254,29 @@ struct TerminalWindowManagerTests {
         for group in manager.groups { manager.closeGroup(group) }
     }
 
+    @Test(arguments: [false, true])
+    func movingLastTabNeverStartsDormantFallback(hasStartedFallback: Bool) throws {
+        let manager = manager()
+        let started = hasStartedFallback ? manager.newGroup(tab: tab()) : nil
+        started?.lastShownAt = Date(timeIntervalSince1970: 1)
+        let dormant = TerminalTab(dormant: LaunchSpec(), startsProcesses: false)
+        let background = manager.newGroup(tab: dormant)
+        background.lastShownAt = Date(timeIntervalSince1970: 2)
+        let moved = tab()
+        let source = manager.newGroup(tab: moved)
+        let window = try #require(manager.openWindow(group: source) as? ModelWindow)
+        let target = manager.newGroup(tab: tab())
+        manager.move(moved, from: source, to: target)
+        #expect(dormant.isDormant && dormant.loadedWorkspace == nil)
+        if let started {
+            #expect(window.group === started && !window.closed)
+        } else {
+            #expect(window.closed && manager.windows.isEmpty)
+        }
+        check(manager)
+        for group in manager.groups { manager.closeGroup(group) }
+    }
+
     @Test func lastTabClosesTheWindowWhenOnlyNeverShownGroupsRemain() throws {
         let manager = manager()
         let saved = RestoreTab(root: .pane(RestorePane(id: UUID(), kind: .local)))

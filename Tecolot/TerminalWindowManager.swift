@@ -303,6 +303,14 @@ final class TerminalWindowManager {
         finishRemovingTab(from: group)
     }
 
+    private func fallbackGroup(excluding excluded: TerminalTabGroup? = nil) -> TerminalTabGroup? {
+        backgroundGroups.filter {
+            $0 !== excluded && $0.lastShownAt != nil && !$0.tabs.contains(where: \.isDormant)
+        }.max {
+            ($0.lastShownAt ?? .distantPast) < ($1.lastShownAt ?? .distantPast)
+        }
+    }
+
     func closeGroup(_ group: TerminalTabGroup) {
         guard
             groups.contains(where: {
@@ -321,11 +329,7 @@ final class TerminalWindowManager {
             tab.loadedWorkspace?.terminateAll()
         }
         if let owner {
-            if let fallback = backgroundGroups.filter({
-                $0.lastShownAt != nil && !$0.tabs.contains(where: \.isDormant)
-            }).max(by: {
-                ($0.lastShownAt ?? .distantPast) < ($1.lastShownAt ?? .distantPast)
-            }) {
+            if let fallback = fallbackGroup() {
                 _ = show(fallback, in: owner)
             } else {
                 closeWindow(owner)
@@ -401,12 +405,7 @@ final class TerminalWindowManager {
             }
             if let owner {
                 if
-                    let fallback = backgroundGroups.filter({
-                        $0 !== target && $0.lastShownAt != nil
-                    })
-                        .max(by: {
-                            ($0.lastShownAt ?? .distantPast) < ($1.lastShownAt ?? .distantPast)
-                        }) {
+                    let fallback = fallbackGroup(excluding: target) {
                     _ = show(fallback, in: owner)
                 } else {
                     closeWindow(owner)
