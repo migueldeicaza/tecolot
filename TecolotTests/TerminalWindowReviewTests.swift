@@ -62,6 +62,35 @@ struct SafeModeWindowTests {
 
 @MainActor
 struct TerminalWindowCommandTargetTests {
+    @Test func dormantTerminalWindowRemainsANewItemTarget() throws {
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        let tab = TerminalTab(dormant: LaunchSpec(), startsProcesses: false)
+        let group = manager.newGroup(tab: tab)
+        let owner = try #require(manager.openWindow(group: group, startsGroup: false) as? TerminalWindowController)
+        let window = try #require(owner.window)
+        defer { manager.closeGroup(group) }
+        #expect(WindowOpener.frontTerminalWindow(in: [window]) === window)
+        #expect(TerminalWindowCommandTarget.resolve(keyWindow: window, mainWindow: nil, manager: manager)?.terminal === owner)
+        #expect(tab.loadedWorkspace == nil && tab.isDormant)
+    }
+
+    @Test func closeSelectedDormantTabAndLastWindowWithoutStarting() throws {
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        let first = TerminalTab(dormant: LaunchSpec(), startsProcesses: false)
+        let second = TerminalTab(dormant: LaunchSpec(), startsProcesses: false)
+        let group = manager.newGroup(tab: first)
+        manager.addTab(second, to: group)
+        let owner = try #require(manager.openWindow(group: group, startsGroup: false) as? TerminalWindowController)
+        defer { manager.closeGroup(group) }
+        owner.requestCloseSelectedPane()
+        #expect(group.tabs.count == 1 && group.selectedTab === first)
+        #expect(manager.windows.count == 1)
+        #expect(first.loadedWorkspace == nil && second.loadedWorkspace == nil)
+        owner.requestCloseSelectedPane()
+        #expect(manager.windows.isEmpty && manager.groups.isEmpty)
+        #expect(first.loadedWorkspace == nil && second.loadedWorkspace == nil)
+    }
+
     @Test func auxiliaryKeyWindowBlocksTheTerminalMainWindow() throws {
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         let group = manager.newGroup(tab: TerminalTab(startsProcesses: false))

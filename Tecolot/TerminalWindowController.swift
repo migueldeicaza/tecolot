@@ -702,6 +702,16 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     func showGroups() {
         groupPresenter.present(for: self, manager: manager, anchor: tabBar.groupButton)
     }
+    func requestCloseSelectedPane() {
+        guard let tab = group.selectedTab else {
+            return
+        }
+        if let controller = tab.loadedWorkspace?.focusedController {
+            controller.requestClose()
+        } else {
+            requestCloseTab(tab)
+        }
+    }
     func requestCloseTab(_ tab: TerminalTab) {
         guard
             let group = manager.groups.first(where: {

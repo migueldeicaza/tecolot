@@ -92,7 +92,8 @@ enum WindowOpener {
             $0
         } + NSApp.orderedWindows)
         return candidates.first {
-            TerminalSessionRegistry.shared.controller(for: $0) != nil
+            ($0.windowController as? TerminalWindowController)?.isManaged == true
+                || TerminalSessionRegistry.shared.controller(for: $0) != nil
         }
     }
 

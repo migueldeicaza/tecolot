@@ -22,7 +22,7 @@ struct GroupWindowCommands: Commands {
             Divider()
             Button("Close") {
                 if let owner {
-                    owner.group.selectedTab?.loadedWorkspace?.focusedController?.requestClose()
+                    owner.requestCloseSelectedPane()
                 } else {
                     target?.window.performClose(nil)
                 }
