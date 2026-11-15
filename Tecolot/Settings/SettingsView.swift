@@ -63,7 +63,8 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
-            .frame(minWidth: 170)
+            // Wide enough for "Keyboard and Mouse" without truncation.
+            .navigationSplitViewColumnWidth(min: 205, ideal: 215)
         } detail: {
             detail
         }
@@ -108,6 +109,7 @@ struct SettingsView: View {
         switch currentDestination {
         case .general:
             GeneralSettingsView(secureKeyboardEntry: secureKeyboardEntry)
+                .navigationTitle(SettingsDestination.general.title)
         case .tabs:
             TabsSettingsView()
         case .panes:
@@ -116,10 +118,12 @@ struct SettingsView: View {
             NotificationsSettingsView()
         case .manageProfiles:
             ManageProfilesSettingsView(activeProfileID: activeProfileSelection)
+                .navigationTitle(SettingsDestination.manageProfiles.title)
         case .appearance, .window, .shell, .keyboardAndMouse, .terminal:
             profileSettingsDetail(for: currentDestination)
         case .data:
             DataRecoveryView(issueCenter: issueCenter, recovery: recovery)
+                .navigationTitle(SettingsDestination.data.title)
         }
     }
 

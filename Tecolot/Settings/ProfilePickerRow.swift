@@ -42,16 +42,25 @@ struct ProfilePickerRow: View {
             Divider()
             Button("Manage Profiles…", action: manageProfiles)
         } label: {
-            HStack {
+            // A plain button style draws this label as written. The menu
+            // styles rebuild it as an image followed by a title.
+            HStack(spacing: 6) {
                 Text(activeProfile?.name ?? "No profile")
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Spacer()
+                Spacer(minLength: 4)
                 Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(RoundedRectangle(cornerRadius: 6))
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .disabled(profiles.isEmpty)
         .accessibilityLabel("Profile, \(activeProfile?.name ?? "No profile")")
