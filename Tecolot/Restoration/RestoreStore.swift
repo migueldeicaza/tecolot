@@ -834,10 +834,8 @@ final class RestoreStore {
         guard writeLaunchState(state) else {
             return false
         }
-        guard migrateWindowGroups(in: &state) else {
-            // A failed legacy import does not prevent restoring existing groups.
-            return finishRestore(state, safeMode: safeMode, restoresText: restoresText)
-        }
+        // A failed legacy import does not prevent restoring existing groups.
+        _ = migrateWindowGroups(in: &state)
         return finishRestore(state, safeMode: safeMode, restoresText: restoresText)
     }
 
