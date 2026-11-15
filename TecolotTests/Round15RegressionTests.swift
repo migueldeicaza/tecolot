@@ -422,22 +422,28 @@ struct Round15PolicyRegressionTests {
 }
 
 extension Round15PolicyRegressionTests {
-    @Test func restoredFullScreenCallbackRestoresActiveWindowCommandTarget() async throws {
+    /// Does not depend on the test app having the focus: the activation state
+    /// and the request to become key are injected, and the command target is
+    /// resolved from the window that the callback asked to make key.
+    @Test func restoredFullScreenCallbackRestoresActiveWindowCommandTarget() throws {
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         let group = manager.newGroup(tab: TerminalTab(startsProcesses: false))
         let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
         let window = try #require(owner.window)
         defer { manager.closeGroup(group) }
-        NSApp.activate(ignoringOtherApps: true)
-        for _ in 0..<100 where !NSApp.isActive {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(NSApp.isActive)
-        window.orderFront(nil)
-        window.resignKey()
-        owner.windowDidEnterFullScreen(Notification(name: NSWindow.didEnterFullScreenNotification, object: window))
-        #expect(window.isKeyWindow)
-        #expect(TerminalWindowCommandTarget.resolve(keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow, manager: manager)?.terminal === owner)
+        var madeKey: [NSWindow] = []
+        owner.makeWindowKey = { madeKey.append($0) }
+        let entered = Notification(name: NSWindow.didEnterFullScreenNotification, object: window)
+
+        // An inactive app must not take the key window from another app.
+        owner.appIsActive = { false }
+        owner.windowDidEnterFullScreen(entered)
+        #expect(madeKey.isEmpty)
+
+        owner.appIsActive = { true }
+        owner.windowDidEnterFullScreen(entered)
+        #expect(madeKey.count == 1 && madeKey.first === window)
+        #expect(TerminalWindowCommandTarget.resolve(keyWindow: madeKey.first, mainWindow: nil, manager: manager)?.terminal === owner)
         let item = NSMenuItem(title: "stale title", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "")
         #expect(window.validateMenuItem(item))
         #expect(item.title == "Enter Full Screen")
