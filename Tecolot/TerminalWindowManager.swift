@@ -481,10 +481,17 @@ final class TerminalWindowManager {
         }
     }
 
-    /// Repaints all shown groups after a global profile, theme or system appearance edit.
-    func refreshWindows() {
+    /// Refreshes chrome only when the selected tab's panes changed. Hidden panes
+    /// apply their appearance directly; tab labels observe presentation changes.
+    /// System appearance also affects native chrome and dormant-group placeholders.
+    func refreshWindows(affectedControllers: Set<UUID>, systemAppearanceChanged: Bool = false) {
         for window in windows {
-            mount(window.group, in: window, force: true)
+            let hasChangedPane = window.group.selectedTab?.loadedWorkspace?.controllers.contains {
+                affectedControllers.contains($0.id)
+            } == true
+            if systemAppearanceChanged || hasChangedPane {
+                mount(window.group, in: window, force: true)
+            }
         }
     }
 

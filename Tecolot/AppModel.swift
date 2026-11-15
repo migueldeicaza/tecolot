@@ -41,7 +41,7 @@ final class AppModel {
     let recovery: DataRecoveryCoordinator
     private let preferences: PreferenceMigrator
     private var themeSubscription: AnyCancellable?
-    private var appearanceSubscriptions: [AnyCancellable] = []
+    private var paneSettingsObserver: PaneSettingsObserver?
 
     private init() {
         let issueCenter = PersistenceIssueCenter()
@@ -115,27 +115,12 @@ final class AppModel {
 
     /// Applies store edits to panes in both shown and background groups.
     private func observePaneSettings() {
-        let update = { @MainActor in
-            for controller in TerminalSessionRegistry.shared.allControllers {
-                if let profile = self.profiles.profile(withID: controller.profile.id), profile != controller.profile {
-                    controller.applyProfile(profile)
-                } else {
-                    controller.applyThemeColors()
-                }
-            }
-            TerminalWindowManager.shared.refreshWindows()
-        }
-        for publisher in [
-            profiles.objectWillChange.eraseToAnyPublisher(),
-            themes.objectWillChange.eraseToAnyPublisher(),
-            systemAppearance.objectWillChange.eraseToAnyPublisher()
-        ] {
-            publisher.sink {
-                DispatchQueue.main.async {
-                    update()
-                }
-            }.store(in: &appearanceSubscriptions)
-        }
+        paneSettingsObserver = PaneSettingsObserver(
+            profiles: profiles, themes: themes,
+            appearanceChanges: systemAppearance.objectWillChange.eraseToAnyPublisher(),
+            isDark: { [systemAppearance] in systemAppearance.isDark },
+            registry: .shared, manager: .shared
+        )
     }
 
     /// Copies the legacy store once. Do not merge it into an existing store,
@@ -235,5 +220,85 @@ final class AppModel {
             return profile
         }
         return profiles.defaultProfile
+    }
+}
+
+/// Delays willSet emissions until the stores contain their new values, once per turn.
+@MainActor
+final class PaneSettingsObserver {
+    private let profiles: ProfileStore
+    private let themes: ThemeStore
+    private let isDark: () -> Bool
+    private let registry: TerminalSessionRegistry
+    private let manager: TerminalWindowManager
+    private let applyProfile: @MainActor (TerminalSessionController, TerminalProfile) -> Void
+    private let applyThemeColors: @MainActor (TerminalSessionController) -> Void
+    private var previousThemes: [String: TerminalTheme]
+    private var previousIsDark: Bool
+    private var pending = false
+    private var subscriptions: [AnyCancellable] = []
+
+    init(
+        profiles: ProfileStore, themes: ThemeStore,
+        appearanceChanges: AnyPublisher<Void, Never>, isDark: @escaping () -> Bool,
+        registry: TerminalSessionRegistry, manager: TerminalWindowManager,
+        applyProfile: @escaping @MainActor (TerminalSessionController, TerminalProfile) -> Void = { $0.applyProfile($1) },
+        applyThemeColors: @escaping @MainActor (TerminalSessionController) -> Void = { $0.applyThemeColors() }
+    ) {
+        self.profiles = profiles
+        self.themes = themes
+        self.isDark = isDark
+        self.registry = registry
+        self.manager = manager
+        self.applyProfile = applyProfile
+        self.applyThemeColors = applyThemeColors
+        previousThemes = Self.index(themes.themes)
+        previousIsDark = isDark()
+        for publisher in [profiles.objectWillChange.eraseToAnyPublisher(),
+                          themes.objectWillChange.eraseToAnyPublisher(), appearanceChanges] {
+            publisher.sink { [weak self] in
+                self?.scheduleUpdate()
+            }.store(in: &subscriptions)
+        }
+    }
+
+    private static func index(_ themes: [TerminalTheme]) -> [String: TerminalTheme] {
+        Dictionary(themes.map { ($0.name, $0) }, uniquingKeysWith: { _, last in last })
+    }
+
+    private func scheduleUpdate() {
+        guard !pending else { return }
+        pending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pending = false
+            self.update()
+        }
+    }
+
+    private func update() {
+        let nextThemes = Self.index(themes.themes)
+        let nextIsDark = isDark()
+        let appearanceChanged = nextIsDark != previousIsDark
+        var affected = Set<UUID>()
+        for controller in registry.allControllers {
+            if let profile = profiles.profile(withID: controller.profile.id), profile != controller.profile {
+                applyProfile(controller, profile)
+                affected.insert(controller.id)
+            } else {
+                let oldName = controller.themeOverride ?? controller.profile.themeName(isDark: previousIsDark)
+                let newName = controller.themeOverride ?? controller.profile.themeName(isDark: nextIsDark)
+                let oldTheme = previousThemes[oldName] ?? .fallback
+                let newTheme = nextThemes[newName] ?? .fallback
+                // Native colors/chrome may depend on appearance even with a fixed theme.
+                if appearanceChanged || oldTheme != newTheme {
+                    applyThemeColors(controller)
+                    affected.insert(controller.id)
+                }
+            }
+        }
+        previousThemes = nextThemes
+        previousIsDark = nextIsDark
+        manager.refreshWindows(affectedControllers: affected, systemAppearanceChanged: appearanceChanged)
     }
 }
