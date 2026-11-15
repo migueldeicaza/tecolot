@@ -1,4 +1,7 @@
 import AppKit
+import Observation
+import SwiftTerm
+import Synchronization
 import Testing
 @testable import Tecolot
 
@@ -8,6 +11,48 @@ struct DefaultsFanoutTests {
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }
         }
+    }
+
+    @Test func tabTitlesUseAnObservedCacheWithoutReadingDefaults() async throws {
+        let suite = "TabTitleCache-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: TabStripPreferences.preferGeneratedTitlesKey)
+        var reads = 0
+        let preference = DefaultsValueObserver(defaults: defaults, keys: [TabStripPreferences.preferGeneratedTitlesKey]) {
+            reads += 1
+            return $0.object(forKey: TabStripPreferences.preferGeneratedTitlesKey) as? Bool ?? true
+        }
+        let workspace = TerminalPaneWorkspace(startsProcesses: false)
+        let tab = TerminalTab(workspace: workspace, titlePreference: preference)
+        defer { workspace.terminateAll() }
+        let pane = try #require(workspace.focusedController)
+        let terminal = try #require(pane.makeTerminalView() as? AppTerminalView)
+        var profile = TerminalProfile(name: "Tab title cache")
+        profile.titleComponents = [.activeTitle]
+        pane.applyProfile(profile)
+        pane.setTerminalTitle(source: terminal, title: "Custom shell title")
+        for _ in 0..<100 where pane.panePresentation.title != "Custom shell title" {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(tab.titleParts.primary == "Custom shell title")
+        let changes = Mutex(0)
+        withObservationTracking { _ = tab.title } onChange: { changes.withLock { $0 += 1 } }
+        for _ in 0..<100 { _ = tab.title }
+        defaults.set("frame", forKey: "lastTerminalWindowFrame")
+        await nextTurn()
+        #expect(reads == 1)
+        defaults.set(true, forKey: TabStripPreferences.preferGeneratedTitlesKey)
+        await nextTurn()
+        #expect(preference.value)
+        #expect(changes.withLock { $0 } == 1)
+        #expect(tab.titleParts.primary != "Custom shell title")
+        let readsAfterChange = reads
+        for _ in 0..<100 { _ = tab.titleParts }
+        #expect(reads == readsAfterChange)
+        defaults.set(false, forKey: TabStripPreferences.preferGeneratedTitlesKey)
+        await nextTurn()
+        #expect(tab.titleParts.primary == "Custom shell title")
     }
 
     @Test func frameWritesDoNotReadPreferencesAndObserversRelease() async throws {

@@ -5,6 +5,12 @@ import Observation
 @Observable
 @MainActor
 final class TerminalTab: Identifiable {
+    private static let generatedTitlePreference = DefaultsValueObserver(
+        defaults: .standard, keys: [TabStripPreferences.preferGeneratedTitlesKey]
+    ) {
+        $0.object(forKey: TabStripPreferences.preferGeneratedTitlesKey) as? Bool ?? TabStripPreferences.preferGeneratedTitlesDefault
+    }
+    @ObservationIgnored private let titlePreference: DefaultsValueObserver<Bool>
     private enum WorkspaceState {
         case dormant(LaunchSpec)
         case live(TerminalPaneWorkspace)
@@ -58,7 +64,8 @@ final class TerminalTab: Identifiable {
     }
     @ObservationIgnored private var retainedHost: TerminalPaneHostView?
 
-    init(id: UUID = UUID(), workspace: TerminalPaneWorkspace) {
+    init(id: UUID = UUID(), workspace: TerminalPaneWorkspace, titlePreference: DefaultsValueObserver<Bool>? = nil) {
+        self.titlePreference = titlePreference ?? Self.generatedTitlePreference
         self.id = id
         workspaceState = .live(workspace)
         startsProcesses = true
@@ -75,6 +82,7 @@ final class TerminalTab: Identifiable {
 
     /// A saved description allocates no controller, terminal, shell or connection.
     init(dormant spec: LaunchSpec, startsProcesses: Bool = true) {
+        titlePreference = Self.generatedTitlePreference
         id = spec.restoredTab?.tab.id ?? UUID()
         workspaceState = .dormant(spec)
         self.startsProcesses = startsProcesses
@@ -102,7 +110,7 @@ final class TerminalTab: Identifiable {
         guard let pane = loadedWorkspace?.focusedController?.panePresentation else {
             return (savedSpec?.restoredTab?.tab.root.panes.first?.title ?? "Terminal", nil)
         }
-        guard TabStripPreferences().preferGeneratedTitles else {
+        guard titlePreference.value else {
             return (pane.title, nil)
         }
         let entry = ProgramGlyphCatalog.entry(forExecutablePath: status.app ?? pane.executablePath)

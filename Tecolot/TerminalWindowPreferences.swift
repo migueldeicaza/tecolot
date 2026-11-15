@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 
 /// Observes only the appearance defaults used by mounted pane hosts and tab icons.
 @MainActor
@@ -63,13 +64,14 @@ extension GlobalAppearanceSettings {
 }
 
 /// KVO for defaults keys without dots. Snapshot comparison prevents redundant invalidation.
+@Observable
 @MainActor
 final class DefaultsValueObserver<Value: Equatable>: NSObject {
     private let defaults: UserDefaults
     private let keys: [String]
     private let read: (UserDefaults) -> Value
-    private var value: Value
-    var onChange: ((Value) -> Void)?
+    private(set) var value: Value
+    @ObservationIgnored var onChange: ((Value) -> Void)?
 
     init(defaults: UserDefaults, keys: [String], read: @escaping (UserDefaults) -> Value) {
         precondition(keys.allSatisfy { !$0.contains(".") })
