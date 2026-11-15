@@ -62,21 +62,23 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
     /// turned them off, the user looks at that pane now, or the pane sent too
     /// many.
     func notify(title: String, body: String, from controller: TerminalSessionController, now: Date = Date()) {
-        controller.programStatus.noteNotification(isSeen: controller.isProgramActivityVisible)
         guard
-            TerminalNotificationPreferences.allowsProgramNotifications(defaults: defaults), controller.owningTab?.isMuted != true,
-            !Self.isInFront(controller)
+            TerminalNotificationPreferences.allowsProgramNotifications(defaults: defaults), controller.owningTab?.isMuted != true
         else {
+            return
+        }
+        controller.programStatus.noteNotification(isSeen: controller.isProgramActivityVisible)
+        guard !Self.isInFront(controller) else {
+            return
+        }
+        let key = controller.id.uuidString
+        guard admit(key, now: now) else {
             return
         }
         if let tab = controller.owningTab {
             guard tabLimits.admit(tab: tab.id, sound: false, now: now.timeIntervalSince1970) else {
                 return
             }
-        }
-        let key = controller.id.uuidString
-        guard admit(key, now: now) else {
-            return
         }
         let content = Self.content(title: title, body: body, source: controller.panePresentation.title, group: controller.owningTab?.group?.name)
         if

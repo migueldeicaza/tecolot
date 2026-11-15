@@ -76,6 +76,63 @@ struct TerminalNotifierTests {
         #expect(contents.map(\.body) == ["Done", "Tests passed"])
     }
 
+    @Test(arguments: [false, true])
+    func disabledOrMutedNotificationsDoNotRaiseAttention(muted: Bool) async throws {
+        let domain = "terminal-notifier-attention-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.set(muted, forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey)
+        let oldDefaults = try await TestNotifications.useDefaults(defaults)
+        TestNotifications.install()
+        let tab = TerminalTab(startsProcesses: false)
+        let workspace = tab.workspace
+        defer {
+            tab.loadedWorkspace?.terminateAll()
+            TestNotifications.restoreDefaults(oldDefaults)
+            defaults.removePersistentDomain(forName: domain)
+        }
+        tab.isMuted = muted
+        let controller = try #require(workspace.focusedController)
+        TerminalNotifier.shared.notify(title: "Build", body: "Direct", from: controller)
+        #expect(!controller.programStatus.notified)
+        controller.programStatus.markSeen()
+        controller.handlePersistentEvent(.notification(title: "Build", body: "Persistent"))
+        #expect(!controller.programStatus.notified)
+        controller.programStatus.markSeen()
+        let terminal = try #require(controller.makeTerminalView() as? AppTerminalView)
+        // The progress report follows both notification callbacks on the OSC stream.
+        terminal.feed(text: "\u{1b}]9;Done\u{07}\u{1b}]777;notify;Build;Done\u{07}\u{1b}]9;4;1;50\u{07}")
+        try await wait("OSC callbacks") { controller.programStatus.records.first?.progress == 50 }
+        #expect(!controller.programStatus.notified)
+        #expect(TestNotifications.contents(for: controller).isEmpty)
+    }
+
+    @Test func paneRateRejectionDoesNotSpendAnotherPanesTabSlot() throws {
+        let domain = "terminal-notifier-pane-limit-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        defaults.set(true, forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey)
+        let notifier = TerminalNotifier()
+        notifier.defaults = defaults
+        var bodies: [String] = []
+        notifier.deliver = { bodies.append($0.content.body) }
+        let tab = TerminalTab(startsProcesses: false)
+        let workspace = tab.workspace
+        defer { tab.loadedWorkspace?.terminateAll() }
+        let first = try #require(workspace.focusedController)
+        workspace.split(first, direction: .right)
+        let second = try #require(workspace.focusedController)
+        let start = Date(timeIntervalSince1970: 100)
+        for index in 0..<TerminalNotifier.rateLimit {
+            notifier.notify(title: "", body: "Allowed", from: first, now: start.addingTimeInterval(Double(index * 2)))
+        }
+        try #require(bodies.count == TerminalNotifier.rateLimit)
+        notifier.notify(title: "", body: "Pane rejected", from: first, now: start.addingTimeInterval(10))
+        notifier.notify(title: "", body: "Other pane", from: second, now: start.addingTimeInterval(10.1))
+        #expect(bodies.count == TerminalNotifier.rateLimit + 1)
+        #expect(bodies.last == "Other pane")
+        #expect(!bodies.contains("Pane rejected"))
+    }
+
     @Test func notificationsFollowGlobalPreferencesAndARateLimit() throws {
         let domain = "terminal-notifier-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: domain))

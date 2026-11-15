@@ -554,7 +554,6 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
                 } else if event.code == 9, let progress = Self.oscProgress(event.payload) {
                     self.programStatus.receiveProgress(progress)
                 } else if let message = NotificationMessage(oscCode: event.code, payload: event.payload) {
-                    self.programStatus.noteNotification(isSeen: self.isProgramActivityVisible)
                     TerminalNotifier.shared.notify(title: message.title, body: message.body, from: self)
                 }
             }
@@ -2443,7 +2442,6 @@ extension TerminalSessionController {
                 duration: 15 - Double(progress.age) / 1000
             )
         case .notification(let title, let body):
-            programStatus.noteNotification(isSeen: isProgramActivityVisible)
             TerminalNotifier.shared.notify(title: title, body: body, from: self)
         case .closed:
             guard
