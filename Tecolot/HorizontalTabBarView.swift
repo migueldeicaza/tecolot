@@ -51,6 +51,18 @@ final class HorizontalTabBarView: NSView {
             style: preferences.animationStyle
         )
     }
+    nonisolated static func showsGroupCaption(groupCount: Int) -> Bool {
+        groupCount > 1
+    }
+    private var captionHidden: Bool {
+        !Self.showsGroupCaption(groupCount: controller?.manager.groups.count ?? 0) && groupEditor == nil
+    }
+
+    private func refreshGroupCaption() {
+        groupButton.isHidden = captionHidden || groupEditor != nil
+        groupButton.setAccessibilityElement(!groupButton.isHidden)
+        needsLayout = true
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -124,6 +136,9 @@ final class HorizontalTabBarView: NSView {
                             return
                         }
                         if note.name == .programActivityDidChange || note.name == .groupsDidChange {
+                            if note.name == .groupsDidChange, note.object as? TerminalWindowManager === self.controller?.manager {
+                                self.refreshGroupCaption()
+                            }
                             if note.name == .programActivityDidChange {
                                 self.refreshActivity(changedPane: note.object as? TerminalSessionController)
                             }
@@ -252,6 +267,7 @@ final class HorizontalTabBarView: NSView {
     func configure(group: TerminalTabGroup) {
         groupButton.title = group.name
         groupButton.setAccessibilityValue(group.name)
+        refreshGroupCaption()
         let previous = cells
         let ids = group.tabs.map(\.id)
         reflow = previous.map(\.tab.id) != ids && !previous.isEmpty
@@ -312,7 +328,7 @@ final class HorizontalTabBarView: NSView {
         let activityStart = theme.frame.minX - 34
         activityButton.frame = NSRect(x: activityStart, y: 7, width: 35, height: 32)
         activityBadge.frame = NSRect(x: 21, y: 0, width: 15, height: 15)
-        let start = groupButton.frame.maxX + 8
+        let start = captionHidden ? groupButton.frame.minX : groupButton.frame.maxX + 8
         scroll.frame = NSRect(x: start, y: 7, width: max(0, activityStart - start - 8), height: 32)
         let geometry = stripLayout
         let extraGap = placeholderTab.map { id in
@@ -494,11 +510,11 @@ final class HorizontalTabBarView: NSView {
             }
             self.groupEditor?.removeFromSuperview()
             self.groupEditor = nil
-            self.groupButton.isHidden = false
+            self.refreshGroupCaption()
             self.controller?.focusSelectedTerminal()
         }
         groupEditor = editor
-        groupButton.isHidden = true
+        refreshGroupCaption()
         addSubview(editor)
         needsLayout = true
         layoutSubtreeIfNeeded()

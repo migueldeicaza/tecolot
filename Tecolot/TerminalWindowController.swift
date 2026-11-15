@@ -696,7 +696,14 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         activate()
     }
     func showGroups() {
-        groupPresenter.present(for: self, manager: manager, anchor: tabBar.groupButton)
+        content.layoutSubtreeIfNeeded()
+        if !tabBar.groupButton.isHiddenOrHasHiddenAncestor {
+            groupPresenter.present(for: self, manager: manager, anchor: tabBar.groupButton, rect: nil)
+        } else {
+            let anchor = tabBar.isHidden ? content : tabBar
+            let rect = anchor.convert(tabBar.groupButton.frame, from: tabBar)
+            groupPresenter.present(for: self, manager: manager, anchor: anchor, rect: rect)
+        }
     }
     func requestCloseSelectedPane() {
         guard let tab = group.selectedTab else {

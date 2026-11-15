@@ -91,7 +91,8 @@ struct Round15RegressionTests {
         let (manager, _, owner, _) = try fixture()
         defer { stop(manager) }
         let panel = GroupSwitcherPanel()
-        panel.present(for: owner, manager: manager, anchor: owner.tabBar.groupButton)
+        owner.groupPresenter = panel
+        owner.showGroups()
         defer { panel.orderOut(nil) }
         let items = panel.table.accessibilityChildren()?.compactMap {
             $0 as? NSAccessibilityElement
