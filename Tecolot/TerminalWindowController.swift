@@ -348,6 +348,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
             for tab in group.tabs {
                 _ = tab.customName
                 _ = tab.isMuted
+                _ = tab.prefersGeneratedTitle
                 guard let workspace = tab.loadedWorkspace else {
                     continue
                 }

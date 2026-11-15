@@ -55,6 +55,57 @@ struct DefaultsFanoutTests {
         #expect(tab.titleParts.primary == "Custom shell title")
     }
 
+    /// The title cache registers before any window's tab bar, and defaults
+    /// notify the latest observer first, so the tab bar's own refresh reads
+    /// the old cached value. The window must refresh again when the cache
+    /// updates.
+    @Test func horizontalTabTitlesFollowTheGeneratedTitlePreference() async throws {
+        let suite = "TabTitleOrdering-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: TabStripPreferences.preferGeneratedTitlesKey)
+        let preference = DefaultsValueObserver(defaults: defaults, keys: [TabStripPreferences.preferGeneratedTitlesKey]) {
+            $0.object(forKey: TabStripPreferences.preferGeneratedTitlesKey) as? Bool ?? true
+        }
+        let workspace = TerminalPaneWorkspace(startsProcesses: false)
+        let tab = TerminalTab(workspace: workspace, titlePreference: preference)
+        let pane = try #require(workspace.focusedController)
+        let terminal = try #require(pane.makeTerminalView() as? AppTerminalView)
+        var profile = TerminalProfile(name: "Tab title ordering")
+        profile.titleComponents = [.activeTitle]
+        pane.applyProfile(profile)
+        pane.setTerminalTitle(source: terminal, title: "Custom shell title")
+        for _ in 0..<100 where pane.panePresentation.title != "Custom shell title" {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        manager.makeWindow = {
+            TerminalWindowController(group: $0, manager: manager, defaults: defaults)
+        }
+        let group = manager.newGroup(tab: tab)
+        let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
+        defer { manager.closeGroup(group) }
+        func cells(in view: NSView) -> [TabItemView] {
+            view.subviews.flatMap { ($0 as? TabItemView).map { [$0] } ?? cells(in: $0) }
+        }
+        func shownTitle() -> String? {
+            owner.window?.contentView?.layoutSubtreeIfNeeded()
+            return cells(in: owner.tabBar).first { $0.tab === tab }?.titleField.stringValue
+        }
+        #expect(shownTitle() == "Custom shell title")
+        defaults.set(true, forKey: TabStripPreferences.preferGeneratedTitlesKey)
+        for _ in 0..<200 where shownTitle() != tab.title || shownTitle() == "Custom shell title" {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(tab.title != "Custom shell title")
+        #expect(shownTitle() == tab.title)
+        defaults.set(false, forKey: TabStripPreferences.preferGeneratedTitlesKey)
+        for _ in 0..<200 where shownTitle() != "Custom shell title" {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(shownTitle() == "Custom shell title")
+    }
+
     @Test func frameWritesDoNotReadPreferencesAndObserversRelease() async throws {
         let suite = "DefaultsFanout-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
