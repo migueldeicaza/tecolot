@@ -54,7 +54,9 @@ final class TerminalWindowManager {
         for name in Self.processVisibilityNotifications {
             processVisibilityObservers.append(notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
-                    guard let self else { return }
+                    guard let self else {
+                        return
+                    }
                     for workspace in self.processInspectionWorkspaces(affectedWindow: note.object as? NSWindow) {
                         workspace.updateProcessInspection()
                     }
@@ -71,13 +73,18 @@ final class TerminalWindowManager {
     /// Unowned workspaces and background groups cannot inspect processes.
     func processInspectionWorkspaces(affectedWindow: NSWindow? = nil) -> [TerminalPaneWorkspace] {
         var seen = Set<ObjectIdentifier>()
-        return windows.compactMap { $0 as? TerminalWindowController }.filter {
+        return windows.compactMap {
+            $0 as? TerminalWindowController
+        }.filter {
             affectedWindow == nil || $0.window === affectedWindow
         }.flatMap { owner in
             (owner.group.tabs + owner.sidebar.tabsInViewport).compactMap { tab in
-                guard let group = tab.group, window(showing: group) != nil,
-                      let workspace = tab.loadedWorkspace,
-                      seen.insert(ObjectIdentifier(workspace)).inserted else { return nil }
+                guard
+                    let group = tab.group, window(showing: group) != nil,
+                    let workspace = tab.loadedWorkspace,
+                    seen.insert(ObjectIdentifier(workspace)).inserted else {
+                    return nil
+                }
                 return workspace
             }
         }
@@ -558,7 +565,8 @@ final class TerminalWindowManager {
                     let records = pane.programStatus.activityRecords
                     let hadAttention = pane.programStatus.quiet || pane.programStatus.notified
                     pane.markProgramActivitySeenIfVisible()
-                    if records != pane.programStatus.activityRecords
+                    if
+                        records != pane.programStatus.activityRecords
                         || hadAttention != (pane.programStatus.quiet || pane.programStatus.notified) {
                         NotificationCenter.default.post(name: .programActivityDidChange, object: pane)
                     }

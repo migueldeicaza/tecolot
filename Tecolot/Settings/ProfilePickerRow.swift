@@ -11,7 +11,9 @@ struct ProfilePickerRow: View {
 
     private var activeProfile: TerminalProfile? {
         selection.flatMap { id in
-            profiles.first { $0.id == id }
+            profiles.first {
+                $0.id == id
+            }
         }
     }
 

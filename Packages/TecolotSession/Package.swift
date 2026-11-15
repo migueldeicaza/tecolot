@@ -20,8 +20,10 @@ let package = Package(
         .executable(name: "tecolot-sessiond", targets: ["tecolot-sessiond"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm",
-                 revision: "28c6d1d95de156a36a2eaa278177ee7f8a15d322"),
+        .package(
+            url: "https://github.com/migueldeicaza/SwiftTerm",
+            revision: "28c6d1d95de156a36a2eaa278177ee7f8a15d322"
+        ),
     ],
     targets: [
         // Wire format: framing, primitive codec, messages and the row codec.

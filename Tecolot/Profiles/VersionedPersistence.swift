@@ -15,15 +15,24 @@ public enum PersistenceDomain: String, Codable, CaseIterable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .profiles: return "Profiles"
-        case .profileStore: return "Default Profile"
-        case .userThemes: return "User Themes"
-        case .themeFavorites: return "Theme Favorites"
-        case .windowGroups: return "Window Groups"
-        case .preferences: return "Preferences"
-        case .terminalDocument: return "Terminal Documents"
-        case .legacyApplicationSupport: return "Legacy Application Data"
-        case .windowRestoration: return "Window Restoration"
+        case .profiles:
+            return "Profiles"
+        case .profileStore:
+            return "Default Profile"
+        case .userThemes:
+            return "User Themes"
+        case .themeFavorites:
+            return "Theme Favorites"
+        case .windowGroups:
+            return "Window Groups"
+        case .preferences:
+            return "Preferences"
+        case .terminalDocument:
+            return "Terminal Documents"
+        case .legacyApplicationSupport:
+            return "Legacy Application Data"
+        case .windowRestoration:
+            return "Window Restoration"
         }
     }
 }
@@ -39,7 +48,9 @@ public enum PersistenceIssueKind: String, Codable, Sendable {
 }
 
 public struct PersistenceIssue: Identifiable, Equatable, Sendable {
-    public var id: String { "\(domain.rawValue):\(sourceURL.standardizedFileURL.path)" }
+    public var id: String {
+        "\(domain.rawValue):\(sourceURL.standardizedFileURL.path)"
+    }
     public let domain: PersistenceDomain
     public let sourceURL: URL
     public let kind: PersistenceIssueKind
@@ -74,7 +85,9 @@ public final class PersistenceIssueCenter: ObservableObject {
     public init() {}
 
     public func report(_ issue: PersistenceIssue) {
-        issues.removeAll { $0.id == issue.id }
+        issues.removeAll {
+            $0.id == issue.id
+        }
         issues.append(issue)
         issues.sort {
             if $0.domain.displayName == $1.domain.displayName {
@@ -86,11 +99,15 @@ public final class PersistenceIssueCenter: ObservableObject {
 
     public func resolve(domain: PersistenceDomain, sourceURL: URL) {
         let id = "\(domain.rawValue):\(sourceURL.standardizedFileURL.path)"
-        issues.removeAll { $0.id == id }
+        issues.removeAll {
+            $0.id == id
+        }
     }
 
     public func replaceIssues(in domain: PersistenceDomain, with newIssues: [PersistenceIssue]) {
-        issues.removeAll { $0.domain == domain }
+        issues.removeAll {
+            $0.domain == domain
+        }
         for issue in newIssues {
             report(issue)
         }
@@ -165,10 +182,15 @@ public enum VersionedPersistenceError: LocalizedError, Equatable {
 public enum PersistenceVersionProbe {
     public static func optionalVersion(in data: Data) throws -> Int? {
         let object = try JSONSerialization.jsonObject(with: data)
-        guard let dictionary = object as? [String: Any] else { return nil }
-        guard let rawVersion = dictionary["version"] else { return nil }
-        guard let version = rawVersion as? NSNumber,
-              CFGetTypeID(version) != CFBooleanGetTypeID() else {
+        guard let dictionary = object as? [String: Any] else {
+            return nil
+        }
+        guard let rawVersion = dictionary["version"] else {
+            return nil
+        }
+        guard
+            let version = rawVersion as? NSNumber,
+            CFGetTypeID(version) != CFBooleanGetTypeID() else {
             throw VersionedPersistenceError.invalidDocument("The schema version is not an integer.")
         }
         let value = version.intValue

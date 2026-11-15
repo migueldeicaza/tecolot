@@ -33,7 +33,9 @@ struct ReviewEfficiencyTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let center = ReviewNotificationCenter()
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry(), notificationCenter: center)
-        manager.makeWindow = { TerminalWindowController(group: $0, manager: manager, defaults: defaults) }
+        manager.makeWindow = {
+            TerminalWindowController(group: $0, manager: manager, defaults: defaults)
+        }
         let first = manager.newGroup(tab: TerminalTab(startsProcesses: false))
         manager.addTab(TerminalTab(startsProcesses: false), to: first)
         let second = manager.newGroup(tab: TerminalTab(startsProcesses: false))
@@ -43,8 +45,12 @@ struct ReviewEfficiencyTests {
         let a = try #require(manager.openWindow(group: first) as? TerminalWindowController)
         let b = try #require(manager.openWindow(group: second) as? TerminalWindowController)
         manager.makeWindow = nil
-        defer { for group in manager.groups { manager.closeGroup(group) } }
-        let subscriptions = center.subscriptions.withLock { $0 }
+        defer { for group in manager.groups {
+            manager.closeGroup(group)
+        } }
+        let subscriptions = center.subscriptions.withLock {
+            $0
+        }
         #expect(subscriptions.count == 5)
         #expect(Set(subscriptions) == Set(TerminalWindowManager.processVisibilityNotifications))
         func ids(_ workspaces: [TerminalPaneWorkspace]) -> Set<ObjectIdentifier> {
@@ -60,25 +66,35 @@ struct ReviewEfficiencyTests {
         a.sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         a.sidebar.reload()
         a.sidebar.layoutSubtreeIfNeeded()
-        try #require(a.sidebar.tabsInViewport.contains { $0 === second.tabs[0] })
+        try #require(a.sidebar.tabsInViewport.contains {
+            $0 === second.tabs[0]
+        })
         #expect(ids(manager.processInspectionWorkspaces(affectedWindow: a.window)) == ids((first.tabs + second.tabs).compactMap(\.loadedWorkspace)))
         for participates in [false, true] {
             let bare = TerminalPaneWorkspace(startsProcesses: false, participatesInWindow: participates)
             defer { bare.terminateAll() }
             bare.updateProcessInspection()
-            for name in subscriptions { center.post(name: name, object: a.window) }
+            for name in subscriptions {
+                center.post(name: name, object: a.window)
+            }
             #expect(!bare.needsProcessInspection)
         }
         #expect(dormant.isDormant)
-        #expect(center.subscriptions.withLock { $0.count } == 5)
+        #expect(center.subscriptions.withLock {
+            $0.count
+        } == 5)
     }
 
     @Test func groupCountStillRefreshesTheHorizontalCaption() throws {
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         let group = manager.newGroup(tab: TerminalTab(startsProcesses: false))
         let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
-        defer { for group in manager.groups { manager.closeGroup(group) } }
-        let button = try #require(owner.tabBar.subviews.compactMap { $0 as? NSButton }.first {
+        defer { for group in manager.groups {
+            manager.closeGroup(group)
+        } }
+        let button = try #require(owner.tabBar.subviews.compactMap {
+            $0 as? NSButton
+        }.first {
             $0.accessibilityLabel() == "Go to Group"
         })
         #expect(button.title.isEmpty)

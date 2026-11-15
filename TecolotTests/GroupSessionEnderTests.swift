@@ -9,17 +9,25 @@ import TecolotWire
 struct GroupSessionEnderTests {
     @Test func alreadyEndedRemoteSessionAllowsGroupClose() async throws {
         let session = SessionRef(id: "missing", destination: "host")
-        let plan = await GroupSessionEnder.plan([pane(.remote, session: session)]) { _ in (nil, nil) }
+        let plan = await GroupSessionEnder.plan([pane(.remote, session: session)]) { _ in
+            (nil, nil)
+        }
         var closed = false
-        try await GroupSessionEnder.perform(plan, confirm: { _ in .endSessions }, end: { ref in
+        try await GroupSessionEnder.perform(plan, confirm: { _ in
+            .endSessions
+        }, end: { ref in
             try await SessionTermination.ignoringMissingSession(ref) {
                 throw LinkClientError.remote(ErrorMessage(code: .unavailable, failedKind: .terminateSession, message: "no session missing"))
             }
-        }, close: { closed = true })
+        }, close: {
+            closed = true
+        })
         #expect(closed)
         for error in [LinkClientError.closed, .remote(ErrorMessage(code: .unavailable, failedKind: .terminateSession, message: "authentication failed"))] {
             await #expect(throws: LinkClientError.self) {
-                try await SessionTermination.ignoringMissingSession(session) { throw error }
+                try await SessionTermination.ignoringMissingSession(session) {
+                    throw error
+                }
             }
         }
     }
@@ -103,7 +111,9 @@ struct GroupSessionEnderTests {
         let state = TerminalClosePolicy.PaneState(
             persistent: false, running: running, childProcesses: 0, askBeforeClosing: preference
         )
-        let plan = await GroupSessionEnder.plan([pane(.local, local: state)]) { _ in (nil, nil) }
+        let plan = await GroupSessionEnder.plan([pane(.local, local: state)]) { _ in
+            (nil, nil)
+        }
         let expected = TerminalClosePolicy.requiresConfirmation(state: state)
         #expect(plan.needsConfirmation == expected)
         var asked = false
@@ -111,7 +121,9 @@ struct GroupSessionEnderTests {
         try await GroupSessionEnder.perform(plan, confirm: { _ in
             asked = true
             return .cancel
-        }, end: { _ in }, close: { closed = true })
+        }, end: { _ in }, close: {
+            closed = true
+        })
         #expect(asked == expected)
         #expect(closed == !expected)
     }

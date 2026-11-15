@@ -80,7 +80,9 @@ final class RemoteInstallBanner: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    override var wantsUpdateLayer: Bool {
+        true
+    }
 
     /// A CGColor does not follow the appearance, so the color is set again
     /// with the appearance of the view: the window of a dark theme is dark.
@@ -95,17 +97,25 @@ final class RemoteInstallBanner: NSView {
         needsDisplay = true
     }
 
-    @objc func install() { answer(true) }
-    @objc func notNow() { answer(false) }
+    @objc func install() {
+        answer(true)
+    }
+    @objc func notNow() {
+        answer(false)
+    }
 }
 
 /// A default button in a pane. Return activates it only while its pane has
 /// the focus, so that Return in another pane does not.
 final class PaneDefaultButton: NSButton {
-    var isActive: () -> Bool = { false }
+    var isActive: () -> Bool = {
+        false
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard isActive() else { return false }
+        guard isActive() else {
+            return false
+        }
         return super.performKeyEquivalent(with: event)
     }
 }

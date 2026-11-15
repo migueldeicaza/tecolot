@@ -74,7 +74,9 @@ final class DefaultsValueObserver<Value: Equatable>: NSObject {
     @ObservationIgnored var onChange: ((Value) -> Void)?
 
     init(defaults: UserDefaults, keys: [String], read: @escaping (UserDefaults) -> Value) {
-        precondition(keys.allSatisfy { !$0.contains(".") })
+        precondition(keys.allSatisfy {
+            !$0.contains(".")
+        })
         self.defaults = defaults
         self.keys = keys
         self.read = read
@@ -96,9 +98,13 @@ final class DefaultsValueObserver<Value: Equatable>: NSObject {
         change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?
     ) {
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             let next = self.read(self.defaults)
-            guard next != self.value else { return }
+            guard next != self.value else {
+                return
+            }
             self.value = next
             self.onChange?(next)
         }

@@ -164,10 +164,11 @@ final class PreferenceMigrator {
     }
 
     private func migrateBellPreferences(profiles: ProfileStore) {
-        guard !TerminalNotificationPreferences.bellMigrationSeeded(defaults: defaults),
-              !issueCenter.issues.contains(where: {
-                  $0.domain == .profiles || $0.domain == .legacyApplicationSupport
-              }) else {
+        guard
+            !TerminalNotificationPreferences.bellMigrationSeeded(defaults: defaults),
+            !issueCenter.issues.contains(where: {
+                $0.domain == .profiles || $0.domain == .legacyApplicationSupport
+            }) else {
             return
         }
         let profile = profiles.defaultProfile
@@ -178,10 +179,16 @@ final class PreferenceMigrator {
             defaults.set(profile.allowsNotifications, forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey)
         }
         var differed: [String] = []
-        if profiles.profiles.contains(where: { $0.bellStyle != profile.bellStyle }) {
+        if
+            profiles.profiles.contains(where: {
+                $0.bellStyle != profile.bellStyle
+            }) {
             differed.append("bell")
         }
-        if profiles.profiles.contains(where: { $0.allowsNotifications != profile.allowsNotifications }) {
+        if
+            profiles.profiles.contains(where: {
+                $0.allowsNotifications != profile.allowsNotifications
+            }) {
             differed.append("notifications")
         }
         if !differed.isEmpty {

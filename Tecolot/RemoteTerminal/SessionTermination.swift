@@ -49,8 +49,8 @@ enum SessionTermination {
             // Already ended.
         } catch LinkClientError.remote(let error) where
             error.code == .unavailable && error.message == "no session \(session.id)" {
-            // Already ended on the remote host.
-        }
+                // Already ended on the remote host.
+            }
     }
 
     static func title(for sessions: [SessionRef]) -> String {

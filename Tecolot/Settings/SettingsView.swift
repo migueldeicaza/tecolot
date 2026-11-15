@@ -50,7 +50,9 @@ struct SettingsView: View {
                         createProfile: createProfile,
                         duplicateProfile: duplicateProfile,
                         makeProfileDefault: makeProfileDefault,
-                        manageProfiles: { destination = .manageProfiles }
+                        manageProfiles: {
+                            destination = .manageProfiles
+                        }
                     )
                     .selectionDisabled()
                     ForEach(SettingsDestination.visibleProfileEditingPages(profilesAreEmpty: profiles.profiles.isEmpty)) { destination in
@@ -147,11 +149,17 @@ struct SettingsView: View {
 
     private var activeProfileID: TerminalProfile.ID? {
         get { UUID(uuidString: selectedProfileID) }
-        nonmutating set { selectedProfileID = newValue?.uuidString ?? SettingsView.selectedProfileIDDefault }
+        nonmutating set {
+            selectedProfileID = newValue?.uuidString ?? SettingsView.selectedProfileIDDefault
+        }
     }
 
     private var activeProfileSelection: Binding<TerminalProfile.ID?> {
-        Binding(get: { activeProfileID }, set: { activeProfileID = $0 })
+        Binding(get: {
+            activeProfileID
+        }, set: {
+            activeProfileID = $0
+        })
     }
 
     static func repairedProfileID(
@@ -187,7 +195,9 @@ struct SettingsView: View {
     }
 
     private func duplicateProfile() {
-        guard let activeProfileID else { return }
+        guard let activeProfileID else {
+            return
+        }
         do {
             self.activeProfileID = try profiles.duplicate(activeProfileID).id
             destination = SettingsDestination.destinationAfterCreatingProfile(from: currentDestination)
@@ -197,7 +207,9 @@ struct SettingsView: View {
     }
 
     private func makeProfileDefault() {
-        guard let activeProfileID else { return }
+        guard let activeProfileID else {
+            return
+        }
         do {
             try profiles.setDefault(activeProfileID)
         } catch {

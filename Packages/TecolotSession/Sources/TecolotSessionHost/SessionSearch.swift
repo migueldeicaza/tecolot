@@ -44,13 +44,20 @@ struct SearchIndex {
     /// Adds the rows of `ringIndices`, in order. Hold the terminal lock.
     mutating func append(terminal: Terminal, ringIndices: Range<Int>, lineNumber: (Int) -> Int64) {
         for ring in ringIndices {
-            guard let row = terminal.bufferLine(atRow: ring) else { continue }
+            guard let row = terminal.bufferLine(atRow: ring) else {
+                continue
+            }
             let number = lineNumber(ring)
-            if !row.isWrapped || open == nil || (open.map { number - $0.firstLine >= Int64(UInt16.max) } ?? true) {
+            if
+                !row.isWrapped || open == nil || (open.map {
+                    number - $0.firstLine >= Int64(UInt16.max)
+                } ?? true) {
                 finishLine()
                 open = Line(firstLine: number, text: "", cells: [])
             }
-            guard var line = open else { continue }
+            guard var line = open else {
+                continue
+            }
             let rowOffset = UInt16(clamping: number - line.firstLine)
             let used = min(row.getTrimmedLength(), row.count, columns)
             var column = 0
@@ -61,9 +68,13 @@ struct SearchIndex {
                     continue
                 }
                 var text = cell.getText()
-                if text == "\u{0}" { text = " " }
+                if text == "\u{0}" {
+                    text = " "
+                }
                 let reference = CellReference(rowOffset: rowOffset, column: UInt16(clamping: column))
-                for _ in text.utf16 { line.cells.append(reference) }
+                for _ in text.utf16 {
+                    line.cells.append(reference)
+                }
                 line.text += text
                 column += 1
             }
@@ -76,26 +87,35 @@ struct SearchIndex {
     }
 
     private mutating func finishLine() {
-        if let open { lines.append(open) }
+        if let open {
+            lines.append(open)
+        }
         open = nil
     }
 
     /// Finds the next match after (or before) the start position, wrapping
     /// around once.
     func search(_ request: SearchMessage) -> SearchResultMessage {
-        guard !request.query.isEmpty else { return SearchResultMessage(found: false) }
+        guard !request.query.isEmpty else {
+            return SearchResultMessage(found: false)
+        }
         var pattern = request.options.contains(.regularExpression)
             ? request.query : NSRegularExpression.escapedPattern(for: request.query)
-        if request.options.contains(.wholeWord) { pattern = "\\b(?:\(pattern))\\b" }
+        if request.options.contains(.wholeWord) {
+            pattern = "\\b(?:\(pattern))\\b"
+        }
         let expression: NSRegularExpression
         do {
             expression = try NSRegularExpression(
                 pattern: pattern,
-                options: request.options.contains(.caseSensitive) ? [] : [.caseInsensitive])
+                options: request.options.contains(.caseSensitive) ? [] : [.caseInsensitive]
+            )
         } catch {
             return SearchResultMessage(found: false, problem: "Invalid regular expression")
         }
-        guard !lines.isEmpty else { return SearchResultMessage(found: false) }
+        guard !lines.isEmpty else {
+            return SearchResultMessage(found: false)
+        }
 
         let start = (line: Int64(clamping: request.startLine), column: request.startColumn)
         let backward = request.options.contains(.backward)
@@ -112,7 +132,9 @@ struct SearchIndex {
                 high = middle - 1
             }
         }
-        if lines[0].firstLine > start.line { startIndex = 0 }
+        if lines[0].firstLine > start.line {
+            startIndex = 0
+        }
 
         func position(_ line: Line, _ offset: Int) -> (line: Int64, column: Int) {
             let reference = line.cells[min(max(0, offset), line.cells.count - 1)]
@@ -124,13 +146,20 @@ struct SearchIndex {
         func matches(in line: Line) -> [NSRange] {
             let text = line.text as NSString
             return expression.matches(in: line.text, range: NSRange(location: 0, length: text.length))
-                .map(\.range).filter { $0.length > 0 }
+                .map(\.range).filter {
+                    $0.length > 0
+                }
         }
         func result(_ line: Line, _ range: NSRange) -> SearchResultMessage {
             let first = position(line, range.location)
             let last = position(line, range.location + range.length - 1)
-            return SearchResultMessage(found: true, line: UInt64(max(0, first.line)), column: first.column,
-                                       endLine: UInt64(max(0, last.line)), endColumn: last.column)
+            return SearchResultMessage(
+                found: true,
+                line: UInt64(max(0, first.line)),
+                column: first.column,
+                endLine: UInt64(max(0, last.line)),
+                endColumn: last.column
+            )
         }
 
         let count = lines.count
@@ -145,11 +174,15 @@ struct SearchIndex {
                 let first = position(line, range.location)
                 if step == 0 {
                     // On the first pass the match must be past the start.
-                    if backward ? !isBefore(first, start) : !isBefore(start, first) { continue }
+                    if backward ? !isBefore(first, start) : !isBefore(start, first) {
+                        continue
+                    }
                 } else if step == count {
                     // After wrapping around, only matches up to the start remain
                     // (a single match at the start is found again).
-                    if backward ? isBefore(first, start) : isBefore(start, first) { continue }
+                    if backward ? isBefore(first, start) : isBefore(start, first) {
+                        continue
+                    }
                 }
                 return result(line, range)
             }

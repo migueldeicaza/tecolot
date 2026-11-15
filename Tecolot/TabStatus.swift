@@ -32,9 +32,21 @@ nonisolated struct ProgramActivityPreferences: Equatable {
     static let idleKey = "programActivityIdle"
     static let idleDefault = true
 
-    static let observedKeys = [showTabsKey, notificationsKey, dockKey, soundsKey, colorKey,
-                               bounceKey, announceKey, tickerSpeedKey, workingKey, blockedKey,
-                               errorKey, doneKey, idleKey]
+    static let observedKeys = [
+        showTabsKey,
+        notificationsKey,
+        dockKey,
+        soundsKey,
+        colorKey,
+        bounceKey,
+        announceKey,
+        tickerSpeedKey,
+        workingKey,
+        blockedKey,
+        errorKey,
+        doneKey,
+        idleKey
+    ]
 
     var showTabs = Self.showTabsDefault
     var notifications = Self.notificationsDefault
@@ -48,20 +60,30 @@ nonisolated struct ProgramActivityPreferences: Equatable {
     /// Returns the stored preference key for one protocol state.
     static func stateKey(_ state: ProgramStatusState) -> String {
         switch state {
-        case .working: workingKey
-        case .blocked: blockedKey
-        case .error: errorKey
-        case .done: doneKey
-        case .idle: idleKey
+        case .working:
+            workingKey
+        case .blocked:
+            blockedKey
+        case .error:
+            errorKey
+        case .done:
+            doneKey
+        case .idle:
+            idleKey
         }
     }
     static func stateDefault(_ state: ProgramStatusState) -> Bool {
         switch state {
-        case .working: workingDefault
-        case .blocked: blockedDefault
-        case .error: errorDefault
-        case .done: doneDefault
-        case .idle: idleDefault
+        case .working:
+            workingDefault
+        case .blocked:
+            blockedDefault
+        case .error:
+            errorDefault
+        case .done:
+            doneDefault
+        case .idle:
+            idleDefault
         }
     }
     /// Reads one complete settings snapshot, retaining defaults for unset keys.

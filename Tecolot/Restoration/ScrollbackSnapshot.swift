@@ -25,9 +25,16 @@ nonisolated enum ScrollbackSnapshot {
         /// The file, or nil when no row is left to restore.
         func encode(savedAt: Date) -> Data? {
             let rows = ScrollbackCapture.rows(snapshot, limit: limit)
-            guard !rows.isEmpty || alternateScreenProgram != nil else { return nil }
-            return ScrollbackCapture.encode(rows, of: snapshot, paneID: paneID.uuidString, savedAt: savedAt,
-                                            alternateScreenProgram: alternateScreenProgram)
+            guard !rows.isEmpty || alternateScreenProgram != nil else {
+                return nil
+            }
+            return ScrollbackCapture.encode(
+                rows,
+                of: snapshot,
+                paneID: paneID.uuidString,
+                savedAt: savedAt,
+                alternateScreenProgram: alternateScreenProgram
+            )
         }
     }
 }
@@ -42,9 +49,14 @@ nonisolated enum RestoreDirectoryCheck {
         var notFound: Bool
     }
 
-    static func resolve(_ path: String?, timeout: TimeInterval = 1,
-                        isDirectory: @escaping @Sendable (String) -> Bool = ProcessDirectory.isDirectory) async -> Result {
-        guard let path else { return Result(path: nil, notFound: false) }
+    static func resolve(
+        _ path: String?,
+        timeout: TimeInterval = 1,
+        isDirectory: @escaping @Sendable (String) -> Bool = ProcessDirectory.isDirectory
+    ) async -> Result {
+        guard let path else {
+            return Result(path: nil, notFound: false)
+        }
         let found: ProcessDirectory.RestoreTarget? = await withCheckedContinuation { continuation in
             let done = OSAllocatedUnfairLock(initialState: false)
             let finish: @Sendable (ProcessDirectory.RestoreTarget?) -> Void = { value in
@@ -52,14 +64,20 @@ nonisolated enum RestoreDirectoryCheck {
                     defer { done = true }
                     return !done
                 }
-                if first { continuation.resume(returning: value) }
+                if first {
+                    continuation.resume(returning: value)
+                }
             }
             DispatchQueue.global(qos: .userInitiated).async {
                 finish(ProcessDirectory.restoreTarget(path, isDirectory: isDirectory))
             }
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) { finish(nil) }
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
+                finish(nil)
+            }
         }
-        guard let found else { return Result(path: nil, notFound: true) }
+        guard let found else {
+            return Result(path: nil, notFound: true)
+        }
         return Result(path: found.path, notFound: found.notFound)
     }
 }

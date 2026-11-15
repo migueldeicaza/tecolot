@@ -66,9 +66,10 @@ private struct FromProgramsSettingsSection: View {
 
     var body: some View {
         Section {
-            if TerminalNotificationPreferences.showsMigrationNote(
-                differed: TerminalNotificationPreferences.bellMigrationDiffered(), dismissed: noteDismissed
-            ) {
+            if
+                TerminalNotificationPreferences.showsMigrationNote(
+                    differed: TerminalNotificationPreferences.bellMigrationDiffered(), dismissed: noteDismissed
+                ) {
                 HStack(alignment: .top) {
                     Text("Bell and program notifications now apply to all profiles. They were set from your default profile.")
                         .font(.callout)

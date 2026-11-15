@@ -118,7 +118,9 @@ final class AppModel {
         paneSettingsObserver = PaneSettingsObserver(
             profiles: profiles, themes: themes,
             appearanceChanges: systemAppearance.objectWillChange.eraseToAnyPublisher(),
-            isDark: { [systemAppearance] in systemAppearance.isDark },
+            isDark: { [systemAppearance] in
+                systemAppearance.isDark
+            },
             registry: .shared, manager: .shared
         )
     }
@@ -242,8 +244,12 @@ final class PaneSettingsObserver {
         profiles: ProfileStore, themes: ThemeStore,
         appearanceChanges: AnyPublisher<Void, Never>, isDark: @escaping () -> Bool,
         registry: TerminalSessionRegistry, manager: TerminalWindowManager,
-        applyProfile: @escaping @MainActor (TerminalSessionController, TerminalProfile) -> Void = { $0.applyProfile($1) },
-        applyThemeColors: @escaping @MainActor (TerminalSessionController) -> Void = { $0.applyThemeColors() }
+        applyProfile: @escaping @MainActor (TerminalSessionController, TerminalProfile) -> Void = {
+            $0.applyProfile($1)
+        },
+        applyThemeColors: @escaping @MainActor (TerminalSessionController) -> Void = {
+            $0.applyThemeColors()
+        }
     ) {
         self.profiles = profiles
         self.themes = themes
@@ -254,8 +260,11 @@ final class PaneSettingsObserver {
         self.applyThemeColors = applyThemeColors
         previousThemes = Self.index(themes.themes)
         previousIsDark = isDark()
-        for publisher in [profiles.objectWillChange.eraseToAnyPublisher(),
-                          themes.objectWillChange.eraseToAnyPublisher(), appearanceChanges] {
+        for publisher in [
+            profiles.objectWillChange.eraseToAnyPublisher(),
+            themes.objectWillChange.eraseToAnyPublisher(),
+            appearanceChanges
+        ] {
             publisher.sink { [weak self] in
                 self?.scheduleUpdate()
             }.store(in: &subscriptions)
@@ -263,14 +272,22 @@ final class PaneSettingsObserver {
     }
 
     private static func index(_ themes: [TerminalTheme]) -> [String: TerminalTheme] {
-        Dictionary(themes.map { ($0.name, $0) }, uniquingKeysWith: { _, last in last })
+        Dictionary(themes.map {
+            ($0.name, $0)
+        }, uniquingKeysWith: { _, last in
+            last
+        })
     }
 
     private func scheduleUpdate() {
-        guard !pending else { return }
+        guard !pending else {
+            return
+        }
         pending = true
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             self.pending = false
             self.update()
         }

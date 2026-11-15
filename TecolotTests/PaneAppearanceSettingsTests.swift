@@ -164,7 +164,9 @@ struct PaneAppearanceSettingsTests {
         for controller in preview.host.workspace.controllers {
             controller.didBecomeFocused()
             controller.previewBackgroundOpacity(0.5)
-            #expect(!registry.allControllers.contains { $0 === controller })
+            #expect(!registry.allControllers.contains {
+                $0 === controller
+            })
         }
         #expect(registry.controller(for: window) == nil)
         #expect(registry.controllers(for: window).isEmpty)

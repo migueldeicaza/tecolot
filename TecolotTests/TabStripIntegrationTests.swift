@@ -78,7 +78,9 @@ struct TabStripIntegrationTests {
             #expect(other.tabBar.groupButton.frame == NSRect(x: 85, y: 5, width: 105, height: 36))
             #expect(other.tabBar.scroll.frame.minX == other.tabBar.groupButton.frame.maxX + 8)
         } else {
-            #expect(manager.backgroundGroups.contains { $0 === second })
+            #expect(manager.backgroundGroups.contains {
+                $0 === second
+            })
         }
         manager.closeGroup(second)
         bar.layoutSubtreeIfNeeded()

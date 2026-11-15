@@ -102,7 +102,9 @@ struct TerminalWindowManagerTests {
         let manager = manager()
         let source = manager.newGroup(tab: tab())
         var saves = 0
-        manager.persistenceDidChange = { _ in saves += 1 }
+        manager.persistenceDidChange = { _ in
+            saves += 1
+        }
         let copy: TerminalTabGroup? = manager.duplicate(source, showInWindow: showInWindow)
         #expect(copy == nil)
         #expect(manager.groups.count == 1 && manager.groups[0] === source)
@@ -152,17 +154,27 @@ struct TerminalWindowManagerTests {
         var saves = 0
         var groupCounts: [Int] = []
         var globalFocusChanges = 0
-        manager.persistenceDidChange = { _ in saves += 1 }
+        manager.persistenceDidChange = { _ in
+            saves += 1
+        }
         let groupsObserver = NotificationCenter.default.addObserver(forName: .groupsDidChange, object: manager, queue: .main) { _ in
-            MainActor.assumeIsolated { groupCounts.append(manager.groups.count) }
+            MainActor.assumeIsolated {
+                groupCounts.append(manager.groups.count)
+            }
         }
         let focusObserver = NotificationCenter.default.addObserver(forName: .terminalFocusedPaneDidChange, object: nil, queue: .main) { note in
-            MainActor.assumeIsolated { if note.object == nil { globalFocusChanges += 1 } }
+            MainActor.assumeIsolated {
+                if note.object == nil {
+                    globalFocusChanges += 1
+                }
+            }
         }
         defer {
             NotificationCenter.default.removeObserver(groupsObserver)
             NotificationCenter.default.removeObserver(focusObserver)
-            for group in manager.groups { manager.closeGroup(group) }
+            for group in manager.groups {
+                manager.closeGroup(group)
+            }
         }
         manager.select(first, in: group)
         manager.setCollapsed(true, group: group)
@@ -303,7 +315,9 @@ struct TerminalWindowManagerTests {
             #expect(window.closed && manager.windows.isEmpty)
         }
         check(manager)
-        for group in manager.groups { manager.closeGroup(group) }
+        for group in manager.groups {
+            manager.closeGroup(group)
+        }
     }
 
     @Test(arguments: [false, true])
@@ -326,7 +340,9 @@ struct TerminalWindowManagerTests {
             #expect(window.closed && manager.windows.isEmpty)
         }
         check(manager)
-        for group in manager.groups { manager.closeGroup(group) }
+        for group in manager.groups {
+            manager.closeGroup(group)
+        }
     }
 
     @Test func lastTabClosesTheWindowWhenOnlyNeverShownGroupsRemain() throws {

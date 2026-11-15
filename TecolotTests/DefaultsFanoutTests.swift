@@ -9,7 +9,9 @@ import Testing
 struct DefaultsFanoutTests {
     private func nextTurn() async {
         await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
         }
     }
 
@@ -37,18 +39,30 @@ struct DefaultsFanoutTests {
         }
         #expect(tab.titleParts.primary == "Custom shell title")
         let changes = Mutex(0)
-        withObservationTracking { _ = tab.title } onChange: { changes.withLock { $0 += 1 } }
-        for _ in 0..<100 { _ = tab.title }
+        withObservationTracking {
+            _ = tab.title
+        } onChange: {
+            changes.withLock {
+                $0 += 1
+            }
+        }
+        for _ in 0..<100 {
+            _ = tab.title
+        }
         defaults.set("frame", forKey: "lastTerminalWindowFrame")
         await nextTurn()
         #expect(reads == 1)
         defaults.set(true, forKey: TabStripPreferences.preferGeneratedTitlesKey)
         await nextTurn()
         #expect(preference.value)
-        #expect(changes.withLock { $0 } == 1)
+        #expect(changes.withLock {
+            $0
+        } == 1)
         #expect(tab.titleParts.primary != "Custom shell title")
         let readsAfterChange = reads
-        for _ in 0..<100 { _ = tab.titleParts }
+        for _ in 0..<100 {
+            _ = tab.titleParts
+        }
         #expect(reads == readsAfterChange)
         defaults.set(false, forKey: TabStripPreferences.preferGeneratedTitlesKey)
         await nextTurn()
@@ -86,11 +100,17 @@ struct DefaultsFanoutTests {
         let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
         defer { manager.closeGroup(group) }
         func cells(in view: NSView) -> [TabItemView] {
-            view.subviews.flatMap { ($0 as? TabItemView).map { [$0] } ?? cells(in: $0) }
+            view.subviews.flatMap {
+                ($0 as? TabItemView).map {
+                    [$0]
+                } ?? cells(in: $0)
+            }
         }
         func shownTitle() -> String? {
             owner.window?.contentView?.layoutSubtreeIfNeeded()
-            return cells(in: owner.tabBar).first { $0.tab === tab }?.titleField.stringValue
+            return cells(in: owner.tabBar).first {
+                $0.tab === tab
+            }?.titleField.stringValue
         }
         #expect(shownTitle() == "Custom shell title")
         defaults.set(true, forKey: TabStripPreferences.preferGeneratedTitlesKey)
@@ -117,7 +137,9 @@ struct DefaultsFanoutTests {
                 reads += 1
                 return $0.integer(forKey: TabStripPreferences.iconCountKey)
             }
-            observer.onChange = { _ in changes += 1 }
+            observer.onChange = { _ in
+                changes += 1
+            }
             return observer
         }
         weak var released = observers.first
@@ -170,7 +192,9 @@ struct DefaultsFanoutTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let observer = DefaultsValueObserver(defaults: defaults, keys: SidebarPreferences.observedKeys, read: SidebarPreferences.init(defaults:))
         var changes = 0
-        observer.onChange = { _ in changes += 1 }
+        observer.onChange = { _ in
+            changes += 1
+        }
         let edits: [(String, Any)] = [
             (ProgramActivityPreferences.tabStyleKey, "vertical"),
             (SidebarPreferences.positionKey, "right"), (SidebarPreferences.hiddenKey, true),
@@ -192,7 +216,9 @@ struct DefaultsFanoutTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let observer = DefaultsValueObserver(defaults: defaults, keys: TabStripPreferences.observedKeys, read: TabStripPreferences.init(defaults:))
         var changes = 0
-        observer.onChange = { _ in changes += 1 }
+        observer.onChange = { _ in
+            changes += 1
+        }
         let edits: [(String, Any)] = [
             (TabStripPreferences.iconCountKey, 5), (TabStripPreferences.colorModeKey, "never"),
             (TabStripPreferences.fillKey, true), (TabStripPreferences.animationStyleKey, "off"),
@@ -231,7 +257,9 @@ struct DefaultsFanoutTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         var saves = 0
-        let store = TerminalWindowSizeStore(defaults: defaults, saveInterval: 0.05, didSave: { saves += 1 })
+        let store = TerminalWindowSizeStore(defaults: defaults, saveInterval: 0.05, didSave: {
+            saves += 1
+        })
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 600, height: 400), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
         store.configure(window, restoresFrame: false)
         for index in 0..<30 {

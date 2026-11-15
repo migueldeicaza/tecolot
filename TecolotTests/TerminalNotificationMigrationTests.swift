@@ -115,8 +115,12 @@ struct TerminalNotificationMigrationTests {
             domain: domain, sourceURL: source, kind: .unreadable, message: "Try again next launch"
         ))
         fixture.migrator.migrate(profiles: fixture.profiles)
-        for key in [Preferences.bellStyleKey, Preferences.allowsProgramNotificationsKey,
-                    Preferences.bellMigrationDifferedKey, Preferences.bellMigrationSeededKey] {
+        for key in [
+            Preferences.bellStyleKey,
+            Preferences.allowsProgramNotificationsKey,
+            Preferences.bellMigrationDifferedKey,
+            Preferences.bellMigrationSeededKey
+        ] {
             #expect(fixture.defaults.object(forKey: key) == nil)
         }
         fixture.issues.resolve(domain: domain, sourceURL: source)
@@ -167,9 +171,15 @@ struct TerminalNotificationMigrationTests {
             try Data("not a directory".utf8).write(to: backups)
         }
         fixture.migrator.migrate(profiles: fixture.profiles)
-        #expect(fixture.issues.issues.contains { $0.domain == .preferences })
-        for key in [Preferences.bellStyleKey, Preferences.allowsProgramNotificationsKey,
-                    Preferences.bellMigrationDifferedKey, Preferences.bellMigrationSeededKey] {
+        #expect(fixture.issues.issues.contains {
+            $0.domain == .preferences
+        })
+        for key in [
+            Preferences.bellStyleKey,
+            Preferences.allowsProgramNotificationsKey,
+            Preferences.bellMigrationDifferedKey,
+            Preferences.bellMigrationSeededKey
+        ] {
             #expect(fixture.defaults.object(forKey: key) == nil)
         }
     }

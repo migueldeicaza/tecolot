@@ -58,8 +58,11 @@ struct ThemeEditorView: View {
 
     /// The colors that "Revert…" restores.
     private var revertSource: TerminalTheme {
-        if let base = draft.baseThemeName,
-           let theme = themes.themes.first(where: { $0.name == base }) {
+        if
+            let base = draft.baseThemeName,
+            let theme = themes.themes.first(where: {
+                $0.name == base
+            }) {
             return theme
         }
         return original
@@ -121,8 +124,8 @@ struct ThemeEditorView: View {
                     .frame(maxWidth: 320)
                 if let conflictingTheme {
                     Text(conflictingTheme.name.localizedCaseInsensitiveCompare(trimmedName) == .orderedSame
-                         ? "A theme named \u{201C}\(conflictingTheme.name)\u{201D} already exists."
-                         : "The name is too similar to \u{201C}\(conflictingTheme.name)\u{201D}.")
+                        ? "A theme named \u{201C}\(conflictingTheme.name)\u{201D} already exists."
+                        : "The name is too similar to \u{201C}\(conflictingTheme.name)\u{201D}.")
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
@@ -226,8 +229,12 @@ struct ThemeEditorView: View {
 
     private func colorBinding(_ keyPath: WritableKeyPath<TerminalTheme, ProfileColor>) -> Binding<ProfileColor> {
         Binding(
-            get: { draft[keyPath: keyPath] },
-            set: { draft[keyPath: keyPath] = $0 }
+            get: {
+                draft[keyPath: keyPath]
+            },
+            set: {
+                draft[keyPath: keyPath] = $0
+            }
         )
     }
 
@@ -238,16 +245,24 @@ struct ThemeEditorView: View {
         effective: ProfileColor
     ) -> Binding<ProfileColor> {
         Binding(
-            get: { draft[keyPath: keyPath] ?? effective },
-            set: { draft[keyPath: keyPath] = $0 }
+            get: {
+                draft[keyPath: keyPath] ?? effective
+            },
+            set: {
+                draft[keyPath: keyPath] = $0
+            }
         )
     }
 
     private func ansiBinding(at index: Int) -> Binding<ProfileColor> {
         Binding(
-            get: { draft.ansi.indices.contains(index) ? draft.ansi[index] : draft.foreground },
+            get: {
+                draft.ansi.indices.contains(index) ? draft.ansi[index] : draft.foreground
+            },
             set: { color in
-                guard draft.ansi.indices.contains(index) else { return }
+                guard draft.ansi.indices.contains(index) else {
+                    return
+                }
                 draft.ansi[index] = color
             }
         )
@@ -267,7 +282,9 @@ struct ThemeEditorView: View {
     }
 
     private func save() {
-        guard canSave else { return }
+        guard canSave else {
+            return
+        }
         var theme = draft
         theme.name = trimmedName
         theme.isBuiltIn = false
@@ -291,8 +308,14 @@ struct ThemeEditorView: View {
     ]
 
     private static func colors(of theme: TerminalTheme) -> [ProfileColor?] {
-        theme.ansi + [theme.foreground, theme.background, theme.cursor, theme.cursorText,
-                      theme.selectionBackground, theme.selectionText]
+        theme.ansi + [
+            theme.foreground,
+            theme.background,
+            theme.cursor,
+            theme.cursorText,
+            theme.selectionBackground,
+            theme.selectionText
+        ]
     }
 }
 
@@ -336,7 +359,9 @@ struct HexColorWell: View {
     let id: String
     @State private var text = ""
 
-    private var isFocused: Bool { focus.wrappedValue == id }
+    private var isFocused: Bool {
+        focus.wrappedValue == id
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -358,9 +383,13 @@ struct HexColorWell: View {
         .clipShape(.rect(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
         .frame(minWidth: 64, maxWidth: .infinity)
-        .onAppear { text = Self.display(color) }
+        .onAppear {
+            text = Self.display(color)
+        }
         .onChange(of: text) { _, newText in
-            guard isFocused, let parsed = Self.parse(newText), parsed != color else { return }
+            guard isFocused, let parsed = Self.parse(newText), parsed != color else {
+                return
+            }
             color = parsed
         }
         .onChange(of: color) { _, newColor in
@@ -439,8 +468,9 @@ private struct NativeColorWell: NSViewRepresentable {
 
         @objc func colorChanged(_ sender: NSColorWell) {
             // 8 bits for each channel, so that the value shows as "#RRGGBB".
-            if let value = ProfileColor(nsColor: sender.color)?.roundedTo8Bits,
-               value != color.wrappedValue {
+            if
+                let value = ProfileColor(nsColor: sender.color)?.roundedTo8Bits,
+                value != color.wrappedValue {
                 color.wrappedValue = value
             }
         }
@@ -448,7 +478,9 @@ private struct NativeColorWell: NSViewRepresentable {
 }
 
 private extension Color {
-    var nsColor: NSColor { NSColor(self) }
+    var nsColor: NSColor {
+        NSColor(self)
+    }
 }
 
 #Preview("Theme Editor") {

@@ -30,8 +30,11 @@ enum TerminalNotificationPreferences {
     }
 
     static func bellMigrationDiffered(defaults: UserDefaults = .standard) -> [String]? {
-        guard let values = defaults.object(forKey: bellMigrationDifferedKey) as? [String],
-              values.allSatisfy({ $0 == "bell" || $0 == "notifications" }) else {
+        guard
+            let values = defaults.object(forKey: bellMigrationDifferedKey) as? [String],
+            values.allSatisfy({
+                $0 == "bell" || $0 == "notifications"
+            }) else {
             return nil
         }
         return values
@@ -46,8 +49,9 @@ enum TerminalNotificationPreferences {
     }
 
     private static func boolean(forKey key: String, defaults: UserDefaults) -> Bool? {
-        guard let value = defaults.object(forKey: key),
-              CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID() else {
+        guard
+            let value = defaults.object(forKey: key),
+            CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID() else {
             return nil
         }
         return (value as? NSNumber)?.boolValue

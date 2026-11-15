@@ -7,7 +7,9 @@ struct RecentRemoteDestinations {
     static let key = "recentRemoteDestinations"
     let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     var destinations: [String] {
         var seen = Set<String>()
@@ -17,8 +19,12 @@ struct RecentRemoteDestinations {
     }
 
     func record(_ destination: String) {
-        guard (try? SSHConfiguration.validate(destination)) != nil else { return }
-        let updated = [destination] + destinations.filter { $0 != destination }
+        guard (try? SSHConfiguration.validate(destination)) != nil else {
+            return
+        }
+        let updated = [destination] + destinations.filter {
+            $0 != destination
+        }
         defaults.set(Array(updated.prefix(Self.limit)), forKey: Self.key)
     }
 }
@@ -29,7 +35,9 @@ enum RemoteDestinationPanel {
         let recent = RecentRemoteDestinations()
         let aliases = (try? SSHHostAliases.list()) ?? []
         var seen = Set<String>()
-        let choices = (recent.destinations + aliases).filter { seen.insert($0).inserted }
+        let choices = (recent.destinations + aliases).filter {
+            seen.insert($0).inserted
+        }
         let field = NSComboBox(frame: NSRect(x: 0, y: 0, width: 420, height: 26))
         field.addItems(withObjectValues: choices)
         field.completes = true

@@ -13,9 +13,9 @@ import TecolotSessionHost
 import TecolotTransport
 import TecolotWire
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #endif
 
 public final class SessionServer: @unchecked Sendable {
@@ -46,10 +46,19 @@ public final class SessionServer: @unchecked Sendable {
         unlink(launchURL.path)
         let launch = try JSONDecoder().decode(SessionLaunch.self, from: data)
         host = SessionHost(id: id, launch: launch, build: build)
-        record = SessionRecord(id: id, pid: getpid(), shellPID: 0, protocolVersion: SessionProtocol.version,
-                               build: build, createdAt: Date(), executable: launch.executable,
-                               workingDirectory: launch.workingDirectory, labels: launch.labels,
-                               columns: launch.columns, rows: launch.rows)
+        record = SessionRecord(
+            id: id,
+            pid: getpid(),
+            shellPID: 0,
+            protocolVersion: SessionProtocol.version,
+            build: build,
+            createdAt: Date(),
+            executable: launch.executable,
+            workingDirectory: launch.workingDirectory,
+            labels: launch.labels,
+            columns: launch.columns,
+            rows: launch.rows
+        )
         if let linger = ProcessInfo.processInfo.environment["TECOLOT_EXITED_LINGER"].flatMap(TimeInterval.init) {
             unseenExitLinger = linger
         }
@@ -72,44 +81,65 @@ public final class SessionServer: @unchecked Sendable {
             throw error
         }
         host.onMetadataChange = { [weak self] title, directory in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             record.title = title
             record.directory = directory
             scheduleRecordWrite()
         }
         host.onAttachmentChange = { [weak self] count in
-            guard let self else { return }
-            if count > attachedCount { record.lastAttachedAt = Date() }
+            guard let self else {
+                return
+            }
+            if count > attachedCount {
+                record.lastAttachedAt = Date()
+            }
             attachedCount = count
             record.attachedClients = count
             let size = host.gridSize
             record.columns = size.columns
             record.rows = size.rows
             scheduleRecordWrite()
-            if count == 0 && record.exited { exitWhenAppropriate() }
+            if count == 0 && record.exited {
+                exitWhenAppropriate()
+            }
         }
         host.onGridChange = { [weak self] columns, rows in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             record.columns = columns
             record.rows = rows
             scheduleRecordWrite()
         }
         host.onSessionInfo = { [weak self] info in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             let name = info.foreground?.name
-            guard name != record.foreground else { return }
+            guard name != record.foreground else {
+                return
+            }
             record.foreground = name
             scheduleRecordWrite()
         }
         host.onDetachedNotification = { [weak self] message in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             // The app watches the records: it shows the notification.
-            record.notification = SessionNotification(serial: (record.notification?.serial ?? 0) + 1,
-                                                      title: message.title, body: message.body)
+            record.notification = SessionNotification(
+                serial: (record.notification?.serial ?? 0) + 1,
+                title: message.title,
+                body: message.body
+            )
             scheduleRecordWrite()
         }
         host.onExit = { [weak self] code in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             record.exited = true
             record.exitCode = code
             // Nobody needs the final screen of a session that a user ended on purpose.
@@ -120,7 +150,9 @@ public final class SessionServer: @unchecked Sendable {
         installSignalHandlers()
         let upkeep = DispatchSource.makeTimerSource(queue: host.queue)
         upkeep.schedule(deadline: .now() + .seconds(3600), repeating: .seconds(3600))
-        upkeep.setEventHandler { [weak self] in self?.touchFiles() }
+        upkeep.setEventHandler { [weak self] in
+            self?.touchFiles()
+        }
         upkeepTimer = upkeep
         upkeep.resume()
         Self.report(readyFD, "ready \(getpid())")
@@ -132,30 +164,40 @@ public final class SessionServer: @unchecked Sendable {
     }
 
     private func exitWhenAppropriate() {
-        guard record.exited, attachedCount == 0 else { return }
+        guard record.exited, attachedCount == 0 else {
+            return
+        }
         if exitSeen {
             finish()
         } else if lingerTimer == nil {
             let timer = DispatchSource.makeTimerSource(queue: host.queue)
             timer.schedule(deadline: .now() + unseenExitLinger)
-            timer.setEventHandler { [weak self] in self?.finish() }
+            timer.setEventHandler { [weak self] in
+                self?.finish()
+            }
             lingerTimer = timer
             timer.resume()
         }
     }
 
     private func scheduleRecordWrite() {
-        guard !recordWritePending else { return }
+        guard !recordWritePending else {
+            return
+        }
         recordWritePending = true
         host.queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             recordWritePending = false
             writeRecordNow()
         }
     }
 
     private func writeRecordNow() {
-        guard !finished else { return }
+        guard !finished else {
+            return
+        }
         record.updatedAt = Date()
         try? directory.writeRecord(record)
     }
@@ -169,7 +211,9 @@ public final class SessionServer: @unchecked Sendable {
             // shut down: keep the session for the next launch.
             let saves = number != SIGINT
             source.setEventHandler { [weak self] in
-                if saves { self?.saveDurableState() }
+                if saves {
+                    self?.saveDurableState()
+                }
                 self?.shutdown()
             }
             source.resume()
@@ -177,31 +221,45 @@ public final class SessionServer: @unchecked Sendable {
         }
         signal(SIGUSR1, SIG_IGN)
         let restore = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: host.queue)
-        restore.setEventHandler { [weak self] in self?.restoreListenerIfMissing() }
+        restore.setEventHandler { [weak self] in
+            self?.restoreListenerIfMissing()
+        }
         signalSources.append(restore)
         restore.resume()
     }
 
     /// Updates file times so that temporary-file cleaners keep the session.
     func touchFiles() {
-        guard !finished else { return }
-        for path in [directory.socketPath(for: id), directory.recordURL(for: id).path,
-                     directory.logURL(for: id).path] {
+        guard !finished else {
+            return
+        }
+        for path in [
+            directory.socketPath(for: id),
+            directory.recordURL(for: id).path,
+            directory.logURL(for: id).path
+        ] {
             _ = utimensat(AT_FDCWD, path, nil, AT_SYMLINK_NOFOLLOW)
         }
     }
 
     /// Restores the socket after a temporary-file cleaner removes it.
     private func restoreListenerIfMissing() {
-        guard !finished, !restoringListener,
-              access(directory.socketPath(for: id), F_OK) != 0 else { return }
+        guard
+            !finished, !restoringListener,
+            access(directory.socketPath(for: id), F_OK) != 0 else {
+            return
+        }
         restoringListener = true
         // SocketListener.stop queues its unlink. Create the replacement after it.
         listener?.stop()
         host.queue.async { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             defer { restoringListener = false }
-            guard !finished else { return }
+            guard !finished else {
+                return
+            }
             do {
                 let replacement = try SocketListener(path: directory.socketPath(for: id), queue: host.queue) { [host] fd in
                     host.accept(socket: fd)
@@ -218,8 +276,11 @@ public final class SessionServer: @unchecked Sendable {
     /// Only a termination signal saves; a session that the user terminated,
     /// or whose shell exited, saves nothing.
     func saveDurableState() {
-        guard !finished, !savedDurableState, !record.exited, !host.wasTerminationRequested,
-              let path = host.launch.stateDirectory else { return }
+        guard
+            !finished, !savedDurableState, !record.exited, !host.wasTerminationRequested,
+            let path = host.launch.stateDirectory else {
+            return
+        }
         savedDurableState = true
         let (state, scrollback) = host.durableState(title: record.title)
         do {
@@ -237,30 +298,42 @@ public final class SessionServer: @unchecked Sendable {
             return
         }
         host.terminate(signal: SIGHUP)
-        host.queue.asyncAfter(deadline: .now() + 5) { [weak self] in self?.finish() }
+        host.queue.asyncAfter(deadline: .now() + 5) { [weak self] in
+            self?.finish()
+        }
     }
 
     private func finish() {
-        guard !finished else { return }
+        guard !finished else {
+            return
+        }
         finished = true
         upkeepTimer?.cancel()
         upkeepTimer = nil
         lingerTimer?.cancel()
         lingerTimer = nil
-        for source in signalSources { source.cancel() }
+        for source in signalSources {
+            source.cancel()
+        }
         signalSources.removeAll()
         listener?.stop()
         directory.removeFiles(for: id)
         // A normal end needs no log; a crash leaves it for diagnosis.
         unlink(directory.logURL(for: id).path)
-        host.queue.async { exit(0) }
+        host.queue.async {
+            exit(0)
+        }
     }
 
     static func report(_ fd: Int32?, _ message: String) {
-        guard let fd, fd >= 0 else { return }
+        guard let fd, fd >= 0 else {
+            return
+        }
         UnixSocket.setNoSignalOnBrokenPipe(fd)
         let line = Array((message + "\n").utf8)
-        _ = line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+        _ = line.withUnsafeBytes {
+            write(fd, $0.baseAddress, $0.count)
+        }
         close(fd)
     }
 }

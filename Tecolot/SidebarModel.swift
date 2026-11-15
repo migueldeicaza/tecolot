@@ -17,8 +17,16 @@ struct SidebarPreferences: Equatable {
     static let gestureDefault = "swipe"
 
     static let systemSizeKey = "NSTableViewDefaultSizeMode"
-    static let observedKeys = [ProgramActivityPreferences.tabStyleKey, positionKey, hiddenKey,
-                               widthKey, textSizeKey, preserveWidthKey, gestureKey, systemSizeKey]
+    static let observedKeys = [
+        ProgramActivityPreferences.tabStyleKey,
+        positionKey,
+        hiddenKey,
+        widthKey,
+        textSizeKey,
+        preserveWidthKey,
+        gestureKey,
+        systemSizeKey
+    ]
 
     enum Style: String, CaseIterable {
         case above, left, right

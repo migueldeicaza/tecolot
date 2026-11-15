@@ -27,9 +27,12 @@ public enum ShellExitBehavior: String, Codable, CaseIterable, Sendable, CustomSt
 
     public var description: String {
         switch self {
-        case .closeWindow: return "Close the window"
-        case .closeIfExitedCleanly: return "Close if the shell exited cleanly"
-        case .keepOpen: return "Don't close the window"
+        case .closeWindow:
+            return "Close the window"
+        case .closeIfExitedCleanly:
+            return "Close if the shell exited cleanly"
+        case .keepOpen:
+            return "Don't close the window"
         }
     }
 }
@@ -45,8 +48,10 @@ public enum SessionPersistence: String, Codable, CaseIterable, Sendable, CustomS
 
     public var description: String {
         switch self {
-        case .standard: return "End when the pane closes"
-        case .persistent: return "Keep running (persistent session)"
+        case .standard:
+            return "End when the pane closes"
+        case .persistent:
+            return "Keep running (persistent session)"
         }
     }
 }
@@ -59,9 +64,12 @@ public enum AskBeforeClosing: String, Codable, CaseIterable, Sendable, CustomStr
 
     public var description: String {
         switch self {
-        case .always: return "Always"
-        case .never: return "Never"
-        case .onlyIfProcessesRunning: return "Only if there are running processes"
+        case .always:
+            return "Always"
+        case .never:
+            return "Never"
+        case .onlyIfProcessesRunning:
+            return "Only if there are running processes"
         }
     }
 }
@@ -101,12 +109,18 @@ public enum TerminalKeyAction: String, Codable, CaseIterable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .sendText: return "Send text"
-        case .sendEscapeSequence: return "Send escape sequence"
-        case .scrollPageUp: return "Scroll one page up"
-        case .scrollPageDown: return "Scroll one page down"
-        case .scrollLineUp: return "Scroll one line up"
-        case .scrollLineDown: return "Scroll one line down"
+        case .sendText:
+            return "Send text"
+        case .sendEscapeSequence:
+            return "Send escape sequence"
+        case .scrollPageUp:
+            return "Scroll one page up"
+        case .scrollPageDown:
+            return "Scroll one page down"
+        case .scrollLineUp:
+            return "Scroll one line up"
+        case .scrollLineDown:
+            return "Scroll one line down"
         }
     }
 
@@ -285,31 +299,66 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
 
     /// The defaults applied to new profiles and to fields missing from
     /// persisted data written by older versions
-    static var standardValues: (fontFamily: String?, fontSize: Double,
-                                fontSmoothing: Bool, useBrightColorsForBold: Bool,
-                                cursorStyle: CursorStyle, backgroundOpacity: Double,
-                                useThemeColorsForWindowChrome: Bool,
-                                columns: Int, rows: Int, scrollbackLines: Int?,
-                                titleOverride: String?, titleComponents: Set<TerminalTitleComponent>, shell: ShellCommand,
-                                whenShellExits: ShellExitBehavior, askBeforeClosing: AskBeforeClosing,
-                                sessionPersistence: SessionPersistence,
-                                optionAsMetaKey: Bool, backspaceSendsControlH: Bool,
-                                hidePointerWhileTyping: Bool, linkOsc8: Bool,
-                                screenChecksumReports: Bool, termName: String,
-                                termProgram: String, termVersion: String,
-                                environmentVariables: [TerminalEnvironmentVariable], bellStyle: BellStyle,
-                                allowsNotifications: Bool, keyBindings: [TerminalKeyBinding]) {
-        (fontFamily: nil, fontSize: 12,
-         fontSmoothing: true, useBrightColorsForBold: true,
-         cursorStyle: .blinkBlock, backgroundOpacity: 1.0,
-         useThemeColorsForWindowChrome: true,
-         columns: 80, rows: 25, scrollbackLines: 10_000,
-         titleOverride: nil, titleComponents: [.activeTitle, .workingDirectory], shell: .loginShell,
-         whenShellExits: .closeIfExitedCleanly, askBeforeClosing: .onlyIfProcessesRunning,
-         sessionPersistence: .standard, optionAsMetaKey: true, backspaceSendsControlH: false, hidePointerWhileTyping: true,
-         linkOsc8: true, screenChecksumReports: false, termName: "xterm-256color",
-         termProgram: "ghostty", termVersion: "1.3.1",
-         environmentVariables: [], bellStyle: .sound, allowsNotifications: true, keyBindings: [])
+    static var standardValues: (
+        fontFamily: String?,
+        fontSize: Double,
+        fontSmoothing: Bool,
+        useBrightColorsForBold: Bool,
+        cursorStyle: CursorStyle,
+        backgroundOpacity: Double,
+        useThemeColorsForWindowChrome: Bool,
+        columns: Int,
+        rows: Int,
+        scrollbackLines: Int?,
+        titleOverride: String?,
+        titleComponents: Set<TerminalTitleComponent>,
+        shell: ShellCommand,
+        whenShellExits: ShellExitBehavior,
+        askBeforeClosing: AskBeforeClosing,
+        sessionPersistence: SessionPersistence,
+        optionAsMetaKey: Bool,
+        backspaceSendsControlH: Bool,
+        hidePointerWhileTyping: Bool,
+        linkOsc8: Bool,
+        screenChecksumReports: Bool,
+        termName: String,
+        termProgram: String,
+        termVersion: String,
+        environmentVariables: [TerminalEnvironmentVariable],
+        bellStyle: BellStyle,
+        allowsNotifications: Bool,
+        keyBindings: [TerminalKeyBinding]
+    ) {
+        (
+            fontFamily: nil,
+            fontSize: 12,
+            fontSmoothing: true,
+            useBrightColorsForBold: true,
+            cursorStyle: .blinkBlock,
+            backgroundOpacity: 1.0,
+            useThemeColorsForWindowChrome: true,
+            columns: 80,
+            rows: 25,
+            scrollbackLines: 10_000,
+            titleOverride: nil,
+            titleComponents: [.activeTitle, .workingDirectory],
+            shell: .loginShell,
+            whenShellExits: .closeIfExitedCleanly,
+            askBeforeClosing: .onlyIfProcessesRunning,
+            sessionPersistence: .standard,
+            optionAsMetaKey: true,
+            backspaceSendsControlH: false,
+            hidePointerWhileTyping: true,
+            linkOsc8: true,
+            screenChecksumReports: false,
+            termName: "xterm-256color",
+            termProgram: "ghostty",
+            termVersion: "1.3.1",
+            environmentVariables: [],
+            bellStyle: .sound,
+            allowsNotifications: true,
+            keyBindings: []
+        )
     }
 
     enum CodingKeys: String, CodingKey {
@@ -371,7 +420,9 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.askBeforeClosing = try c.decodeIfPresent (AskBeforeClosing.self, forKey: .askBeforeClosing) ?? defaults.askBeforeClosing
         // An unknown value (from a newer version) falls back to the default.
         self.sessionPersistence = (try? c.decodeIfPresent (SessionPersistence.self, forKey: .sessionPersistence))
-            .flatMap { $0 } ?? defaults.sessionPersistence
+            .flatMap {
+                $0
+            } ?? defaults.sessionPersistence
         self.optionAsMetaKey = try c.decodeIfPresent (Bool.self, forKey: .optionAsMetaKey) ?? defaults.optionAsMetaKey
         self.backspaceSendsControlH = try c.decodeIfPresent (Bool.self, forKey: .backspaceSendsControlH) ?? defaults.backspaceSendsControlH
         self.hidePointerWhileTyping = try c.decodeIfPresent(

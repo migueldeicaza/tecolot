@@ -35,7 +35,9 @@ final class TerminalWindowSizeStore {
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.flush() }
+            MainActor.assumeIsolated {
+                self?.flush()
+            }
         }
     }
 
@@ -50,7 +52,9 @@ final class TerminalWindowSizeStore {
     func flush() {
         pendingSave?.cancel()
         pendingSave = nil
-        guard let frame = pendingFrame else { return }
+        guard let frame = pendingFrame else {
+            return
+        }
         pendingFrame = nil
         save(frame)
     }
@@ -194,9 +198,13 @@ final class TerminalWindowSizeStore {
             return
         }
         pendingFrame = window.frame
-        guard pendingSave == nil else { return }
+        guard pendingSave == nil else {
+            return
+        }
         let work = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated { self?.flush() }
+            MainActor.assumeIsolated {
+                self?.flush()
+            }
         }
         pendingSave = work
         DispatchQueue.main.asyncAfter(deadline: .now() + saveInterval, execute: work)

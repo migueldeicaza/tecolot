@@ -41,17 +41,24 @@ public struct PaneDirectory: Codable, Hashable, Sendable {
         self.source = source
     }
 
-    public var isOnPaneHost: Bool { host == .paneHost }
+    public var isOnPaneHost: Bool {
+        host == .paneHost
+    }
 
     /// Reads an OSC 7 value (`file://host/path` or `kitty-shell-cwd://host/path`).
     /// `isPaneHost` tells whether a host name is the pane's host; a report
     /// without a host is from the pane's host. Returns nil for a value that
     /// is not a directory report.
     public static func osc7(_ report: String, isPaneHost: (String) -> Bool) -> PaneDirectory? {
-        guard let url = URL(string: report),
-              url.scheme == "file" || url.scheme == "kitty-shell-cwd" else { return nil }
+        guard
+            let url = URL(string: report),
+            url.scheme == "file" || url.scheme == "kitty-shell-cwd" else {
+            return nil
+        }
         let path = url.standardizedFileURL.path
-        guard path.hasPrefix("/") else { return nil }
+        guard path.hasPrefix("/") else {
+            return nil
+        }
         if let host = url.host, !host.isEmpty, !isPaneHost(host) {
             return PaneDirectory(path: path, host: .other(host), source: .osc7)
         }
@@ -65,9 +72,12 @@ public struct PaneDirectory: Codable, Hashable, Sendable {
     public static func isOtherReport(code: Int, payload: some Collection<UInt8>) -> Bool {
         let prefix: String
         switch code {
-        case 1337: prefix = "CurrentDir="
-        case 633: prefix = "P;Cwd="
-        default: return false
+        case 1337:
+            prefix = "CurrentDir="
+        case 633:
+            prefix = "P;Cwd="
+        default:
+            return false
         }
         return payload.starts(with: prefix.utf8)
     }
@@ -76,28 +86,37 @@ public struct PaneDirectory: Codable, Hashable, Sendable {
         let value: Substring
         switch code {
         case 1337:
-            guard payload.hasPrefix("CurrentDir=") else { return nil }
+            guard payload.hasPrefix("CurrentDir=") else {
+                return nil
+            }
             value = payload.dropFirst("CurrentDir=".count)
         case 633:
-            guard payload.hasPrefix("P;Cwd=") else { return nil }
+            guard payload.hasPrefix("P;Cwd=") else {
+                return nil
+            }
             value = payload.dropFirst("P;Cwd=".count)
         default:
             return nil
         }
         // VS Code escapes some characters as \xHH.
         let path = code == 633 ? unescapeVSCode(String(value)) : String(value)
-        guard path.hasPrefix("/") else { return nil }
+        guard path.hasPrefix("/") else {
+            return nil
+        }
         return PaneDirectory(path: URL(fileURLWithPath: path).standardizedFileURL.path, source: .oscOther)
     }
 
     static func unescapeVSCode(_ text: String) -> String {
-        guard text.contains("\\") else { return text }
+        guard text.contains("\\") else {
+            return text
+        }
         var bytes: [UInt8] = []
         let source = Array(text.utf8)
         var index = 0
         while index < source.count {
-            if source[index] == UInt8(ascii: "\\"), index + 3 < source.count, source[index + 1] == UInt8(ascii: "x"),
-               let value = UInt8(String(decoding: source[index + 2 ... index + 3], as: UTF8.self), radix: 16) {
+            if
+                source[index] == UInt8(ascii: "\\"), index + 3 < source.count, source[index + 1] == UInt8(ascii: "x"),
+                let value = UInt8(String(decoding: source[index + 2 ... index + 3], as: UTF8.self), radix: 16) {
                 bytes.append(value)
                 index += 4
             } else if source[index] == UInt8(ascii: "\\"), index + 1 < source.count, source[index + 1] == UInt8(ascii: "\\") {
@@ -127,7 +146,9 @@ public struct PaneDirectoryTracker: Hashable, Sendable {
 
     public mutating func report(_ directory: PaneDirectory) {
         latest = directory
-        if directory.isOnPaneHost { restore = directory }
+        if directory.isOnPaneHost {
+            restore = directory
+        }
     }
 
     /// True when a save must read the shell's directory: no report came, or
@@ -142,7 +163,11 @@ public struct PaneDirectoryTracker: Hashable, Sendable {
         if needsProcessInspection, let path = inspect() {
             return PaneDirectory(path: path, source: .process)
         }
-        if let restore { return restore }
-        return launch.map { PaneDirectory(path: $0, source: .launch) }
+        if let restore {
+            return restore
+        }
+        return launch.map {
+            PaneDirectory(path: $0, source: .launch)
+        }
     }
 }

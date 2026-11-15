@@ -12,7 +12,9 @@ struct LineTableTests {
     @Test func trimKeepsTheRowsUsedLast() {
         let delegate = Quiet()
         let terminal = Terminal(delegate: delegate, options: TerminalOptions(cols: 20, rows: 5, scrollback: 500))
-        terminal.feed(text: (0 ..< 300).map { "line \($0)" }.joined(separator: "\r\n"))
+        terminal.feed(text: (0 ..< 300).map {
+            "line \($0)"
+        }.joined(separator: "\r\n"))
         let table = LineTable()
         table.maximumEntries = 100
         let links = LinkTable()
@@ -20,9 +22,17 @@ struct LineTableTests {
         var encoded: [(index: Int, version: UInt64)] = []
         terminal.terminalLock.withLock {
             for index in 0 ..< 150 {
-                guard let line = terminal.bufferLine(atRow: index) else { continue }
-                let entry = table.row(for: line, ringIndex: index, columns: 20, terminal: terminal,
-                                      links: links, encoder: &encoder)
+                guard let line = terminal.bufferLine(atRow: index) else {
+                    continue
+                }
+                let entry = table.row(
+                    for: line,
+                    ringIndex: index,
+                    columns: 20,
+                    terminal: terminal,
+                    links: links,
+                    encoder: &encoder
+                )
                 encoded.append((index, entry.version))
             }
         }
@@ -32,9 +42,17 @@ struct LineTableTests {
         // The rows used last stay: asking for them again does not encode them.
         terminal.terminalLock.withLock {
             for (index, _) in encoded.suffix(75) {
-                guard let line = terminal.bufferLine(atRow: index) else { continue }
-                _ = table.row(for: line, ringIndex: index, columns: 20, terminal: terminal,
-                              links: links, encoder: &encoder)
+                guard let line = terminal.bufferLine(atRow: index) else {
+                    continue
+                }
+                _ = table.row(
+                    for: line,
+                    ringIndex: index,
+                    columns: 20,
+                    terminal: terminal,
+                    links: links,
+                    encoder: &encoder
+                )
             }
         }
         #expect(table.count == 75)
@@ -45,7 +63,9 @@ struct LineTableTests {
     @Test func trimKeepsEnoughRowsWhenTheSameRowsRepeat() {
         let delegate = Quiet()
         let terminal = Terminal(delegate: delegate, options: TerminalOptions(cols: 20, rows: 5, scrollback: 500))
-        terminal.feed(text: (0 ..< 300).map { "line \($0)" }.joined(separator: "\r\n"))
+        terminal.feed(text: (0 ..< 300).map {
+            "line \($0)"
+        }.joined(separator: "\r\n"))
         let table = LineTable()
         table.maximumEntries = 100
         let links = LinkTable()
@@ -53,15 +73,25 @@ struct LineTableTests {
         func use(_ rows: Range<Int>) {
             terminal.terminalLock.withLock {
                 for index in rows {
-                    guard let line = terminal.bufferLine(atRow: index) else { continue }
-                    _ = table.row(for: line, ringIndex: index, columns: 20, terminal: terminal,
-                                  links: links, encoder: &encoder)
+                    guard let line = terminal.bufferLine(atRow: index) else {
+                        continue
+                    }
+                    _ = table.row(
+                        for: line,
+                        ringIndex: index,
+                        columns: 20,
+                        terminal: terminal,
+                        links: links,
+                        encoder: &encoder
+                    )
                 }
             }
         }
         use(0 ..< 150)
         // A hundred frames of the same ten rows.
-        for _ in 0 ..< 100 { use(140 ..< 150) }
+        for _ in 0 ..< 100 {
+            use(140 ..< 150)
+        }
         table.trim()
         #expect(table.count == 75)
         // Rows 75 to 149 were used last: they are still in the table.
@@ -72,7 +102,9 @@ struct LineTableTests {
     @Test func selectFindsTheValueOfEachRank() {
         var generator = SystemRandomNumberGenerator()
         for count in [1, 2, 3, 10, 101, 1000] {
-            let values = (0 ..< count).map { _ in UInt64.random(in: 0 ..< 50, using: &generator) }
+            let values = (0 ..< count).map { _ in
+                UInt64.random(in: 0 ..< 50, using: &generator)
+            }
             let sorted = values.sorted()
             for rank in Set([0, count / 2, count - 1]) {
                 var copy = values
@@ -87,13 +119,17 @@ struct LineTableTests {
 func trimTiming() {
     let delegate = LineTableTests.Quiet()
     let terminal = Terminal(delegate: delegate, options: TerminalOptions(cols: 80, rows: 24, scrollback: 60_000))
-    terminal.feed(text: (0 ..< 56_000).map { "line \($0) with some text" }.joined(separator: "\r\n"))
+    terminal.feed(text: (0 ..< 56_000).map {
+        "line \($0) with some text"
+    }.joined(separator: "\r\n"))
     let table = LineTable()
     let links = LinkTable()
     var encoder = LineEncoder()
     terminal.terminalLock.withLock {
         for index in 0 ..< 40_100 {
-            guard let line = terminal.bufferLine(atRow: index) else { continue }
+            guard let line = terminal.bufferLine(atRow: index) else {
+                continue
+            }
             _ = table.row(for: line, ringIndex: index, columns: 80, terminal: terminal, links: links, encoder: &encoder)
         }
     }

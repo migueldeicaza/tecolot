@@ -5,18 +5,26 @@ struct WireCodecTests {
     @Test func varintRoundTrip() throws {
         let values: [UInt64] = [0, 1, 127, 128, 255, 16_383, 16_384, 1 << 32, UInt64.max - 1, UInt64.max]
         var writer = WireWriter()
-        for value in values { writer.varint(value) }
+        for value in values {
+            writer.varint(value)
+        }
         var reader = WireReader(writer.bytes)
-        for value in values { #expect(try reader.varint() == value) }
+        for value in values {
+            #expect(try reader.varint() == value)
+        }
         #expect(reader.isAtEnd)
     }
 
     @Test func signedVarintRoundTrip() throws {
         let values: [Int64] = [0, -1, 1, -64, 63, Int64.min, Int64.max, -123_456_789]
         var writer = WireWriter()
-        for value in values { writer.svarint(value) }
+        for value in values {
+            writer.svarint(value)
+        }
         var reader = WireReader(writer.bytes)
-        for value in values { #expect(try reader.svarint() == value) }
+        for value in values {
+            #expect(try reader.svarint() == value)
+        }
     }
 
     @Test func malformedVarintThrows() {
@@ -108,7 +116,9 @@ struct EnvelopeTests {
             while index < stream.count {
                 let end = min(index + chunkSize, stream.count)
                 decoder.append(stream[index ..< end])
-                while let envelope = try decoder.next() { envelopes.append(envelope) }
+                while let envelope = try decoder.next() {
+                    envelopes.append(envelope)
+                }
                 index = end
             }
             #expect(envelopes.count == 3)

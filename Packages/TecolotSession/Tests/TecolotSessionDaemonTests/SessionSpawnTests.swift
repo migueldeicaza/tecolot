@@ -2,9 +2,9 @@ import Foundation
 import Testing
 import TecolotSessionDirectory
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #endif
 
 struct SessionSpawnTests {
@@ -22,16 +22,24 @@ struct SessionSpawnTests {
         #expect(fcntl(leaked, F_GETFD) & FD_CLOEXEC == 0)
         var ready: [Int32] = [0, 0]
         try #require(pipe(&ready) == 0)
-        defer { close(ready[0]); close(ready[1]) }
+        defer { close(ready[0])
+            close(ready[1])
+        }
         let script = "if test -e /dev/fd/\(leaked); then exit 9; fi; printf ready >&3"
-        let pid = try SessionDirectory.spawn("/bin/sh", arguments: ["sh", "-c", script], readyFD: ready[1],
-                                             log: directory.appendingPathComponent("child.log").path,
-                                             newSession: false)
+        let pid = try SessionDirectory.spawn(
+            "/bin/sh",
+            arguments: ["sh", "-c", script],
+            readyFD: ready[1],
+            log: directory.appendingPathComponent("child.log").path,
+            newSession: false
+        )
         var status: Int32 = 0
         try #require(waitpid(pid, &status, 0) == pid)
         try #require(status == 0)
         var bytes = [UInt8](repeating: 0, count: 5)
-        let count = bytes.withUnsafeMutableBytes { read(ready[0], $0.baseAddress, $0.count) }
+        let count = bytes.withUnsafeMutableBytes {
+            read(ready[0], $0.baseAddress, $0.count)
+        }
         #expect(count == 5)
         #expect(String(decoding: bytes, as: UTF8.self) == "ready")
     }

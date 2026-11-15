@@ -7,9 +7,19 @@ import TecolotSessionDirectory
 @MainActor
 struct SessionDialogTests {
     private func record(_ id: String, exited: Bool = false) -> SessionRecord {
-        var record = SessionRecord(id: id, pid: 1, shellPID: 2, protocolVersion: 1, build: "test",
-                                   createdAt: Date(), executable: "/bin/zsh", workingDirectory: "/home/me",
-                                   labels: ["profile": "Default"], columns: 80, rows: 24)
+        var record = SessionRecord(
+            id: id,
+            pid: 1,
+            shellPID: 2,
+            protocolVersion: 1,
+            build: "test",
+            createdAt: Date(),
+            executable: "/bin/zsh",
+            workingDirectory: "/home/me",
+            labels: ["profile": "Default"],
+            columns: 80,
+            rows: 24
+        )
         record.exited = exited
         return record
     }
@@ -19,10 +29,12 @@ struct SessionDialogTests {
     @Test func terminationTitleNamesTheHost() {
         #expect(SessionTermination.title(for: [SessionRef(id: "a", destination: nil)]) == "Terminate this session?")
         #expect(SessionTermination.title(for: [SessionRef(id: "a", destination: "dev@build-01")])
-                == "Terminate this session on dev@build-01?")
-        #expect(SessionTermination.title(for: [SessionRef(id: "a", destination: nil),
-                                               SessionRef(id: "b", destination: "staging")])
-                == "Terminate 2 sessions?")
+            == "Terminate this session on dev@build-01?")
+        #expect(SessionTermination.title(for: [
+            SessionRef(id: "a", destination: nil),
+            SessionRef(id: "b", destination: "staging")
+        ])
+            == "Terminate 2 sessions?")
     }
 
     @Test func terminateIsNeverTheReturnDefault() {
@@ -37,11 +49,11 @@ struct SessionDialogTests {
     // MARK: Host key
 
     private let hostKeyText = """
-        The authenticity of host 'build-01.example.com (192.0.2.10)' can't be established.
-        ED25519 key fingerprint is SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s.
-        This key is not known by any other names.
-        Are you sure you want to continue connecting (yes/no/[fingerprint])?
-        """
+    The authenticity of host 'build-01.example.com (192.0.2.10)' can't be established.
+    ED25519 key fingerprint is SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s.
+    This key is not known by any other names.
+    Are you sure you want to continue connecting (yes/no/[fingerprint])?
+    """
 
     @Test func fingerprintComesFromTheSSHText() throws {
         let fingerprint = try #require(HostKeyFingerprint(sshText: hostKeyText))
@@ -91,8 +103,15 @@ struct SessionDialogTests {
         container.layoutSubtreeIfNeeded()
         let fullHeight = terminal.frame.height
         var answers: [Bool] = []
-        let banner = RemoteInstallBanner(prompt: RemoteInstallPrompt(id: UUID(), destination: "staging", bytes: 1),
-                                         isActive: { false }, answer: { answers.append($0) })
+        let banner = RemoteInstallBanner(
+            prompt: RemoteInstallPrompt(id: UUID(), destination: "staging", bytes: 1),
+            isActive: {
+                false
+            },
+            answer: {
+                answers.append($0)
+            }
+        )
         container.setTopBanner(banner)
         container.layoutSubtreeIfNeeded()
         #expect(terminal.frame.height < fullHeight)
@@ -113,8 +132,13 @@ struct SessionDialogTests {
             let color = try #require(view.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
             return try #require(color.usingColorSpace(.sRGB)).brightnessComponent
         }
-        let install = RemoteInstallBanner(prompt: RemoteInstallPrompt(id: UUID(), destination: "staging", bytes: 1),
-                                          isActive: { false }, answer: { _ in })
+        let install = RemoteInstallBanner(
+            prompt: RemoteInstallPrompt(id: UUID(), destination: "staging", bytes: 1),
+            isActive: {
+                false
+            },
+            answer: { _ in }
+        )
         let warning = RemoteSessionBanner()
         warning.configure(text: "Connection lost.", actionTitle: "Retry", action: nil)
         for banner in [install, warning] as [NSView] {
@@ -131,13 +155,21 @@ struct SessionDialogTests {
         let suite = "SessionDialogTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let model = SessionBrowserModel(list: { [] }, shown: { [] }, defaults: defaults)
+        let model = SessionBrowserModel(list: {
+            []
+        }, shown: {
+            []
+        }, defaults: defaults)
         model.addHost("staging")
         model.addHost("dev@build-01")
         model.addHost("staging")
         #expect(model.hosts.map(\.displayName) == ["This Mac", "staging", "dev@build-01"])
 
-        let restored = SessionBrowserModel(list: { [] }, shown: { [] }, defaults: defaults)
+        let restored = SessionBrowserModel(list: {
+            []
+        }, shown: {
+            []
+        }, defaults: defaults)
         #expect(restored.hosts.map(\.id) == ["local", "staging", "dev@build-01"])
         let remote = try #require(restored.host("staging"))
         #expect(remote.state == .notConnected && !remote.isExpanded)
@@ -147,7 +179,11 @@ struct SessionDialogTests {
 
     @Test func thisMacIsFirstAndShowsAnEmptyLine() throws {
         var records: [SessionRecord] = []
-        let model = SessionBrowserModel(list: { records }, shown: { [] })
+        let model = SessionBrowserModel(list: {
+            records
+        }, shown: {
+            []
+        })
         model.refresh()
         let local = try #require(model.hosts.first)
         #expect(local.displayName == "This Mac" && local.isExpanded)
@@ -177,26 +213,36 @@ struct SessionDialogTests {
     @Test func removeAlertCountsTheRunningSessions() {
         var host = SessionHost.remote("staging")
         host.state = .loaded
-        host.sessions = [SessionBrowserRow.make(record("a"), shown: [], destination: "staging"),
-                         SessionBrowserRow.make(record("b"), shown: [], destination: "staging"),
-                         SessionBrowserRow.make(record("c", exited: true), shown: [], destination: "staging")]
+        host.sessions = [
+            SessionBrowserRow.make(record("a"), shown: [], destination: "staging"),
+            SessionBrowserRow.make(record("b"), shown: [], destination: "staging"),
+            SessionBrowserRow.make(record("c", exited: true), shown: [], destination: "staging")
+        ]
         let alert = SessionBrowserModel.removeAlert(for: host)
         #expect(alert.messageText == "Remove Tecolot from staging?")
         #expect(alert.informativeText
-                == "2 sessions on staging end. The helper in \(RemoteHosts.helperDirectory) is deleted. You cannot undo this.")
+            == "2 sessions on staging end. The helper in \(RemoteHosts.helperDirectory) is deleted. You cannot undo this.")
         #expect(alert.buttons.map(\.title) == ["Remove", "Cancel"])
         #expect(alert.buttons[0].hasDestructiveAction && alert.buttons[1].keyEquivalent == "\r")
 
         host.sessions = []
         #expect(SessionBrowserModel.removeAlert(for: host).informativeText
-                == "The helper in \(RemoteHosts.helperDirectory) is deleted. You cannot undo this.")
+            == "The helper in \(RemoteHosts.helperDirectory) is deleted. You cannot undo this.")
     }
 }
 
 private final class TestSurface: NSView, TerminalSurface {
-    var nativeForegroundColor: NSColor { .white }
-    var nativeBackgroundColor: NSColor { .black }
-    var gridDimensions: (cols: Int, rows: Int) { (80, 24) }
-    var selectionActive: Bool { false }
+    var nativeForegroundColor: NSColor {
+        .white
+    }
+    var nativeBackgroundColor: NSColor {
+        .black
+    }
+    var gridDimensions: (cols: Int, rows: Int) {
+        (80, 24)
+    }
+    var selectionActive: Bool {
+        false
+    }
     func requestRedraw() {}
 }

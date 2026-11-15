@@ -66,10 +66,14 @@ public enum ScrollbackFileError: Error, CustomStringConvertible, Sendable {
 
     public var description: String {
         switch self {
-        case .noHeader: return "the scrollback file has no header"
-        case .badHeader(let reason): return "the scrollback header is not valid: \(reason)"
-        case .unsupportedVersion(let version): return "scrollback format version \(version) is not supported"
-        case .unsafeText(let offset): return "the scrollback text has a control sequence other than SGR at byte \(offset)"
+        case .noHeader:
+            return "the scrollback file has no header"
+        case .badHeader(let reason):
+            return "the scrollback header is not valid: \(reason)"
+        case .unsupportedVersion(let version):
+            return "scrollback format version \(version) is not supported"
+        case .unsafeText(let offset):
+            return "the scrollback text has a control sequence other than SGR at byte \(offset)"
         }
     }
 }
@@ -82,20 +86,33 @@ public enum ScrollbackFile {
     /// (the shell's prompt; the new shell shows its own). Keeps at most
     /// `limit` rows, the last ones.
     public static func prepare(_ rows: [ScrollbackRow], cursorRow: Int?, limit: Int) -> [ScrollbackRow] {
-        guard limit > 0 else { return [] }
+        guard limit > 0 else {
+            return []
+        }
         var rows = rows
         if let cursorRow, cursorRow >= 0, cursorRow < rows.count {
             var start = cursorRow
-            while start > 0 && rows[start].isWrapped { start -= 1 }
+            while start > 0 && rows[start].isWrapped {
+                start -= 1
+            }
             // Drop the prompt only when nothing below it has text.
-            if !rows[(cursorRow + 1)...].contains(where: { !isBlank($0) }) {
+            if
+                !rows[(cursorRow + 1)...].contains(where: {
+                    !isBlank($0)
+                }) {
                 rows.removeSubrange(start...)
             }
         }
-        while let last = rows.last, isBlank(last) { rows.removeLast() }
-        if rows.count > limit { rows.removeFirst(rows.count - limit) }
+        while let last = rows.last, isBlank(last) {
+            rows.removeLast()
+        }
+        if rows.count > limit {
+            rows.removeFirst(rows.count - limit)
+        }
         // A continuation row without its start begins a line.
-        if !rows.isEmpty { rows[0].isWrapped = false }
+        if !rows.isEmpty {
+            rows[0].isWrapped = false
+        }
         return rows
     }
 
@@ -108,9 +125,12 @@ public enum ScrollbackFile {
         let paints = attribute.background != .default && attribute.background != .defaultInverted
             || attribute.style & inverseBit != 0
         switch cell.content {
-        case .null, .spacer: return !paints
-        case .ascii(let byte): return byte == 0x20 && !paints
-        case .grapheme: return false
+        case .null, .spacer:
+            return !paints
+        case .ascii(let byte):
+            return byte == 0x20 && !paints
+        case .grapheme:
+            return false
         }
     }
 
@@ -141,7 +161,9 @@ public enum ScrollbackFile {
         }
         var output = ""
         for var cells in lines {
-            while let last = cells.last, isBlank(last) { cells.removeLast() }
+            while let last = cells.last, isBlank(last) {
+                cells.removeLast()
+            }
             var current = WireAttribute.plain
             for cell in cells {
                 let attribute = cell.style.attribute
@@ -150,13 +172,19 @@ public enum ScrollbackFile {
                     current = attribute
                 }
                 switch cell.content {
-                case .null: output.append(" ")
-                case .ascii(let byte): output.append(Character(UnicodeScalar(byte)))
-                case .grapheme(let text, _): output += printable(text)
-                case .spacer: break
+                case .null:
+                    output.append(" ")
+                case .ascii(let byte):
+                    output.append(Character(UnicodeScalar(byte)))
+                case .grapheme(let text, _):
+                    output += printable(text)
+                case .spacer:
+                    break
                 }
             }
-            if current != .plain { output += "\u{1B}[0m" }
+            if current != .plain {
+                output += "\u{1B}[0m"
+            }
             output.append("\n")
         }
         return output
@@ -168,18 +196,32 @@ public enum ScrollbackFile {
     public static func sgr(_ attribute: WireAttribute) -> String {
         var parameters = ["0"]
         let style = attribute.style
-        if style & 1 != 0 { parameters.append("1") }
-        if style & 32 != 0 { parameters.append("2") }
-        if style & 64 != 0 { parameters.append("3") }
+        if style & 1 != 0 {
+            parameters.append("1")
+        }
+        if style & 32 != 0 {
+            parameters.append("2")
+        }
+        if style & 64 != 0 {
+            parameters.append("3")
+        }
         if attribute.underlineStyle > 1 {
             parameters.append("4:\(attribute.underlineStyle)")
         } else if style & 2 != 0 || attribute.underlineStyle == 1 {
             parameters.append("4")
         }
-        if style & 4 != 0 { parameters.append("5") }
-        if style & inverseBit != 0 { parameters.append("7") }
-        if style & 16 != 0 { parameters.append("8") }
-        if style & 128 != 0 { parameters.append("9") }
+        if style & 4 != 0 {
+            parameters.append("5")
+        }
+        if style & inverseBit != 0 {
+            parameters.append("7")
+        }
+        if style & 16 != 0 {
+            parameters.append("8")
+        }
+        if style & 128 != 0 {
+            parameters.append("9")
+        }
         parameters += color(attribute.foreground, base: 30, bright: 90, extended: 38)
         parameters += color(attribute.background, base: 40, bright: 100, extended: 48)
         if let underline = attribute.underlineColor {
@@ -193,8 +235,12 @@ public enum ScrollbackFile {
         case .default, .defaultInverted:
             return []
         case .ansi(let code):
-            if let base, code < 8 { return ["\(base + Int(code))"] }
-            if let bright, code < 16 { return ["\(bright + Int(code) - 8)"] }
+            if let base, code < 8 {
+                return ["\(base + Int(code))"]
+            }
+            if let bright, code < 16 {
+                return ["\(bright + Int(code) - 8)"]
+            }
             return ["\(extended)", "5", "\(code)"]
         case .rgb(let red, let green, let blue):
             return ["\(extended)", "2", "\(red)", "\(green)", "\(blue)"]
@@ -204,8 +250,12 @@ public enum ScrollbackFile {
     /// Replaces control characters in cell text; a cell never has them, but
     /// the reader must accept everything that the writer makes.
     static func printable(_ text: String) -> String {
-        guard text.unicodeScalars.contains(where: isControl) else { return text }
-        return String(String.UnicodeScalarView(text.unicodeScalars.map { isControl($0) ? "\u{FFFD}" : $0 }))
+        guard text.unicodeScalars.contains(where: isControl) else {
+            return text
+        }
+        return String(String.UnicodeScalarView(text.unicodeScalars.map {
+            isControl($0) ? "\u{FFFD}" : $0
+        }))
     }
 
     static func isControl(_ scalar: Unicode.Scalar) -> Bool {
@@ -217,7 +267,9 @@ public enum ScrollbackFile {
     /// Reads a file. Throws when the header is not valid, or when the text
     /// has anything other than printable text, line ends and SGR sequences.
     public static func decode(_ data: Data) throws -> (header: ScrollbackHeader, text: String) {
-        guard let end = data.firstIndex(of: 0x0A) else { throw ScrollbackFileError.noHeader }
+        guard let end = data.firstIndex(of: 0x0A) else {
+            throw ScrollbackFileError.noHeader
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let header: ScrollbackHeader
@@ -226,7 +278,9 @@ public enum ScrollbackFile {
         } catch {
             throw ScrollbackFileError.badHeader("\(error)")
         }
-        guard header.format == ScrollbackHeader.formatName else { throw ScrollbackFileError.badHeader("format") }
+        guard header.format == ScrollbackHeader.formatName else {
+            throw ScrollbackFileError.badHeader("format")
+        }
         guard header.version == ScrollbackHeader.currentVersion else {
             throw ScrollbackFileError.unsupportedVersion(header.version)
         }
@@ -246,7 +300,9 @@ public enum ScrollbackFile {
             let scalar = scalars[index]
             if scalar == "\u{1B}" {
                 var next = index + 1
-                guard next < scalars.count, scalars[next] == "[" else { throw ScrollbackFileError.unsafeText(offset: offset) }
+                guard next < scalars.count, scalars[next] == "[" else {
+                    throw ScrollbackFileError.unsafeText(offset: offset)
+                }
                 next += 1
                 // Digits, ';' and ':'.
                 while next < scalars.count, (0x30 ... 0x3B).contains(scalars[next].value) {
@@ -284,23 +340,37 @@ public enum RestoreSeparator {
 
         public var text: String {
             switch self {
-            case .appQuit: return "Tecolot quit"
-            case .macRestarted: return "the Mac restarted"
-            case .hostRestarted: return "the host restarted"
-            case .sessionEnded: return "the session ended"
+            case .appQuit:
+                return "Tecolot quit"
+            case .macRestarted:
+                return "the Mac restarted"
+            case .hostRestarted:
+                return "the host restarted"
+            case .sessionEnded:
+                return "the session ended"
             }
         }
     }
 
     /// For example "── Restored · Oct 17 14:02 · the Mac restarted ──", in a dim
     /// color, with a line end.
-    public static func line(savedAt: Date?, reason: Reason, directoryNotFound: Bool = false,
-                            program: String? = nil) -> String {
+    public static func line(
+        savedAt: Date?,
+        reason: Reason,
+        directoryNotFound: Bool = false,
+        program: String? = nil
+    ) -> String {
         var parts = ["Restored"]
-        if let savedAt { parts.append(dateText(savedAt)) }
+        if let savedAt {
+            parts.append(dateText(savedAt))
+        }
         parts.append(reason.text)
-        if directoryNotFound { parts.append("the directory was not found") }
-        if let program, !program.isEmpty { parts.append("\(ScrollbackFile.printable(program)) was running") }
+        if directoryNotFound {
+            parts.append("the directory was not found")
+        }
+        if let program, !program.isEmpty {
+            parts.append("\(ScrollbackFile.printable(program)) was running")
+        }
         return "\u{1B}[0;2m── " + parts.joined(separator: " · ") + " ──\u{1B}[0m\n"
     }
 

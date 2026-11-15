@@ -8,9 +8,9 @@
 import Foundation
 import TecolotWire
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #endif
 
 /// Counters for the data streams. Control messages are not counted.
@@ -66,11 +66,15 @@ public final class LinkEndpoint: @unchecked Sendable {
     private var closeHandler: (@Sendable (Error?) -> Void)?
     private var pings: [UInt64: (TimeInterval, @Sendable (Result<TimeInterval, Error>) -> Void)] = [:]
 
-    public init(readFD: Int32, writeFD: Int32, expectedNonce: String? = nil,
-                startNonce: String? = nil,
-                receiveWindow: UInt64 = LinkEndpoint.defaultReceiveWindow,
-                peerReceiveWindow: UInt64 = LinkEndpoint.defaultReceiveWindow,
-                queue: DispatchQueue = DispatchQueue(label: "tecolot.link")) {
+    public init(
+        readFD: Int32,
+        writeFD: Int32,
+        expectedNonce: String? = nil,
+        startNonce: String? = nil,
+        receiveWindow: UInt64 = LinkEndpoint.defaultReceiveWindow,
+        peerReceiveWindow: UInt64 = LinkEndpoint.defaultReceiveWindow,
+        queue: DispatchQueue = DispatchQueue(label: "tecolot.link")
+    ) {
         UnixSocket.setCloseOnExec(readFD)
         UnixSocket.setCloseOnExec(writeFD)
         self.readFD = readFD
@@ -79,9 +83,13 @@ public final class LinkEndpoint: @unchecked Sendable {
         self.receiveWindow = max(1, receiveWindow)
         self.peerReceiveWindow = max(1, peerReceiveWindow)
         self.queue = queue
-        marker = expectedNonce.map { Array("TECOLOT-BRIDGE \(LinkProtocol.version) \($0)\n".utf8) }
+        marker = expectedNonce.map {
+            Array("TECOLOT-BRIDGE \(LinkProtocol.version) \($0)\n".utf8)
+        }
         markerFound = expectedNonce == nil
-        startMarker = startNonce.map { Array("TECOLOT-BRIDGE \(LinkProtocol.version) \($0)\n".utf8) } ?? []
+        startMarker = startNonce.map {
+            Array("TECOLOT-BRIDGE \(LinkProtocol.version) \($0)\n".utf8)
+        } ?? []
         queue.setSpecific(key: Self.queueKey, value: ObjectIdentifier(queue))
     }
 
@@ -94,45 +102,82 @@ public final class LinkEndpoint: @unchecked Sendable {
     }
 
     private func perform(_ body: @escaping @Sendable () -> Void) {
-        if isOnQueue { body() } else { queue.async(execute: body) }
+        if isOnQueue {
+            body()
+        } else {
+            queue.async(execute: body)
+        }
     }
 
     public var onControl: (@Sendable (Envelope) -> Void)? {
-        get { synchronized { controlHandler } }
-        set { synchronized { controlHandler = newValue } }
+        get { synchronized {
+            controlHandler
+        } }
+        set { synchronized {
+            controlHandler = newValue
+        } }
     }
 
     public var onClose: (@Sendable (Error?) -> Void)? {
-        get { synchronized { closeHandler } }
-        set { synchronized { closeHandler = newValue } }
+        get { synchronized {
+            closeHandler
+        } }
+        set { synchronized {
+            closeHandler = newValue
+        } }
     }
 
     /// Monotonic time of the last byte read from the link.
-    public var lastByteReceived: TimeInterval { synchronized { receivedTime } }
-    public var lastByteSent: TimeInterval { synchronized { sentTime } }
-    public var isClosed: Bool { synchronized { closed } }
-    public var counters: LinkCounters {
+    public var lastByteReceived: TimeInterval {
         synchronized {
-            LinkCounters(bytesSent: sentByChannel, bytesReceived: receivedByChannel,
-                         maxUnacknowledgedBytesObserved: maximumUnacknowledged,
-                         unacknowledgedBytes: sent - acknowledged)
+            receivedTime
         }
     }
-    public var maxUnacknowledgedBytesObserved: UInt64 { counters.maxUnacknowledgedBytesObserved }
+    public var lastByteSent: TimeInterval {
+        synchronized {
+            sentTime
+        }
+    }
+    public var isClosed: Bool {
+        synchronized {
+            closed
+        }
+    }
+    public var counters: LinkCounters {
+        synchronized {
+            LinkCounters(
+                bytesSent: sentByChannel,
+                bytesReceived: receivedByChannel,
+                maxUnacknowledgedBytesObserved: maximumUnacknowledged,
+                unacknowledgedBytes: sent - acknowledged
+            )
+        }
+    }
+    public var maxUnacknowledgedBytesObserved: UInt64 {
+        counters.maxUnacknowledgedBytesObserved
+    }
 
     deinit {
         readSource?.cancel()
         writeSource?.cancel()
         ackTimer?.cancel()
-        for channel in channels.values { channel.cancel(queue: queue) }
+        for channel in channels.values {
+            channel.cancel(queue: queue)
+        }
         descriptors.close(on: queue)
     }
 
     /// Starts reading. Set the callbacks first.
-    public func start() { perform { self.startOnQueue() } }
+    public func start() {
+        perform {
+            self.startOnQueue()
+        }
+    }
 
     private func startOnQueue() {
-        guard !started, !closed else { return }
+        guard !started, !closed else {
+            return
+        }
         started = true
         receivedTime = ProcessInfo.processInfo.systemUptime
         sentTime = receivedTime
@@ -143,7 +188,9 @@ public final class LinkEndpoint: @unchecked Sendable {
         UnixSocket.setNoSignalOnBrokenPipe(writeFD)
         let source = DispatchSource.makeReadSource(fileDescriptor: readFD, queue: queue)
         descriptors.track(source)
-        source.setEventHandler { [weak self] in self?.readLink() }
+        source.setEventHandler { [weak self] in
+            self?.readLink()
+        }
         readSource = source
         source.resume()
         current = startMarker
@@ -152,42 +199,66 @@ public final class LinkEndpoint: @unchecked Sendable {
     }
 
     /// Queues one control message. Safe from any thread.
-    public func sendControl<M: WireMessage>(_ message: M, flags: EnvelopeFlags = [],
-                                           requestID: UInt64? = nil) {
+    public func sendControl<M: WireMessage>(
+        _ message: M,
+        flags: EnvelopeFlags = [],
+        requestID: UInt64? = nil
+    ) {
         let bytes = EnvelopeCodec.encode(message, flags: flags, requestID: requestID)
-        perform { self.enqueueControl(bytes, urgent: M.kind == .ping || M.kind == .pong) }
+        perform {
+            self.enqueueControl(bytes, urgent: M.kind == .ping || M.kind == .pong)
+        }
     }
 
     private func enqueueControl(_ bytes: [UInt8], urgent highPriority: Bool = false) {
-        guard !closed else { return }
+        guard !closed else {
+            return
+        }
         do {
             let frame = try LinkFrameCodec.encode(LinkFrame(channel: 0, payload: bytes))
-            if highPriority { urgent.append(frame) } else { control.append(frame) }
+            if highPriority {
+                urgent.append(frame)
+            } else {
+                control.append(frame)
+            }
             scheduleFlush()
-        } catch { finish(error) }
+        } catch {
+            finish(error)
+        }
     }
 
     /// Takes ownership of a local descriptor. Zero send credit defers reads.
-    public func bindChannel(_ channel: UInt64, descriptor: Int32,
-                            receiveWindow: UInt64 = LinkEndpoint.defaultChannelWindow,
-                            sendWindow: UInt64 = 0) {
+    public func bindChannel(
+        _ channel: UInt64,
+        descriptor: Int32,
+        receiveWindow: UInt64 = LinkEndpoint.defaultChannelWindow,
+        sendWindow: UInt64 = 0
+    ) {
         UnixSocket.setCloseOnExec(descriptor)
         perform {
-            guard !self.closed else { posixClose(descriptor); return }
+            guard !self.closed else {
+                posixClose(descriptor)
+                return
+            }
             guard channel > 0, !self.usedChannels.contains(channel), receiveWindow > 0 else {
                 posixClose(descriptor)
                 self.finish(WireError.invalidValue("channel or receive window"))
                 return
             }
             self.usedChannels.insert(channel)
-            let local = LinkDataChannel(descriptor: descriptor, receiveWindow: receiveWindow,
-                                        sendWindow: sendWindow)
+            let local = LinkDataChannel(
+                descriptor: descriptor,
+                receiveWindow: receiveWindow,
+                sendWindow: sendWindow
+            )
             UnixSocket.setCloseOnExec(descriptor)
             UnixSocket.setNonBlocking(descriptor)
             UnixSocket.setNoSignalOnBrokenPipe(descriptor)
             let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: self.queue)
             local.owner.track(source)
-            source.setEventHandler { [weak endpoint = self] in endpoint?.readChannel(channel) }
+            source.setEventHandler { [weak endpoint = self] in
+                endpoint?.readChannel(channel)
+            }
             local.readSource = source
             // Start suspended. updateChannelReads balances the first resume.
             local.readSuspended = true
@@ -200,9 +271,12 @@ public final class LinkEndpoint: @unchecked Sendable {
     /// Sets the initial credit after ChannelOpened.
     public func setChannelSendWindow(_ channel: UInt64, receiveWindow: UInt64) {
         perform {
-            guard let local = self.channels[channel], !self.closed else { return }
+            guard let local = self.channels[channel], !self.closed else {
+                return
+            }
             guard receiveWindow > 0 else {
-                self.finish(WireError.invalidValue("channel send window")); return
+                self.finish(WireError.invalidValue("channel send window"))
+                return
             }
             local.sendCredit = receiveWindow
             self.updateChannelReads()
@@ -213,7 +287,8 @@ public final class LinkEndpoint: @unchecked Sendable {
     public func setPeerReceiveWindow(_ window: UInt64) {
         perform {
             guard window > 0, window >= self.sent - self.acknowledged else {
-                self.finish(WireError.invalidValue("link receive window")); return
+                self.finish(WireError.invalidValue("link receive window"))
+                return
             }
             self.peerReceiveWindow = window
             self.updateChannelReads()
@@ -224,7 +299,9 @@ public final class LinkEndpoint: @unchecked Sendable {
     /// Closes a local channel after its pending output is sent.
     public func closeChannel(_ channel: UInt64) {
         perform {
-            guard let local = self.channels[channel] else { return }
+            guard let local = self.channels[channel] else {
+                return
+            }
             local.localEnded = true
             self.updateChannelReads()
             self.completeChannelIfNeeded(channel)
@@ -233,14 +310,24 @@ public final class LinkEndpoint: @unchecked Sendable {
     }
 
     /// Drops a channel without sending CloseChannel after an open fails.
-    public func discardChannel(_ channel: UInt64) { perform { self.removeChannel(channel) } }
-
-    public func ping(nonce: UInt64,
-                     completion: @escaping @Sendable (Result<TimeInterval, Error>) -> Void) {
+    public func discardChannel(_ channel: UInt64) {
         perform {
-            guard !self.closed else { completion(.failure(TransportError("link closed", code: ENOTCONN))); return }
+            self.removeChannel(channel)
+        }
+    }
+
+    public func ping(
+        nonce: UInt64,
+        completion: @escaping @Sendable (Result<TimeInterval, Error>) -> Void
+    ) {
+        perform {
+            guard !self.closed else {
+                completion(.failure(TransportError("link closed", code: ENOTCONN)))
+                return
+            }
             guard self.pings[nonce] == nil else {
-                completion(.failure(WireError.invalidValue("duplicate ping nonce"))); return
+                completion(.failure(WireError.invalidValue("duplicate ping nonce")))
+                return
             }
             self.pings[nonce] = (ProcessInfo.processInfo.systemUptime, completion)
             self.sendControl(PingMessage(nonce: nonce))
@@ -248,27 +335,45 @@ public final class LinkEndpoint: @unchecked Sendable {
     }
 
     /// Drops pending output and closes all descriptors. Safe from any thread.
-    public func close(error: Error? = nil) { perform { self.finish(error) } }
+    public func close(error: Error? = nil) {
+        perform {
+            self.finish(error)
+        }
+    }
 
     private func readLink() {
-        guard !closed else { return }
+        guard !closed else {
+            return
+        }
         var bytes = [UInt8](repeating: 0, count: 64 * 1024)
         // Yield to channel writes and callbacks during a continuous stream.
         for _ in 0 ..< 16 {
-            let count = bytes.withUnsafeMutableBytes { posixRead(readFD, $0.baseAddress, $0.count) }
+            let count = bytes.withUnsafeMutableBytes {
+                posixRead(readFD, $0.baseAddress, $0.count)
+            }
             if count > 0 {
                 receivedTime = ProcessInfo.processInfo.systemUptime
                 do {
                     try feedLink(Array(bytes.prefix(count)))
-                    if closed { return }
-                } catch { finish(error); return }
+                    if closed {
+                        return
+                    }
+                } catch {
+                    finish(error)
+                    return
+                }
             } else if count == 0 {
                 finish(markerFound && decoder.pendingByteCount == 0 ? nil : WireError.truncated)
                 return
             } else {
-                if errno == EINTR { continue }
-                if errno == EAGAIN || errno == EWOULDBLOCK { return }
-                finish(TransportError("read link")); return
+                if errno == EINTR {
+                    continue
+                }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    return
+                }
+                finish(TransportError("read link"))
+                return
             }
         }
     }
@@ -287,19 +392,26 @@ public final class LinkEndpoint: @unchecked Sendable {
                     break
                 }
                 markerDiscarded += line.count
-                guard markerDiscarded <= 64 * 1024 else { throw WireError.invalidValue("bridge marker missing") }
+                guard markerDiscarded <= 64 * 1024 else {
+                    throw WireError.invalidValue("bridge marker missing")
+                }
             }
             guard markerDiscarded + markerBytes.count <= 64 * 1024 || markerFound else {
                 throw WireError.invalidValue("bridge marker missing")
             }
-            if !markerFound { return }
-        } else { decoder.append(bytes) }
+            if !markerFound {
+                return
+            }
+        } else {
+            decoder.append(bytes)
+        }
         while let frame = try decoder.next() {
             if frame.channel == 0 {
                 var envelopes = EnvelopeStreamDecoder()
                 envelopes.append(frame.payload)
-                guard let envelope = try envelopes.next(), envelopes.pendingByteCount == 0,
-                      try envelopes.next() == nil else {
+                guard
+                    let envelope = try envelopes.next(), envelopes.pendingByteCount == 0,
+                    try envelopes.next() == nil else {
                     throw WireError.invalidValue("control envelope")
                 }
                 try handleControl(envelope)
@@ -324,18 +436,23 @@ public final class LinkEndpoint: @unchecked Sendable {
                 recordReceived(frame)
                 writeChannel(frame.channel)
             }
-            if closed { return }
+            if closed {
+                return
+            }
         }
     }
 
     private func recordReceived(_ frame: LinkFrame) {
         received += UInt64(frame.payload.count)
         receivedByChannel[frame.channel, default: 0] += UInt64(frame.payload.count)
-        if received - lastAck >= max(1, receiveWindow / 4) { sendAck() }
-        else if ackTimer == nil {
+        if received - lastAck >= max(1, receiveWindow / 4) {
+            sendAck()
+        } else if ackTimer == nil {
             let timer = DispatchSource.makeTimerSource(queue: queue)
             timer.schedule(deadline: .now() + .milliseconds(20))
-            timer.setEventHandler { [weak self] in self?.sendAck() }
+            timer.setEventHandler { [weak self] in
+                self?.sendAck()
+            }
             ackTimer = timer
             timer.resume()
         }
@@ -344,7 +461,9 @@ public final class LinkEndpoint: @unchecked Sendable {
     private func sendAck() {
         ackTimer?.cancel()
         ackTimer = nil
-        guard received > lastAck, !closed else { return }
+        guard received > lastAck, !closed else {
+            return
+        }
         lastAck = received
         sendControl(LinkAckMessage(received: received))
     }
@@ -360,26 +479,36 @@ public final class LinkEndpoint: @unchecked Sendable {
             }
         case .linkAck:
             let count = try envelope.decode(LinkAckMessage.self).received
-            guard count >= acknowledged, count <= sent else { throw WireError.invalidValue("link acknowledgement") }
+            guard count >= acknowledged, count <= sent else {
+                throw WireError.invalidValue("link acknowledgement")
+            }
             acknowledged = count
             updateChannelReads()
             scheduleFlush()
         case .channelWindow:
             let message = try envelope.decode(ChannelWindowMessage.self)
-            guard message.increment > 0 else { throw WireError.invalidValue("empty channel grant") }
+            guard message.increment > 0 else {
+                throw WireError.invalidValue("empty channel grant")
+            }
             guard let local = channels[message.channel] else {
-                if usedChannels.contains(message.channel) { return }
+                if usedChannels.contains(message.channel) {
+                    return
+                }
                 throw WireError.invalidValue("unknown channel grant")
             }
             let (credit, overflow) = local.sendCredit.addingReportingOverflow(message.increment)
-            guard !overflow else { throw WireError.invalidValue("channel credit overflow") }
+            guard !overflow else {
+                throw WireError.invalidValue("channel credit overflow")
+            }
             local.sendCredit = credit
             updateChannelReads()
             scheduleFlush()
         case .closeChannel:
             let channel = try envelope.decode(CloseChannelMessage.self).channel
             guard let local = channels[channel] else {
-                if usedChannels.contains(channel) { return }
+                if usedChannels.contains(channel) {
+                    return
+                }
                 throw WireError.invalidValue("unknown channel close")
             }
             local.remoteEnded = true
@@ -387,19 +516,30 @@ public final class LinkEndpoint: @unchecked Sendable {
             updateChannelReads()
             writeChannel(channel)
             completeChannelIfNeeded(channel)
-        default: controlHandler?(envelope)
+        default:
+            controlHandler?(envelope)
         }
     }
 
     private func readChannel(_ channel: UInt64) {
-        guard let local = channels[channel], canRead(local), !closed else { return }
-        let available = min(UInt64(16 * 1024 - local.outgoing.count),
-                            min(local.sendCredit - UInt64(local.outgoing.count), peerReceiveWindow - (sent - acknowledged)))
+        guard let local = channels[channel], canRead(local), !closed else {
+            return
+        }
+        let available = min(
+            UInt64(16 * 1024 - local.outgoing.count),
+            min(local.sendCredit - UInt64(local.outgoing.count), peerReceiveWindow - (sent - acknowledged))
+        )
         var bytes = [UInt8](repeating: 0, count: Int(available))
-        let count = bytes.withUnsafeMutableBytes { posixRead(local.descriptor, $0.baseAddress, $0.count) }
-        if count > 0 { local.outgoing.append(contentsOf: bytes.prefix(count)) }
-        else if count == 0 { local.localEnded = true }
-        else if errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR { local.localEnded = true }
+        let count = bytes.withUnsafeMutableBytes {
+            posixRead(local.descriptor, $0.baseAddress, $0.count)
+        }
+        if count > 0 {
+            local.outgoing.append(contentsOf: bytes.prefix(count))
+        } else if count == 0 {
+            local.localEnded = true
+        } else if errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR {
+            local.localEnded = true
+        }
         updateChannelReads()
         completeChannelIfNeeded(channel)
         scheduleFlush()
@@ -413,13 +553,20 @@ public final class LinkEndpoint: @unchecked Sendable {
     private func updateChannelReads() {
         for local in channels.values {
             let enabled = canRead(local)
-            if enabled && local.readSuspended { local.readSuspended = false; local.readSource?.resume() }
-            else if !enabled && !local.readSuspended { local.readSuspended = true; local.readSource?.suspend() }
+            if enabled && local.readSuspended {
+                local.readSuspended = false
+                local.readSource?.resume()
+            } else if !enabled && !local.readSuspended {
+                local.readSuspended = true
+                local.readSource?.suspend()
+            }
         }
     }
 
     private func writeChannel(_ channel: UInt64) {
-        guard let local = channels[channel], !closed else { return }
+        guard let local = channels[channel], !closed else {
+            return
+        }
         while local.incomingOffset < local.incoming.count {
             let count = local.incoming.withUnsafeBytes {
                 posixWrite(local.descriptor, $0.baseAddress! + local.incomingOffset, $0.count - local.incomingOffset)
@@ -427,13 +574,16 @@ public final class LinkEndpoint: @unchecked Sendable {
             if count > 0 {
                 local.incomingOffset += count
                 local.pendingGrant += UInt64(count)
-            } else if count < 0 && errno == EINTR { continue }
-            else if count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) {
+            } else if count < 0 && errno == EINTR {
+                continue
+            } else if count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) {
                 if local.writeSource == nil {
                     let source = DispatchSource.makeWriteSource(fileDescriptor: local.descriptor, queue: queue)
                     local.owner.track(source)
                     source.setEventHandler { [weak self] in
-                        guard let self, let local = self.channels[channel] else { return }
+                        guard let self, let local = self.channels[channel] else {
+                            return
+                        }
                         local.writeSource?.cancel()
                         local.writeSource = nil
                         self.writeChannel(channel)
@@ -460,9 +610,12 @@ public final class LinkEndpoint: @unchecked Sendable {
     }
 
     private func grantChannel(_ channel: UInt64) {
-        guard let local = channels[channel], local.pendingGrant > 0, !local.remoteEnded,
-              local.pendingGrant >= max(1, local.receiveWindow / 4)
-                || local.incomingOffset == local.incoming.count else { return }
+        guard
+            let local = channels[channel], local.pendingGrant > 0, !local.remoteEnded,
+            local.pendingGrant >= max(1, local.receiveWindow / 4)
+            || local.incomingOffset == local.incoming.count else {
+            return
+        }
         let grant = local.pendingGrant
         local.pendingGrant = 0
         local.receiveCredit += grant
@@ -470,7 +623,9 @@ public final class LinkEndpoint: @unchecked Sendable {
     }
 
     private func completeChannelIfNeeded(_ channel: UInt64) {
-        guard let local = channels[channel] else { return }
+        guard let local = channels[channel] else {
+            return
+        }
         if local.remoteEnded && local.incomingOffset == local.incoming.count {
             removeChannel(channel)
         } else if local.localEnded && local.outgoing.isEmpty && currentChannel != channel {
@@ -480,31 +635,53 @@ public final class LinkEndpoint: @unchecked Sendable {
     }
 
     private func removeChannel(_ channel: UInt64) {
-        guard let local = channels.removeValue(forKey: channel) else { return }
+        guard let local = channels.removeValue(forKey: channel) else {
+            return
+        }
         local.cancel(queue: queue)
-        channelOrder.removeAll { $0 == channel }
-        if nextTurn >= channelOrder.count { nextTurn = 0 }
+        channelOrder.removeAll {
+            $0 == channel
+        }
+        if nextTurn >= channelOrder.count {
+            nextTurn = 0
+        }
     }
 
     private func scheduleFlush() {
-        guard started, !closed, !flushScheduled, writeSource == nil else { return }
+        guard started, !closed, !flushScheduled, writeSource == nil else {
+            return
+        }
         flushScheduled = true
-        queue.async { self.flushScheduled = false; self.flush() }
+        queue.async { self.flushScheduled = false
+            self.flush()
+        }
     }
 
     private func nextFrame() throws -> [UInt8]? {
         currentChannel = nil
         currentPayloadCount = 0
-        if let bytes = urgent.popFirst() ?? control.popFirst() { return bytes }
-        guard sent - acknowledged < peerReceiveWindow else { return nil }
+        if let bytes = urgent.popFirst() ?? control.popFirst() {
+            return bytes
+        }
+        guard sent - acknowledged < peerReceiveWindow else {
+            return nil
+        }
         for _ in 0 ..< channelOrder.count {
-            if nextTurn >= channelOrder.count { nextTurn = 0 }
+            if nextTurn >= channelOrder.count {
+                nextTurn = 0
+            }
             let channel = channelOrder[nextTurn]
             nextTurn += 1
-            guard let local = channels[channel], !local.outgoing.isEmpty, local.sendCredit > 0 else { continue }
-            let count = min(local.outgoing.count, Int(min(UInt64(16 * 1024),
-                                min(local.sendCredit, peerReceiveWindow - (sent - acknowledged)))))
-            guard count > 0 else { continue }
+            guard let local = channels[channel], !local.outgoing.isEmpty, local.sendCredit > 0 else {
+                continue
+            }
+            let count = min(local.outgoing.count, Int(min(
+                UInt64(16 * 1024),
+                min(local.sendCredit, peerReceiveWindow - (sent - acknowledged))
+            )))
+            guard count > 0 else {
+                continue
+            }
             let payload = Array(local.outgoing.prefix(count))
             local.outgoing.removeFirst(count)
             local.sendCredit -= UInt64(count)
@@ -519,7 +696,9 @@ public final class LinkEndpoint: @unchecked Sendable {
     }
 
     private func flush() {
-        guard started, !closed, writeSource == nil else { return }
+        guard started, !closed, writeSource == nil else {
+            return
+        }
         for _ in 0 ..< 64 {
             if currentOffset == current.count {
                 if let channel = currentChannel {
@@ -529,12 +708,17 @@ public final class LinkEndpoint: @unchecked Sendable {
                 }
                 do {
                     guard let next = try nextFrame() else {
-                        current = []; currentOffset = 0
+                        current = []
+                        currentOffset = 0
                         updateChannelReads()
                         return
                     }
-                    current = next; currentOffset = 0
-                } catch { finish(error); return }
+                    current = next
+                    currentOffset = 0
+                } catch {
+                    finish(error)
+                    return
+                }
             }
             let count = current.withUnsafeBytes {
                 posixWrite(writeFD, $0.baseAddress! + currentOffset, $0.count - currentOffset)
@@ -542,41 +726,58 @@ public final class LinkEndpoint: @unchecked Sendable {
             if count > 0 {
                 currentOffset += count
                 sentTime = ProcessInfo.processInfo.systemUptime
-            } else if count < 0 && errno == EINTR { continue }
-            else if count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) {
+            } else if count < 0 && errno == EINTR {
+                continue
+            } else if count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) {
                 let source = DispatchSource.makeWriteSource(fileDescriptor: writeFD, queue: queue)
                 descriptors.track(source)
                 source.setEventHandler { [weak self] in
-                    guard let self else { return }
-                    self.writeSource?.cancel(); self.writeSource = nil
+                    guard let self else {
+                        return
+                    }
+                    self.writeSource?.cancel()
+                    self.writeSource = nil
                     self.flush()
                 }
                 writeSource = source
                 source.resume()
                 return
-            } else { finish(TransportError("write link")); return }
+            } else {
+                finish(TransportError("write link"))
+                return
+            }
         }
         scheduleFlush()
     }
 
     private func finish(_ error: Error?) {
-        guard !closed else { return }
+        guard !closed else {
+            return
+        }
         closed = true
-        readSource?.cancel(); readSource = nil
-        writeSource?.cancel(); writeSource = nil
-        ackTimer?.cancel(); ackTimer = nil
-        for local in channels.values { local.cancel(queue: queue) }
+        readSource?.cancel()
+        readSource = nil
+        writeSource?.cancel()
+        writeSource = nil
+        ackTimer?.cancel()
+        ackTimer = nil
+        for local in channels.values {
+            local.cancel(queue: queue)
+        }
         channels.removeAll()
         channelOrder.removeAll()
         descriptors.close(on: queue)
-        current = []; urgent = WriteQueue(); control = WriteQueue()
+        current = []
+        urgent = WriteQueue()
+        control = WriteQueue()
         let pending = pings.values
         pings.removeAll()
         for (_, completion) in pending {
             completion(.failure(error ?? TransportError("link closed", code: ENOTCONN)))
         }
         let handler = closeHandler
-        closeHandler = nil; controlHandler = nil
+        closeHandler = nil
+        controlHandler = nil
         handler?(error)
     }
 }
@@ -604,9 +805,14 @@ private final class LinkDataChannel {
         owner = DescriptorOwner(readFD: descriptor, writeFD: descriptor)
     }
     func cancel(queue: DispatchQueue) {
-        if readSuspended { readSource?.resume(); readSuspended = false }
-        readSource?.cancel(); readSource = nil
-        writeSource?.cancel(); writeSource = nil
+        if readSuspended {
+            readSource?.resume()
+            readSuspended = false
+        }
+        readSource?.cancel()
+        readSource = nil
+        writeSource?.cancel()
+        writeSource = nil
         owner.close(on: queue)
     }
 }

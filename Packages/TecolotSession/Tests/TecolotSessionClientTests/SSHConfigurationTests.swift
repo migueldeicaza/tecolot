@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import TecolotSessionClient
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #else
-import Glibc
+    import Glibc
 #endif
 
 private func sshFixture(_ extra: String = "") throws -> SSHConfiguration {
@@ -60,8 +60,11 @@ struct SSHConfigurationTests {
         printf 'user %s\\nhostname server.example\\nport 22\\n' "$TEST_SSH_USER"
         """.write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
-        let config = try SSHConfiguration.resolve(destination: "work", sshPath: script.path,
-                                                   environment: ["TEST_SSH_USER": "remote"])
+        let config = try SSHConfiguration.resolve(
+            destination: "work",
+            sshPath: script.path,
+            environment: ["TEST_SSH_USER": "remote"]
+        )
         #expect(config.user == "remote")
         #expect(config.values["identityfile"]?.count == 4096)
     }
@@ -95,22 +98,29 @@ struct SSHConfigurationTests {
             "-o", "ForkAfterAuthentication=no", "-o", "StdinNull=no", "-o", "ClearAllForwardings=yes",
             "-o", "RemoteCommand=none", "-o", "RequestTTY=no", "-o", "PermitLocalCommand=no",
             "-o", "ForwardX11=no", "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15",
-            "-o", "ServerAliveCountMax=3", "-o", "Compression=yes", "-o", "LogLevel=DEBUG", "work"])
+            "-o", "ServerAliveCountMax=3", "-o", "Compression=yes", "-o", "LogLevel=DEBUG", "work"
+        ])
         #expect(try builder.client(controlPath: "/private/socket", command: ["/bin/sh", "-s"]) == [
             "-S", "/private/socket", "-T", "-o", "ControlMaster=no", "-o", "BatchMode=yes",
             "-o", "ProxyCommand=false", "-o", "SessionType=default", "-o", "StdinNull=no",
             "-o", "ForkAfterAuthentication=no", "-o", "RemoteCommand=none", "-o", "RequestTTY=no",
-            "-o", "PermitLocalCommand=no", "work", "/bin/sh", "-s"])
+            "-o", "PermitLocalCommand=no", "work", "/bin/sh", "-s"
+        ])
         #expect(try builder.client(controlPath: "/s", command: ["bridge"], forwardAgent: true).contains("-A"))
         #expect(builder.check(controlPath: "/s") == ["-S", "/s", "-O", "check", "work"])
         #expect(builder.exit(controlPath: "/s") == ["-S", "/s", "-O", "exit", "work"])
     }
 
     @Test func keepsUserKeepaliveAndUsesIndependentConnectionOptions() throws {
-        let config = try SSHConfiguration(destination: "work", output:
-            "user a\nhostname h\nport 22\nserveraliveinterval 8\nserveralivecountmax 9")
+        let config = try SSHConfiguration(
+            destination: "work",
+            output:
+            "user a\nhostname h\nport 22\nserveraliveinterval 8\nserveralivecountmax 9"
+        )
         let builder = SSHCommandLine(configuration: config, keepaliveInterval: 20, keepaliveCount: 4)
-        #expect(!builder.master(controlPath: "/s").contains(where: { $0.hasPrefix("ServerAlive") }))
+        #expect(!builder.master(controlPath: "/s").contains(where: {
+            $0.hasPrefix("ServerAlive")
+        }))
         let independent = try builder.independent(command: ["/bin/sh", "-s"])
         #expect(!independent.contains("-S"))
         #expect(!independent.contains("-M"))
@@ -136,9 +146,9 @@ struct SSHConfigurationTests {
         defer { try? FileManager.default.removeItem(at: runtime) }
         let path = try SSHCommandLine.controlSocketPath(runtimeDirectory: runtime, configuration: sshFixture())
         #if canImport(CryptoKit)
-        #expect(URL(fileURLWithPath: path).lastPathComponent == "f5d3abb767cfe201")
+            #expect(URL(fileURLWithPath: path).lastPathComponent == "f5d3abb767cfe201")
         #else
-        #expect(URL(fileURLWithPath: path).lastPathComponent == "25dbeec5fecbd15c")
+            #expect(URL(fileURLWithPath: path).lastPathComponent == "25dbeec5fecbd15c")
         #endif
         let attributes = try FileManager.default.attributesOfItem(atPath: runtime.appendingPathComponent("ssh").path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
@@ -156,15 +166,21 @@ struct SSHConfigurationTests {
         let runtime = URL(fileURLWithPath: "/tmp/tecolot-test-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: runtime, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: runtime) }
-        try FileManager.default.createSymbolicLink(atPath: runtime.appendingPathComponent("ssh").path,
-                                                   withDestinationPath: "/tmp")
+        try FileManager.default.createSymbolicLink(
+            atPath: runtime.appendingPathComponent("ssh").path,
+            withDestinationPath: "/tmp"
+        )
         #expect(throws: SSHCommandLineError.unsafeSocketDirectory(runtime.appendingPathComponent("ssh").path)) {
             try SSHCommandLine.controlSocketPath(runtimeDirectory: runtime, configuration: sshFixture())
         }
         let longRuntime = runtime.appendingPathComponent(String(repeating: "x", count: 150))
         let fallback = URL(fileURLWithPath: "/tmp/tecolot-ssh-\(getuid())")
         let existed = FileManager.default.fileExists(atPath: fallback.path)
-        defer { if !existed { _ = rmdir(fallback.path) } }
+        defer {
+            if !existed {
+                _ = rmdir(fallback.path)
+            }
+        }
         let path = try SSHCommandLine.controlSocketPath(runtimeDirectory: longRuntime, configuration: sshFixture())
         #expect(path.hasPrefix("/tmp/tecolot-ssh-\(getuid())/"))
     }
@@ -191,7 +207,8 @@ struct SSHConfigurationTests {
             ("ssh_askpass returned failure", .cancelled),
             ("Authentication cancelled by user", .cancelled),
             ("User canceled the SSH prompt", .cancelled),
-            ("Bad configuration option: unknown", .other)]
+            ("Bad configuration option: unknown", .other)
+        ]
         for (sample, expected) in samples {
             let error = SSHErrorClassifier.classify(stderr: sample)
             #expect(error.kind == expected)

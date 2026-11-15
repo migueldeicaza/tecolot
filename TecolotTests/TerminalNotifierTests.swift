@@ -103,7 +103,9 @@ struct TerminalNotifierTests {
         let terminal = try #require(controller.makeTerminalView() as? AppTerminalView)
         // The progress report follows both notification callbacks on the OSC stream.
         terminal.feed(text: "\u{1b}]9;Done\u{07}\u{1b}]777;notify;Build;Done\u{07}\u{1b}]9;4;1;50\u{07}")
-        try await wait("OSC callbacks") { controller.programStatus.records.first?.progress == 50 }
+        try await wait("OSC callbacks") {
+            controller.programStatus.records.first?.progress == 50
+        }
         #expect(!controller.programStatus.notified)
         #expect(TestNotifications.contents(for: controller).isEmpty)
     }
@@ -119,7 +121,9 @@ struct TerminalNotifierTests {
         let notifier = TerminalNotifier()
         notifier.defaults = defaults
         var bodies: [String] = []
-        notifier.deliver = { bodies.append($0.content.body) }
+        notifier.deliver = {
+            bodies.append($0.content.body)
+        }
         let tab = TerminalTab(startsProcesses: false)
         let workspace = tab.workspace
         defer { workspace.terminateAll() }
@@ -160,7 +164,9 @@ struct TerminalNotifierTests {
         let notifier = TerminalNotifier()
         notifier.defaults = defaults
         var requests: [UNNotificationRequest] = []
-        notifier.deliver = { requests.append($0) }
+        notifier.deliver = {
+            requests.append($0)
+        }
         let tab = TerminalTab(startsProcesses: false)
         let pane = try #require(tab.workspace.focusedController)
         defer { tab.workspace.terminateAll() }
@@ -179,7 +185,9 @@ struct TerminalNotifierTests {
         let notifier = TerminalNotifier()
         notifier.defaults = defaults
         var bodies: [String] = []
-        notifier.deliver = { bodies.append($0.content.body) }
+        notifier.deliver = {
+            bodies.append($0.content.body)
+        }
         let tab = TerminalTab(startsProcesses: false)
         let workspace = tab.workspace
         defer { tab.loadedWorkspace?.terminateAll() }
@@ -328,7 +336,9 @@ struct TerminalNotifierTests {
         let notifier = TerminalNotifier()
         notifier.defaults = defaults
         var requests: [UNNotificationRequest] = []
-        notifier.deliver = { requests.append($0) }
+        notifier.deliver = {
+            requests.append($0)
+        }
         let controller = TerminalSessionController(startsProcess: false)
         defer { controller.terminate() }
 

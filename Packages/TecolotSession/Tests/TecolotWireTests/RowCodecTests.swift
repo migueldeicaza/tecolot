@@ -8,14 +8,18 @@ struct RowCodecTests {
     func roundTrip(_ cells: [WireCell], header: WireRowHeader) throws -> (WireRowHeader, [WireCell], [UInt8]) {
         var encoder = RowEncoder()
         encoder.begin(header)
-        for cell in cells { encoder.append(cell.content, style: cell.style) }
+        for cell in cells {
+            encoder.append(cell.content, style: cell.style)
+        }
         let payload = encoder.finish()
         let (decodedHeader, decoded) = try RowDecoder.decodeCells(payload)
         return (decodedHeader, decoded, payload)
     }
 
     func ascii(_ text: String, style: WireCellStyle = .plain) -> [WireCell] {
-        text.utf8.map { WireCell(.ascii($0), style: style) }
+        text.utf8.map {
+            WireCell(.ascii($0), style: style)
+        }
     }
 
     @Test func asciiRowUsesOneBytePerCellAndTrimsTrailingBlanks() throws {
@@ -37,11 +41,17 @@ struct RowCodecTests {
 
     @Test func stylesLinksSemanticsAndWideCells() throws {
         let link = WireCellStyle(attribute: .plain, link: 7, semantic: 6)
-        let prompt = WireCellStyle(attribute: WireAttribute(foreground: .defaultInverted,
-                                                            background: .ansi(4), style: 0x42,
-                                                            underlineStyle: 3,
-                                                            underlineColor: .rgb(1, 2, 3)),
-                                   semantic: 1, isProtected: true)
+        let prompt = WireCellStyle(
+            attribute: WireAttribute(
+                foreground: .defaultInverted,
+                background: .ansi(4),
+                style: 0x42,
+                underlineStyle: 3,
+                underlineColor: .rgb(1, 2, 3)
+            ),
+            semantic: 1,
+            isProtected: true
+        )
         var cells: [WireCell] = []
         cells += ascii("ok", style: Self.red)
         cells.append(WireCell(.grapheme("漢", width: 2), style: prompt))
@@ -52,13 +62,32 @@ struct RowCodecTests {
         cells.append(WireCell(.grapheme("\u{200B}", width: 0)))
         cells += ascii("tail")
         cells += Array(repeating: WireCell(.null), count: 20 - cells.count)
-        let header = WireRowHeader(columns: 20, isWrapped: true, bidi: 0b0110, renderMode: 2,
-                                   marks: [WireSemanticMark(kind: 1, column: 0)],
-                                   images: [WireRowImage(imageID: 1 << 40, column: 3, width: 120.5, height: 34,
-                                                         sourceY: 68, sourceHeight: 34),
-                                            WireRowImage(imageID: 9, column: 0, width: 10, height: 2.25,
-                                                         sourceY: 0, sourceHeight: 4.5)],
-                                   rightToLeft: true)
+        let header = WireRowHeader(
+            columns: 20,
+            isWrapped: true,
+            bidi: 0b0110,
+            renderMode: 2,
+            marks: [WireSemanticMark(kind: 1, column: 0)],
+            images: [
+                WireRowImage(
+                    imageID: 1 << 40,
+                    column: 3,
+                    width: 120.5,
+                    height: 34,
+                    sourceY: 68,
+                    sourceHeight: 34
+                ),
+                WireRowImage(
+                    imageID: 9,
+                    column: 0,
+                    width: 10,
+                    height: 2.25,
+                    sourceY: 0,
+                    sourceHeight: 4.5
+                )
+            ],
+            rightToLeft: true
+        )
         let (decodedHeader, decoded, _) = try roundTrip(cells, header: header)
         #expect(decoded == cells)
         #expect(decodedHeader == header)
@@ -77,7 +106,9 @@ struct RowCodecTests {
         #expect(decodedDashes == dashes)
         #expect(dashPayload.count < 10)
 
-        let boxes = (0 ..< 50).map { _ in WireCell(.grapheme("─", width: 1)) }
+        let boxes = (0 ..< 50).map { _ in
+            WireCell(.grapheme("─", width: 1))
+        }
         let (_, decodedBoxes, boxPayload) = try roundTrip(boxes, header: WireRowHeader(columns: 50))
         #expect(decodedBoxes == boxes)
         #expect(boxPayload.count < 12)
@@ -107,7 +138,9 @@ struct RowCodecTests {
         let cells = ascii("abcdef")
         var encoder = RowEncoder()
         encoder.begin(WireRowHeader(columns: 3))
-        for cell in cells { encoder.append(cell.content, style: cell.style) }
+        for cell in cells {
+            encoder.append(cell.content, style: cell.style)
+        }
         let (_, decoded) = try RowDecoder.decodeCells(encoder.finish())
         #expect(decoded == Array(cells.prefix(3)))
     }
@@ -116,7 +149,9 @@ struct RowCodecTests {
         var encoder = RowEncoder()
         func encode(_ text: String) -> UInt64 {
             encoder.begin(WireRowHeader(columns: 40))
-            for byte in text.utf8 { encoder.append(.ascii(byte), style: .plain) }
+            for byte in text.utf8 {
+                encoder.append(.ascii(byte), style: .plain)
+            }
             return WireRowRecord(line: 0, payload: encoder.finish()).version
         }
         #expect(encode("hello") == encode("hello"))

@@ -7,14 +7,20 @@ struct GlobalAppearanceSettingsTests {
     @Test func opaqueBackdropRemovesExclusionMasksWhenResized() throws {
         let backdrop = TerminalWorkspaceBackdropView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
         backdrop.excludeCards([CGRect(x: 20, y: 20, width: 150, height: 100)])
-        let paints = try #require(backdrop.layer?.sublayers?.filter { $0.mask != nil })
+        let paints = try #require(backdrop.layer?.sublayers?.filter {
+            $0.mask != nil
+        })
         try #require(paints.count == 3)
         backdrop.excludeCards([])
-        #expect(paints.allSatisfy { $0.mask == nil })
+        #expect(paints.allSatisfy {
+            $0.mask == nil
+        })
         backdrop.frame.size = NSSize(width: 800, height: 600)
         backdrop.layoutSubtreeIfNeeded()
         backdrop.excludeCards([])
-        #expect(paints.allSatisfy { $0.mask == nil })
+        #expect(paints.allSatisfy {
+            $0.mask == nil
+        })
     }
 
     @MainActor
@@ -22,7 +28,9 @@ struct GlobalAppearanceSettingsTests {
         let backdrop = TerminalWorkspaceBackdropView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
         let frames = [CGRect(x: 20, y: 20, width: 150, height: 100)]
         backdrop.excludeCards(frames)
-        let paints = try #require(backdrop.layer?.sublayers?.filter { $0.mask != nil })
+        let paints = try #require(backdrop.layer?.sublayers?.filter {
+            $0.mask != nil
+        })
         try #require(paints.count == 3)
         backdrop.frame.size = NSSize(width: 800, height: 600)
         backdrop.layoutSubtreeIfNeeded()

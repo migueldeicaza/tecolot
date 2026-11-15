@@ -188,7 +188,7 @@ struct GeneralSettingsView: View {
         groups: TerminalWindowManager(registry: TerminalSessionRegistry()),
         secureKeyboardEntry: SecureKeyboardEntry(isEnabled: false)
     )
-        .environmentObject(SettingsPreviewData.profiles)
-        .defaultAppStorage(SettingsPreviewData.defaults)
-        .frame(width: 640, height: 520)
+    .environmentObject(SettingsPreviewData.profiles)
+    .defaultAppStorage(SettingsPreviewData.defaults)
+    .frame(width: 640, height: 520)
 }

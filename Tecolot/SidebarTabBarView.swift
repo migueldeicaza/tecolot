@@ -115,11 +115,15 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
             })
         }
         defaultsObserver = DefaultsValueObserver(defaults: .standard, keys: TabStripPreferences.observedKeys, read: TabStripPreferences.init(defaults:))
-        defaultsObserver?.onChange = { [weak self] _ in self?.reload() }
+        defaultsObserver?.onChange = { [weak self] _ in
+            self?.reload()
+        }
         textSizeObserver = DefaultsValueObserver(defaults: .standard, keys: [SidebarPreferences.textSizeKey, SidebarPreferences.systemSizeKey]) {
             SidebarPreferences(defaults: $0).textSize
         }
-        textSizeObserver?.onChange = { [weak self] _ in self?.reload() }
+        textSizeObserver?.onChange = { [weak self] _ in
+            self?.reload()
+        }
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             self?.showHints(event)
             return event
@@ -446,7 +450,9 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
     }
     /// Window visibility can change while these rows keep their viewport geometry.
     var tabsInViewport: [TerminalTab] {
-        guard !isHidden else { return [] }
+        guard !isHidden else {
+            return []
+        }
         return cells.values.compactMap { cell in
             let row = outline.row(forItem: cell.tab)
             return row >= 0 && outline.rect(ofRow: row).intersects(outline.visibleRect) ? cell.tab : nil

@@ -670,8 +670,12 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
 
     /// Tests replace these. Real activation and key status depend on which
     /// app has the focus when the test runs.
-    var appIsActive: () -> Bool = { NSApp.isActive }
-    var makeWindowKey: (NSWindow) -> Void = { $0.makeKey() }
+    var appIsActive: () -> Bool = {
+        NSApp.isActive
+    }
+    var makeWindowKey: (NSWindow) -> Void = {
+        $0.makeKey()
+    }
 
     func windowDidEnterFullScreen(_ notification: Notification) {
         enteringFullScreen = false

@@ -19,8 +19,8 @@ import SwiftTerm
 import TecolotTransport
 import TecolotWire
 #if canImport(ImageIO)
-import CoreGraphics
-import ImageIO
+    import CoreGraphics
+    import ImageIO
 #endif
 
 /// Sixel and iTerm2 images by ID. The buffer lines own the images; the table
@@ -45,14 +45,18 @@ final class RasterImageTable: @unchecked Sendable {
     func register(_ image: TerminalRasterImage) {
         lock.withLock {
             if images.count >= 256 && images.count.isMultiple(of: 64) {
-                images = images.filter { $0.value.image != nil }
+                images = images.filter {
+                    $0.value.image != nil
+                }
             }
             images[image.id] = WeakImage(image: image)
         }
     }
 
     func image(_ id: UInt32) -> TerminalRasterImage? {
-        lock.withLock { images[id]?.image }
+        lock.withLock {
+            images[id]?.image
+        }
     }
 }
 
@@ -88,7 +92,9 @@ final class KittyImageTable {
     /// copy of SwiftTerm's array) until `prune` drops them.
     func wireID(for image: KittyGraphicsRenderImage, alternate: Bool) -> UInt64 {
         let key = Key(alternate: alternate, kittyID: image.imageId, contentGeneration: image.contentGeneration)
-        if let id = ids[key] { return id }
+        if let id = ids[key] {
+            return id
+        }
         let content = ContentKey(width: image.width, height: image.height, hash: WireHash.hash64(image.rgba))
         let id: UInt64
         if let known = contentIDs[content], pixels[known]?.rgba == image.rgba {
@@ -107,15 +113,25 @@ final class KittyImageTable {
     /// most recent ones too, up to `retainedBytes`, so that the frames of a
     /// looping animation keep their IDs.
     func prune(keeping used: Set<UInt64>, retainedBytes: Int = 64 * 1024 * 1024) {
-        var bytes = pixels.reduce(0) { $0 + $1.value.rgba.count }
-        guard bytes > retainedBytes else { return }
+        var bytes = pixels.reduce(0) {
+            $0 + $1.value.rgba.count
+        }
+        guard bytes > retainedBytes else {
+            return
+        }
         for id in pixels.keys.sorted() where !used.contains(id) {
             bytes -= pixels[id]?.rgba.count ?? 0
             pixels[id] = nil
-            if bytes <= retainedBytes { break }
+            if bytes <= retainedBytes {
+                break
+            }
         }
-        ids = ids.filter { pixels[$0.value] != nil }
-        contentIDs = contentIDs.filter { pixels[$0.value] != nil }
+        ids = ids.filter {
+            pixels[$0.value] != nil
+        }
+        contentIDs = contentIDs.filter {
+            pixels[$0.value] != nil
+        }
     }
 }
 
@@ -124,7 +140,9 @@ extension WireMapping {
     /// same ranges as `TerminalBidi.isRTLTrigger`, which only Apple
     /// platforms build).
     static func isRightToLeftTrigger(_ value: UInt32) -> Bool {
-        if value < 0x0590 { return false }
+        if value < 0x0590 {
+            return false
+        }
         switch value {
         case 0x0590 ... 0x08FF, 0xFB1D ... 0xFDFF, 0xFE70 ... 0xFEFC, 0x10800 ... 0x10FFF,
              0x1E800 ... 0x1EFFF, 0x200F, 0x202B, 0x202E, 0x2067:
@@ -147,69 +165,116 @@ extension SessionHost {
     }
 
     public func createImageFromBitmap(source: Terminal, bytes: inout [UInt8], width: Int, height: Int) {
-        guard let image = TerminalRasterImage(id: rasterImages.makeID(), width: width, height: height,
-                                              rgba: bytes) else { return }
+        guard
+            let image = TerminalRasterImage(
+                id: rasterImages.makeID(),
+                width: width,
+                height: height,
+                rgba: bytes
+            ) else {
+            return
+        }
         rasterImages.register(image)
         let metrics = imageMetrics()
         // As TerminalView does: programs size Sixel images in device pixels
         // (the cell size that the terminal reports), and only an image wider
         // than the terminal in device pixels takes the terminal's width.
         let terminalPixels = source.cols * metrics.cellWidth
-        source.insertRasterImage(image, cellWidth: metrics.cellWidth, cellHeight: metrics.cellHeight,
-                                 width: width > terminalPixels ? .percent(100) : .auto,
-                                 height: .auto, preserveAspectRatio: true)
+        source.insertRasterImage(
+            image,
+            cellWidth: metrics.cellWidth,
+            cellHeight: metrics.cellHeight,
+            width: width > terminalPixels ? .percent(100) : .auto,
+            height: .auto,
+            preserveAspectRatio: true
+        )
     }
 
-    public func createImage(source: Terminal, data: Data, width: ImageSizeRequest, height: ImageSizeRequest,
-                            preserveAspectRatio: Bool) {
+    public func createImage(
+        source: Terminal,
+        data: Data,
+        width: ImageSizeRequest,
+        height: ImageSizeRequest,
+        preserveAspectRatio: Bool
+    ) {
         #if canImport(ImageIO)
-        guard let decoded = Self.decodeImage(data),
-              let image = TerminalRasterImage(id: rasterImages.makeID(), width: decoded.width,
-                                              height: decoded.height, rgba: decoded.rgba) else { return }
-        rasterImages.register(image)
-        let metrics = imageMetrics()
-        // TerminalView reads pixel sizes as points.
-        func devicePixels(_ request: ImageSizeRequest) -> ImageSizeRequest {
-            if case .pixels(let value) = request { return .pixels(Int((Double(value) * metrics.scale).rounded())) }
-            return request
-        }
-        source.insertRasterImage(image, cellWidth: metrics.cellWidth, cellHeight: metrics.cellHeight,
-                                 width: devicePixels(width), height: devicePixels(height),
-                                 preserveAspectRatio: preserveAspectRatio)
+            guard
+                let decoded = Self.decodeImage(data),
+                let image = TerminalRasterImage(
+                    id: rasterImages.makeID(),
+                    width: decoded.width,
+                    height: decoded.height,
+                    rgba: decoded.rgba
+                ) else {
+                return
+            }
+            rasterImages.register(image)
+            let metrics = imageMetrics()
+            // TerminalView reads pixel sizes as points.
+            func devicePixels(_ request: ImageSizeRequest) -> ImageSizeRequest {
+                if case .pixels(let value) = request {
+                    return .pixels(Int((Double(value) * metrics.scale).rounded()))
+                }
+                return request
+            }
+            source.insertRasterImage(
+                image,
+                cellWidth: metrics.cellWidth,
+                cellHeight: metrics.cellHeight,
+                width: devicePixels(width),
+                height: devicePixels(height),
+                preserveAspectRatio: preserveAspectRatio
+            )
         #endif
     }
 
     #if canImport(ImageIO)
-    /// Decodes PNG, JPEG, GIF and the other ImageIO formats to straight RGBA.
-    static func decodeImage(_ data: Data) -> (width: Int, height: Int, rgba: [UInt8])? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
-        let width = image.width
-        let height = image.height
-        guard width > 0, height > 0, width <= 16384, height <= 16384,
-              width <= (64 * 1024 * 1024) / 4 / height else { return nil }
-        var rgba = [UInt8](repeating: 0, count: width * height * 4)
-        let drawn = rgba.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height,
-                                          bitsPerComponent: 8, bytesPerRow: width * 4,
-                                          space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
-        }
-        guard drawn else { return nil }
-        // Core Graphics draws premultiplied; the wire carries straight alpha.
-        var index = 0
-        while index < rgba.count {
-            let alpha = rgba[index + 3]
-            if alpha != 0 && alpha != 255 {
-                for channel in 0 ..< 3 {
-                    rgba[index + channel] = UInt8(min(255, (Int(rgba[index + channel]) * 255 + Int(alpha) / 2) / Int(alpha)))
-                }
+        /// Decodes PNG, JPEG, GIF and the other ImageIO formats to straight RGBA.
+        static func decodeImage(_ data: Data) -> (width: Int, height: Int, rgba: [UInt8])? {
+            guard
+                let source = CGImageSourceCreateWithData(data as CFData, nil),
+                let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                return nil
             }
-            index += 4
+            let width = image.width
+            let height = image.height
+            guard
+                width > 0, height > 0, width <= 16384, height <= 16384,
+                width <= (64 * 1024 * 1024) / 4 / height else {
+                return nil
+            }
+            var rgba = [UInt8](repeating: 0, count: width * height * 4)
+            let drawn = rgba.withUnsafeMutableBytes { buffer -> Bool in
+                guard
+                    let context = CGContext(
+                        data: buffer.baseAddress,
+                        width: width,
+                        height: height,
+                        bitsPerComponent: 8,
+                        bytesPerRow: width * 4,
+                        space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                    ) else {
+                    return false
+                }
+                context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+                return true
+            }
+            guard drawn else {
+                return nil
+            }
+            // Core Graphics draws premultiplied; the wire carries straight alpha.
+            var index = 0
+            while index < rgba.count {
+                let alpha = rgba[index + 3]
+                if alpha != 0 && alpha != 255 {
+                    for channel in 0 ..< 3 {
+                        rgba[index + channel] = UInt8(min(255, (Int(rgba[index + channel]) * 255 + Int(alpha) / 2) / Int(alpha)))
+                    }
+                }
+                index += 4
+            }
+            return (width, height, rgba)
         }
-        return (width, height, rgba)
-    }
     #endif
 }

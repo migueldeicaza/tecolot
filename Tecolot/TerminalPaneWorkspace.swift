@@ -136,7 +136,9 @@ final class TerminalPaneWorkspace {
             min(5, max(0, $0.object(forKey: TabStripPreferences.iconCountKey) as? Int ?? TabStripPreferences.iconCountDefault))
         }
         iconPreferencesObserver?.onChange = { [weak self] count in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             self.iconPreferences.update(iconCount: count) {
                 self.updateProcessInspection()
             }

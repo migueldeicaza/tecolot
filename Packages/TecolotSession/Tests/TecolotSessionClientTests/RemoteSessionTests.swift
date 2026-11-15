@@ -100,12 +100,16 @@ struct RemoteSessionTests {
         let attaches = Mutex<[AttachMessage]>([])
         helper.onMessage = { envelope in
             if envelope.kind == .attach, let attach = try? envelope.decode(AttachMessage.self) {
-                attaches.withLock { $0.append(attach) }
+                attaches.withLock {
+                    $0.append(attach)
+                }
             }
         }
         helper.start()
         let session = RemoteSession(socket: fds[0], clientName: "test", build: "test")
-        defer { session.close(); helper.close() }
+        defer { session.close()
+            helper.close()
+        }
         // Hold start on its queue so the setters deterministically arrive first.
         session.queue.suspend()
         session.start(size: WireGridSize(columns: 80, rows: 24), focused: true, scale: 100)
@@ -114,10 +118,20 @@ struct RemoteSessionTests {
         session.setFocus(false)
         session.setFramesEnabled(false)
         session.queue.resume()
-        try await eventually("initial attach") { attaches.withLock { $0.count == 1 } }
+        try await eventually("initial attach") {
+            attaches.withLock {
+                $0.count == 1
+            }
+        }
         helper.send(HelloReplyMessage(version: 1, build: "old helper", capabilities: [], sessionID: "test"))
-        try await eventually("legacy reattach") { attaches.withLock { $0.count == 2 } }
-        let attach = try #require(attaches.withLock { $0.last })
+        try await eventually("legacy reattach") {
+            attaches.withLock {
+                $0.count == 2
+            }
+        }
+        let attach = try #require(attaches.withLock {
+            $0.last
+        })
         #expect(attach.size == currentSize)
         #expect(attach.scale == 200)
         #expect(!attach.focused)

@@ -233,7 +233,9 @@ struct SidebarTests {
         let b = try #require(manager.openWindow(group: second) as? TerminalWindowController)
         SidebarPreferences.setStyle(.left, defaults: defaults)
         await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
         }
         #expect(a.sidebarPreferences.style == .left)
         #expect(b.sidebarPreferences.style == .left)
@@ -247,7 +249,9 @@ struct SidebarTests {
         #expect(a.window?.firstResponder === next.loadedWorkspace?.focusedController?.surface)
         a.toggleSidebar()
         await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
         }
         #expect(a.sidebar.isHidden && b.sidebar.isHidden)
     }

@@ -432,15 +432,21 @@ extension Round15PolicyRegressionTests {
         let window = try #require(owner.window)
         defer { manager.closeGroup(group) }
         var madeKey: [NSWindow] = []
-        owner.makeWindowKey = { madeKey.append($0) }
+        owner.makeWindowKey = {
+            madeKey.append($0)
+        }
         let entered = Notification(name: NSWindow.didEnterFullScreenNotification, object: window)
 
         // An inactive app must not take the key window from another app.
-        owner.appIsActive = { false }
+        owner.appIsActive = {
+            false
+        }
         owner.windowDidEnterFullScreen(entered)
         #expect(madeKey.isEmpty)
 
-        owner.appIsActive = { true }
+        owner.appIsActive = {
+            true
+        }
         owner.windowDidEnterFullScreen(entered)
         #expect(madeKey.count == 1 && madeKey.first === window)
         #expect(TerminalWindowCommandTarget.resolve(keyWindow: madeKey.first, mainWindow: nil, manager: manager)?.terminal === owner)

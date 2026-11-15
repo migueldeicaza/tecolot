@@ -11,9 +11,17 @@ struct LinkTests {
         CloseChannelMessage(channel: 128),
         ChannelWindowMessage(channel: 1, increment: UInt64.max),
         LinkAckMessage(received: UInt64.max),
-        HelperInfoMessage(build: "build", os: "Linux", arch: "aarch64", machineID: "machine",
-                          hostName: "host", runtimeDirectory: "/tmp/tecolot-1000", home: "/home/user",
-                          shell: "/bin/sh", receiveWindow: 262_144),
+        HelperInfoMessage(
+            build: "build",
+            os: "Linux",
+            arch: "aarch64",
+            machineID: "machine",
+            hostName: "host",
+            runtimeDirectory: "/tmp/tecolot-1000",
+            home: "/home/user",
+            shell: "/bin/sh",
+            receiveWindow: 262_144
+        ),
         SessionListMessage(json: Array("[]".utf8)),
         SessionCreatedMessage(json: Array("{}".utf8)),
         ChannelOpenedMessage(channel: 2, receiveWindow: 262_144),
@@ -24,7 +32,9 @@ struct LinkTests {
     ]
 
     @Test func messagesRoundTripAndRejectTruncatedFields() throws {
-        for sample in Self.samples { try check(sample) }
+        for sample in Self.samples {
+            try check(sample)
+        }
     }
 
     private func check<M: WireMessage>(_ message: M) throws {
@@ -63,7 +73,9 @@ struct LinkTests {
             LinkFrame(channel: UInt64.max, payload: Array(repeating: 7, count: 16_384)),
         ]
         var stream: [UInt8] = []
-        for frame in frames { stream += try LinkFrameCodec.encode(frame) }
+        for frame in frames {
+            stream += try LinkFrameCodec.encode(frame)
+        }
         let small = try LinkFrameCodec.encode(frames[1])
         #expect(small == [2, 0, 0, 0, 1, 1])
         for chunkSize in [1, 2, 3, 7, 16_384, stream.count] {
@@ -71,7 +83,9 @@ struct LinkTests {
             var decoded: [LinkFrame] = []
             for start in stride(from: 0, to: stream.count, by: chunkSize) {
                 decoder.append(stream[start ..< min(start + chunkSize, stream.count)])
-                while let frame = try decoder.next() { decoded.append(frame) }
+                while let frame = try decoder.next() {
+                    decoded.append(frame)
+                }
             }
             #expect(decoded == frames)
             #expect(decoder.pendingByteCount == 0)
@@ -126,8 +140,12 @@ struct LinkTests {
     @Test func messagesAndFramesAcceptGarbageWithoutCrashing() {
         var random = SplitMix64(seed: 0x11_00_55)
         for _ in 0 ..< 1000 {
-            let bytes = (0 ..< Int(random.next() % 80)).map { _ in UInt8(truncatingIfNeeded: random.next()) }
-            for sample in Self.samples { decodeGarbage(sample, bytes: bytes) }
+            let bytes = (0 ..< Int(random.next() % 80)).map { _ in
+                UInt8(truncatingIfNeeded: random.next())
+            }
+            for sample in Self.samples {
+                decodeGarbage(sample, bytes: bytes)
+            }
             var frames = LinkFrameStreamDecoder()
             frames.append(bytes)
             while let _ = try? frames.next() {}
@@ -153,8 +171,10 @@ struct LinkTests {
     }
 
     @Test func messageKindValuesAreStable() {
-        #expect(Self.samples.map { type(of: $0).kind.rawValue } ==
-                [128, 129, 130, 131, 132, 133, 134, 135, 192, 193, 194, 195, 196, 136, 197, 137])
+        #expect(Self.samples.map {
+            type(of: $0).kind.rawValue
+        } ==
+            [128, 129, 130, 131, 132, 133, 134, 135, 192, 193, 194, 195, 196, 136, 197, 137])
         #expect(LinkProtocol.version == 1)
         #expect(LinkProtocol.minimumVersion == 1)
     }

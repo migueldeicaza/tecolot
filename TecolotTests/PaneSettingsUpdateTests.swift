@@ -8,8 +8,13 @@ private final class SettingsReviewWindow: TerminalGroupWindow {
     let id = UUID()
     var group: TerminalTabGroup
     var shows = 0
-    init(_ group: TerminalTabGroup) { self.group = group }
-    func show(_ group: TerminalTabGroup) { self.group = group; shows += 1 }
+    init(_ group: TerminalTabGroup) {
+        self.group = group
+    }
+    func show(_ group: TerminalTabGroup) {
+        self.group = group
+        shows += 1
+    }
     func activate() {}
     func closeWindow() {}
 }
@@ -31,7 +36,9 @@ private final class SettingsReviewFixture {
         profiles = try ProfileStore(directory: directory)
         themes = ThemeStore(directory: directory.appendingPathComponent("Themes"))
         manager = TerminalWindowManager(registry: registry)
-        manager.makeWindow = { SettingsReviewWindow($0) }
+        manager.makeWindow = {
+            SettingsReviewWindow($0)
+        }
     }
 
     func profile(_ name: String, theme: String = "Review A") throws -> TerminalProfile {
@@ -54,22 +61,30 @@ private final class SettingsReviewFixture {
         let tab = TerminalTab(startsProcesses: false)
         tab.workspace.focusedController?.applyProfile(profile)
         let group = manager.newGroup(tab: tab)
-        if shown { _ = manager.openWindow(group: group) }
+        if shown {
+            _ = manager.openWindow(group: group)
+        }
         return group
     }
 
     func observe() {
         observer = PaneSettingsObserver(
             profiles: profiles, themes: themes,
-            appearanceChanges: appearance.eraseToAnyPublisher(), isDark: { [unowned self] in self.isDark },
+            appearanceChanges: appearance.eraseToAnyPublisher(), isDark: { [unowned self] in
+                self.isDark
+            },
             registry: registry, manager: manager,
             applyProfile: { [unowned self] controller, profile in
                 self.appliedProfiles.append(controller.id)
                 controller.applyProfile(profile)
             },
-            applyThemeColors: { [unowned self] in self.appliedThemes.append($0.id) }
+            applyThemeColors: { [unowned self] in
+                self.appliedThemes.append($0.id)
+            }
         )
-        for window in manager.windows { (window as? SettingsReviewWindow)?.shows = 0 }
+        for window in manager.windows {
+            (window as? SettingsReviewWindow)?.shows = 0
+        }
     }
 
     func shows(_ group: TerminalTabGroup) -> Int {
@@ -78,7 +93,9 @@ private final class SettingsReviewFixture {
 
     func cleanup() {
         observer = nil
-        for group in manager.groups { manager.closeGroup(group) }
+        for group in manager.groups {
+            manager.closeGroup(group)
+        }
         try? FileManager.default.removeItem(at: directory)
     }
 }
@@ -87,7 +104,9 @@ private final class SettingsReviewFixture {
 struct PaneSettingsUpdateTests {
     private func nextTurn() async {
         await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
         }
     }
 
@@ -105,10 +124,14 @@ struct PaneSettingsUpdateTests {
         try f.profiles.update(profile)
         #expect(f.appliedProfiles.isEmpty)
         await nextTurn()
-        let used = [first, background].compactMap { $0.selectedTab?.workspace.focusedController }
+        let used = [first, background].compactMap {
+            $0.selectedTab?.workspace.focusedController
+        }
         #expect(Set(f.appliedProfiles) == Set(used.map(\.id)))
         #expect(f.appliedProfiles.count == 2)
-        #expect(used.allSatisfy { $0.profile.fontSize == 19 })
+        #expect(used.allSatisfy {
+            $0.profile.fontSize == 19
+        })
         #expect(f.appliedThemes.isEmpty)
         #expect(f.shows(first) == 1)
         #expect(f.shows(other) == 0)
@@ -177,7 +200,9 @@ struct PaneSettingsUpdateTests {
         let pane = try #require(hidden.workspace.focusedController)
         pane.applyProfile(try f.profile("Hidden", theme: "Review B"))
         f.manager.addTab(hidden, to: group)
-        f.manager.select(try #require(group.tabs.first { $0.id == selected }), in: group)
+        f.manager.select(try #require(group.tabs.first {
+            $0.id == selected
+        }), in: group)
         f.observe()
         theme.cursor = theme.foreground
         try f.themes.saveUserTheme(theme, replacing: theme.name)
@@ -202,8 +227,12 @@ struct PaneSettingsUpdateTests {
         f.isDark = true
         f.appearance.send()
         await nextTurn()
-        #expect(f.appliedProfiles == [first.selectedTab?.workspace.focusedController?.id].compactMap { $0 })
-        #expect(f.appliedThemes == [second.selectedTab?.workspace.focusedController?.id].compactMap { $0 })
+        #expect(f.appliedProfiles == [first.selectedTab?.workspace.focusedController?.id].compactMap {
+            $0
+        })
+        #expect(f.appliedThemes == [second.selectedTab?.workspace.focusedController?.id].compactMap {
+            $0
+        })
         #expect(f.shows(first) == 1)
         #expect(f.shows(second) == 1)
         #expect(first.selectedTab?.workspace.focusedController?.profile.fontSize == 20)

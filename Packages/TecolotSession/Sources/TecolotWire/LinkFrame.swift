@@ -26,7 +26,9 @@ public enum LinkFrameCodec {
         var body = WireWriter(capacity: frame.payload.count + 10)
         body.varint(frame.channel)
         body.raw(frame.payload)
-        guard body.count <= maximumFrameSize else { throw .lengthTooLarge(body.count) }
+        guard body.count <= maximumFrameSize else {
+            throw .lengthTooLarge(body.count)
+        }
         output.u32(UInt32(body.count))
         output.raw(body.bytes)
     }
@@ -42,11 +44,19 @@ public enum LinkFrameCodec {
             // The control payload includes the envelope's own length field.
             var decoder = EnvelopeStreamDecoder(maximumMessageSize: maximumFrameSize)
             decoder.append(frame.payload)
-            guard try decoder.next() != nil else { throw .truncated }
-            guard decoder.pendingByteCount == 0 else { throw .invalidValue("multiple control envelopes") }
+            guard try decoder.next() != nil else {
+                throw .truncated
+            }
+            guard decoder.pendingByteCount == 0 else {
+                throw .invalidValue("multiple control envelopes")
+            }
         } else {
-            guard !frame.payload.isEmpty else { throw .invalidValue("empty data frame") }
-            guard frame.payload.count <= maximumDataSize else { throw .lengthTooLarge(frame.payload.count) }
+            guard !frame.payload.isEmpty else {
+                throw .invalidValue("empty data frame")
+            }
+            guard frame.payload.count <= maximumDataSize else {
+                throw .lengthTooLarge(frame.payload.count)
+            }
         }
     }
 }
@@ -62,7 +72,9 @@ public struct LinkFrameStreamDecoder: Sendable {
         self.maximumFrameSize = maximumFrameSize
     }
 
-    public var pendingByteCount: Int { buffer.count - start }
+    public var pendingByteCount: Int {
+        buffer.count - start
+    }
 
     public mutating func append<C: Collection>(_ bytes: C) where C.Element == UInt8 {
         if start > 0 && start == buffer.count {
@@ -80,8 +92,12 @@ public struct LinkFrameStreamDecoder: Sendable {
         }
         var reader = WireReader(buffer, range: start ..< buffer.count)
         let length = Int(try reader.u32())
-        guard length <= maximumFrameSize else { throw .lengthTooLarge(length) }
-        guard length > 0 else { throw .invalidValue("link frame length 0") }
+        guard length <= maximumFrameSize else {
+            throw .lengthTooLarge(length)
+        }
+        guard length > 0 else {
+            throw .invalidValue("link frame length 0")
+        }
         let bodyStart = start + LinkFrameCodec.lengthFieldSize
         let bodyEnd = bodyStart + length
         var body = WireReader(buffer, range: bodyStart ..< min(bodyEnd, buffer.count))
@@ -93,10 +109,16 @@ public struct LinkFrameStreamDecoder: Sendable {
             return nil
         }
         if channel != 0 {
-            guard length <= LinkFrameCodec.maximumDataSize + 16 else { throw .lengthTooLarge(length) }
+            guard length <= LinkFrameCodec.maximumDataSize + 16 else {
+                throw .lengthTooLarge(length)
+            }
             let payloadSize = length - (body.offset - bodyStart)
-            guard payloadSize <= LinkFrameCodec.maximumDataSize else { throw .lengthTooLarge(payloadSize) }
-            guard payloadSize > 0 else { throw .invalidValue("empty data frame") }
+            guard payloadSize <= LinkFrameCodec.maximumDataSize else {
+                throw .lengthTooLarge(payloadSize)
+            }
+            guard payloadSize > 0 else {
+                throw .invalidValue("empty data frame")
+            }
         }
         guard buffer.count >= bodyEnd else {
             compact()

@@ -172,13 +172,17 @@ final class HorizontalTabBarView: NSView {
         }
         defaultsObserver = DefaultsValueObserver(defaults: .standard, keys: TabStripPreferences.observedKeys, read: TabStripPreferences.init(defaults:))
         defaultsObserver?.onChange = { [weak self] next in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             self.preferences = next
             self.controller?.refreshTabPreferences()
             self.refreshChrome()
             self.needsLayout = true
             self.updateDrawingVisibility()
-            if self.window?.isKeyWindow != true { self.hideHints() }
+            if self.window?.isKeyWindow != true {
+                self.hideHints()
+            }
         }
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
             MainActor.assumeIsolated {

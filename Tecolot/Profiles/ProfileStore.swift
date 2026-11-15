@@ -21,13 +21,14 @@ private struct ProfileDocumentMigrator: VersionedDocumentMigrator {
     }
 
     func validate(_ profile: TerminalProfile) throws {
-        guard !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              profile.fontSize.isFinite,
-              profile.fontSize > 0,
-              profile.backgroundOpacity.isFinite,
-              (0...1).contains(profile.backgroundOpacity),
-              profile.columns > 0,
-              profile.rows > 0 else {
+        guard
+            !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            profile.fontSize.isFinite,
+            profile.fontSize > 0,
+            profile.backgroundOpacity.isFinite,
+            (0...1).contains(profile.backgroundOpacity),
+            profile.columns > 0,
+            profile.rows > 0 else {
             throw VersionedPersistenceError.invalidDocument("The profile contains invalid values.")
         }
     }
@@ -113,11 +114,15 @@ public final class ProfileStore: ObservableObject {
     }
 
     public func profile(withID id: TerminalProfile.ID) -> TerminalProfile? {
-        profiles.first { $0.id == id }
+        profiles.first {
+            $0.id == id
+        }
     }
 
     public func profile(named name: String) -> TerminalProfile? {
-        profiles.first { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }
+        profiles.first {
+            $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+        }
     }
 
     public func reload() {
@@ -134,7 +139,9 @@ public final class ProfileStore: ObservableObject {
         storeStateIsReadOnly = stateResult.issue != nil
         issueCenter?.replaceIssues(
             in: .profileStore,
-            with: stateResult.issue.map { [$0] } ?? []
+            with: stateResult.issue.map {
+                [$0]
+            } ?? []
         )
 
         let loaded = loadProfiles()
@@ -145,8 +152,11 @@ public final class ProfileStore: ObservableObject {
         profiles = ProfileStore.sorted(repaired.profiles)
         issueCenter?.replaceIssues(in: .profiles, with: loaded.issues + repaired.issues)
 
-        if let storedID = stateResult.value?.defaultProfileID,
-           profiles.contains(where: { $0.id == storedID }) {
+        if
+            let storedID = stateResult.value?.defaultProfileID,
+            profiles.contains(where: {
+                $0.id == storedID
+            }) {
             defaultProfileID = storedID
         } else {
             defaultProfileID = profiles.first?.id ?? ProfileStore.builtInDefaultProfile.id
@@ -163,7 +173,9 @@ public final class ProfileStore: ObservableObject {
 
     public func setDefault(_ id: TerminalProfile.ID) throws {
         try ensureStoreStateIsWritable()
-        guard profile(withID: id) != nil else { throw ProfilesError.profileNotFound }
+        guard profile(withID: id) != nil else {
+            throw ProfilesError.profileNotFound
+        }
         let oldID = defaultProfileID
         defaultProfileID = id
         do {
@@ -178,7 +190,9 @@ public final class ProfileStore: ObservableObject {
 
     public func add(_ profile: TerminalProfile) throws {
         try validateForMutation(profile)
-        guard self.profile(named: profile.name) == nil else { throw ProfilesError.duplicateName }
+        guard self.profile(named: profile.name) == nil else {
+            throw ProfilesError.duplicateName
+        }
         if profiles.isEmpty {
             try ensureStoreStateIsWritable()
         }
@@ -206,7 +220,10 @@ public final class ProfileStore: ObservableObject {
     }
 
     public func update(_ profile: TerminalProfile) throws {
-        guard let index = profiles.firstIndex(where: { $0.id == profile.id }) else {
+        guard
+            let index = profiles.firstIndex(where: {
+                $0.id == profile.id
+            }) else {
             throw ProfilesError.profileNotFound
         }
         try validateForMutation(profile)
@@ -238,7 +255,9 @@ public final class ProfileStore: ObservableObject {
 
     @discardableResult
     public func duplicate(_ id: TerminalProfile.ID) throws -> TerminalProfile {
-        guard var copy = profile(withID: id) else { throw ProfilesError.profileNotFound }
+        guard var copy = profile(withID: id) else {
+            throw ProfilesError.profileNotFound
+        }
         copy.id = UUID()
         copy.name = uniqueName(basedOn: copy.name)
         try add(copy)
@@ -246,14 +265,20 @@ public final class ProfileStore: ObservableObject {
     }
 
     public func rename(_ id: TerminalProfile.ID, to newName: String) throws {
-        guard var target = profile(withID: id) else { throw ProfilesError.profileNotFound }
+        guard var target = profile(withID: id) else {
+            throw ProfilesError.profileNotFound
+        }
         target.name = newName
         try update(target)
     }
 
     public func delete(_ id: TerminalProfile.ID) throws {
-        guard profiles.count > 1 else { throw ProfilesError.cannotDeleteLastProfile }
-        guard let target = profile(withID: id) else { throw ProfilesError.profileNotFound }
+        guard profiles.count > 1 else {
+            throw ProfilesError.cannotDeleteLastProfile
+        }
+        guard let target = profile(withID: id) else {
+            throw ProfilesError.profileNotFound
+        }
         if defaultProfileID == id {
             try ensureStoreStateIsWritable()
         }
@@ -265,7 +290,9 @@ public final class ProfileStore: ObservableObject {
             reportWriteFailure(error, domain: .profiles, sourceURL: url)
             throw error
         }
-        profiles.removeAll { $0.id == id }
+        profiles.removeAll {
+            $0.id == id
+        }
         if defaultProfileID == id {
             defaultProfileID = profiles.first!.id
             try persistState()
@@ -285,14 +312,20 @@ public final class ProfileStore: ObservableObject {
         }
         var incoming = try migrator.decode(data, from: sourceVersion)
         try migrator.validate(incoming)
-        if profile(withID: incoming.id) != nil { incoming.id = UUID() }
-        if profile(named: incoming.name) != nil { incoming.name = uniqueName(basedOn: incoming.name) }
+        if profile(withID: incoming.id) != nil {
+            incoming.id = UUID()
+        }
+        if profile(named: incoming.name) != nil {
+            incoming.name = uniqueName(basedOn: incoming.name)
+        }
         try add(incoming)
         return incoming
     }
 
     public func exportProfile(_ id: TerminalProfile.ID, to url: URL) throws {
-        guard let target = profile(withID: id) else { throw ProfilesError.profileNotFound }
+        guard let target = profile(withID: id) else {
+            throw ProfilesError.profileNotFound
+        }
         try ProfileStore.encodedProfile(target).write(to: url, options: .atomic)
     }
 
@@ -311,7 +344,9 @@ public final class ProfileStore: ObservableObject {
         var originals: [TerminalProfile] = []
         for original in profiles {
             var profile = original
-            guard profile.replaceThemeName(oldName, with: replacement) else { continue }
+            guard profile.replaceThemeName(oldName, with: replacement) else {
+                continue
+            }
             do {
                 try update(profile)
             } catch {
@@ -365,7 +400,9 @@ public final class ProfileStore: ObservableObject {
     }
 
     nonisolated static func sorted(_ profiles: [TerminalProfile]) -> [TerminalProfile] {
-        profiles.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        profiles.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
     }
 
     nonisolated static func url(for profile: TerminalProfile, in directory: URL) -> URL {
@@ -398,7 +435,9 @@ public final class ProfileStore: ObservableObject {
     }
 
     private func loadThemeModes() -> [String: ThemeModes] {
-        guard let data = try? Data(contentsOf: themeModesFile) else { return [:] }
+        guard let data = try? Data(contentsOf: themeModesFile) else {
+            return [:]
+        }
         return (try? JSONDecoder().decode([String: ThemeModes].self, from: data)) ?? [:]
     }
 
@@ -408,7 +447,9 @@ public final class ProfileStore: ObservableObject {
         let modes = Dictionary(uniqueKeysWithValues: profiles.map {
             ($0.id.uuidString, ThemeModes(light: $0.lightThemeName, dark: $0.darkThemeName))
         })
-        guard modes != loadThemeModes() else { return }
+        guard modes != loadThemeModes() else {
+            return
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try? encoder.encode(modes).write(to: themeModesFile, options: .atomic)
@@ -417,9 +458,10 @@ public final class ProfileStore: ObservableObject {
     /// True when the profile file has no "darkThemeName" key, that is, an
     /// older version wrote it.
     nonisolated static func fileHasNoDarkThemeName(_ url: URL) -> Bool {
-        guard let data = try? Data(contentsOf: url),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let profile = object["profile"] as? [String: Any] else {
+        guard
+            let data = try? Data(contentsOf: url),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let profile = object["profile"] as? [String: Any] else {
             return false
         }
         return profile["darkThemeName"] == nil
@@ -454,14 +496,17 @@ public final class ProfileStore: ObservableObject {
             if var profile = result.value {
                 // An older version wrote this profile without the Dark Mode
                 // theme. If its theme did not change, use the recorded one.
-                if let modes = themeModes[profile.id.uuidString],
-                   modes.light == profile.lightThemeName,
-                   Self.fileHasNoDarkThemeName(file) {
+                if
+                    let modes = themeModes[profile.id.uuidString],
+                    modes.light == profile.lightThemeName,
+                    Self.fileHasNoDarkThemeName(file) {
                     profile.darkThemeName = modes.dark
                 }
                 values.append(profile)
             }
-            if let issue = result.issue { issues.append(issue) }
+            if let issue = result.issue {
+                issues.append(issue)
+            }
         }
         return (values, issues)
     }
@@ -471,8 +516,12 @@ public final class ProfileStore: ObservableObject {
         preferredID: TerminalProfile.ID?
     ) -> (profiles: [TerminalProfile], issues: [PersistenceIssue]) {
         let ordered = profiles.sorted { first, second in
-            if first.id == preferredID { return true }
-            if second.id == preferredID { return false }
+            if first.id == preferredID {
+                return true
+            }
+            if second.id == preferredID {
+                return false
+            }
             return first.id.uuidString < second.id.uuidString
         }
         var usedNames = Set<String>()

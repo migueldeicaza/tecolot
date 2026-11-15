@@ -192,7 +192,9 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     private func canAdmit(_ key: String, now: Date) -> Bool {
-        (recent[key] ?? []).filter { now.timeIntervalSince($0) < Self.rateWindow }.count < Self.rateLimit
+        (recent[key] ?? []).filter {
+            now.timeIntervalSince($0) < Self.rateWindow
+        }.count < Self.rateLimit
     }
 
     /// Records a notification of `key` at `now`, unless it posted

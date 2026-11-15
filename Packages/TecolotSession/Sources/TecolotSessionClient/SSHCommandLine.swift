@@ -1,11 +1,11 @@
 import Foundation
 #if canImport(CryptoKit)
-import CryptoKit
+    import CryptoKit
 #endif
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #else
-import Glibc
+    import Glibc
 #endif
 
 public enum SSHCommandLineError: Error, Equatable, Sendable {
@@ -23,8 +23,13 @@ public struct SSHCommandLine: Sendable {
     public let keepaliveInterval: Int
     public let keepaliveCount: Int
 
-    public init(configuration: SSHConfiguration, sshPath: String = "/usr/bin/ssh",
-                extraOptions: [String] = [], keepaliveInterval: Int = 15, keepaliveCount: Int = 3) {
+    public init(
+        configuration: SSHConfiguration,
+        sshPath: String = "/usr/bin/ssh",
+        extraOptions: [String] = [],
+        keepaliveInterval: Int = 15,
+        keepaliveCount: Int = 3
+    ) {
         self.configuration = configuration
         self.sshPath = sshPath
         self.extraOptions = extraOptions
@@ -33,21 +38,43 @@ public struct SSHCommandLine: Sendable {
     }
 
     private var connectionOptions: [String] {
-        var options = ["ControlPersist=no", "ForkAfterAuthentication=no", "StdinNull=no",
-                       "ClearAllForwardings=yes", "RemoteCommand=none", "RequestTTY=no",
-                       "PermitLocalCommand=no", "ForwardX11=no", "ConnectTimeout=15"]
-        if configuration.serverAliveInterval == 0 { options.append("ServerAliveInterval=\(keepaliveInterval)") }
-        if configuration.serverAliveCountMax == 0 { options.append("ServerAliveCountMax=\(keepaliveCount)") }
+        var options = [
+            "ControlPersist=no",
+            "ForkAfterAuthentication=no",
+            "StdinNull=no",
+            "ClearAllForwardings=yes",
+            "RemoteCommand=none",
+            "RequestTTY=no",
+            "PermitLocalCommand=no",
+            "ForwardX11=no",
+            "ConnectTimeout=15"
+        ]
+        if configuration.serverAliveInterval == 0 {
+            options.append("ServerAliveInterval=\(keepaliveInterval)")
+        }
+        if configuration.serverAliveCountMax == 0 {
+            options.append("ServerAliveCountMax=\(keepaliveCount)")
+        }
         options.append("Compression=yes")
         return options
     }
 
     private var sessionOptions: [String] {
-        ["SessionType=default", "StdinNull=no", "ForkAfterAuthentication=no", "RemoteCommand=none",
-         "RequestTTY=no", "PermitLocalCommand=no"]
+        [
+            "SessionType=default",
+            "StdinNull=no",
+            "ForkAfterAuthentication=no",
+            "RemoteCommand=none",
+            "RequestTTY=no",
+            "PermitLocalCommand=no"
+        ]
     }
 
-    private func arguments(_ options: [String]) -> [String] { options.flatMap { ["-o", $0] } }
+    private func arguments(_ options: [String]) -> [String] {
+        options.flatMap {
+            ["-o", $0]
+        }
+    }
 
     public func master(controlPath: String) -> [String] {
         ["-M", "-N", "-S", controlPath] + arguments(connectionOptions + extraOptions) + [configuration.destination]
@@ -76,10 +103,13 @@ public struct SSHCommandLine: Sendable {
 
     public static func validate(command: [String]) throws {
         for word in command {
-            guard !word.isEmpty, word.utf8.allSatisfy({ byte in
-                (65...90).contains(byte) || (97...122).contains(byte) || (48...57).contains(byte)
-                    || [UInt8(46), 47, 95, 45].contains(byte)
-            }) else { throw SSHCommandLineError.invalidCommandWord(word) }
+            guard
+                !word.isEmpty, word.utf8.allSatisfy({ byte in
+                    (65...90).contains(byte) || (97...122).contains(byte) || (48...57).contains(byte)
+                        || [UInt8(46), 47, 95, 45].contains(byte)
+                }) else {
+                throw SSHCommandLineError.invalidCommandWord(word)
+            }
         }
     }
 
@@ -90,24 +120,34 @@ public struct SSHCommandLine: Sendable {
             directory = URL(fileURLWithPath: "/tmp/tecolot-ssh-\(getuid())", isDirectory: true)
         }
         let path = directory.appendingPathComponent(name).path
-        guard path.utf8.count + 17 <= 104 else { throw SSHCommandLineError.socketPathTooLong }
-        if mkdir(directory.path, 0o700) != 0 && errno != EEXIST { throw SSHCommandLineError.fileSystem(errno) }
+        guard path.utf8.count + 17 <= 104 else {
+            throw SSHCommandLineError.socketPathTooLong
+        }
+        if mkdir(directory.path, 0o700) != 0 && errno != EEXIST {
+            throw SSHCommandLineError.fileSystem(errno)
+        }
         let fd = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard fd >= 0 else { throw SSHCommandLineError.unsafeSocketDirectory(directory.path) }
+        guard fd >= 0 else {
+            throw SSHCommandLineError.unsafeSocketDirectory(directory.path)
+        }
         defer { _ = close(fd) }
         var info = stat()
         guard fstat(fd, &info) == 0, info.st_uid == getuid(), (info.st_mode & S_IFMT) == S_IFDIR else {
             throw SSHCommandLineError.unsafeSocketDirectory(directory.path)
         }
-        guard fchmod(fd, 0o700) == 0 else { throw SSHCommandLineError.fileSystem(errno) }
+        guard fchmod(fd, 0o700) == 0 else {
+            throw SSHCommandLineError.fileSystem(errno)
+        }
         return path
     }
 
     private static func socketName(_ input: [UInt8]) -> String {
         #if canImport(CryptoKit)
-        return SHA256.hash(data: Data(input)).prefix(8).map { String(format: "%02x", $0) }.joined()
+            return SHA256.hash(data: Data(input)).prefix(8).map {
+                String(format: "%02x", $0)
+            }.joined()
         #else
-        return fallbackSocketName(input)
+            return fallbackSocketName(input)
         #endif
     }
 
@@ -116,7 +156,9 @@ public struct SSHCommandLine: Sendable {
     // Join the low 32 bits of each FNV-1a64 result to make 16 hexadecimal digits.
     static func fallbackSocketName(_ input: [UInt8]) -> String {
         func fnv1a(seed: UInt64) -> UInt64 {
-            input.reduce(seed) { ($0 ^ UInt64($1)) &* 0x100000001b3 }
+            input.reduce(seed) {
+                ($0 ^ UInt64($1)) &* 0x100000001b3
+            }
         }
         let first = UInt32(truncatingIfNeeded: fnv1a(seed: 0xcbf29ce484222325))
         let second = UInt32(truncatingIfNeeded: fnv1a(seed: 0x84222325cbf29ce4))
