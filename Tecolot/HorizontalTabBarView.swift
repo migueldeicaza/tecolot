@@ -33,6 +33,7 @@ final class HorizontalTabBarView: NSView {
     private var lastSelection: UUID?
     private var lastViewportWidth: CGFloat = 0
     private var groupEditor: InlineNameField?
+    private var groupName = ""
     private var placeholderIndex: Int?
     private var placeholderTab: UUID?
     private let dropIndicator = NSView()
@@ -51,15 +52,17 @@ final class HorizontalTabBarView: NSView {
             style: preferences.animationStyle
         )
     }
-    nonisolated static func showsGroupCaption(groupCount: Int) -> Bool {
+    nonisolated static func showsGroupName(groupCount: Int) -> Bool {
         groupCount > 1
     }
-    private var captionHidden: Bool {
-        !Self.showsGroupCaption(groupCount: controller?.manager.groups.count ?? 0) && groupEditor == nil
+    private var usesNamedCaption: Bool {
+        Self.showsGroupName(groupCount: controller?.manager.groups.count ?? 0) || groupEditor != nil
     }
 
     private func refreshGroupCaption() {
-        groupButton.isHidden = captionHidden || groupEditor != nil
+        groupButton.title = usesNamedCaption ? groupName : ""
+        groupButton.setAccessibilityValue(groupName)
+        groupButton.isHidden = groupEditor != nil
         groupButton.setAccessibilityElement(!groupButton.isHidden)
         needsLayout = true
     }
@@ -265,8 +268,7 @@ final class HorizontalTabBarView: NSView {
     }
 
     func configure(group: TerminalTabGroup) {
-        groupButton.title = group.name
-        groupButton.setAccessibilityValue(group.name)
+        groupName = group.name
         refreshGroupCaption()
         let previous = cells
         let ids = group.tabs.map(\.id)
@@ -318,8 +320,8 @@ final class HorizontalTabBarView: NSView {
 
     override func layout() {
         super.layout()
-        let groupWidth = min(190, max(105, groupButton.intrinsicContentSize.width + 8))
-        groupButton.frame = NSRect(x: 85, y: 5, width: groupWidth, height: 36)
+        let groupWidth = usesNamedCaption ? min(190, max(105, groupButton.intrinsicContentSize.width + 8)) : 34
+        groupButton.frame = NSRect(x: 85, y: usesNamedCaption ? 5 : 7, width: groupWidth, height: usesNamedCaption ? 36 : 32)
         groupEditor?.frame = groupButton.frame.insetBy(dx: 2, dy: 6)
         add.frame = NSRect(x: bounds.width - 41, y: 6, width: 36, height: 32)
         let zoomWidth: CGFloat = zoom.isHidden ? 0 : 34
@@ -328,7 +330,7 @@ final class HorizontalTabBarView: NSView {
         let activityStart = theme.frame.minX - 34
         activityButton.frame = NSRect(x: activityStart, y: 7, width: 35, height: 32)
         activityBadge.frame = NSRect(x: 21, y: 0, width: 15, height: 15)
-        let start = captionHidden ? groupButton.frame.minX : groupButton.frame.maxX + 8
+        let start = groupButton.frame.maxX + 8
         scroll.frame = NSRect(x: start, y: 7, width: max(0, activityStart - start - 8), height: 32)
         let geometry = stripLayout
         let extraGap = placeholderTab.map { id in
@@ -636,6 +638,9 @@ private final class TabTrackView: NSView {
 final class GroupButton: NSButton {
     var contextMenu: (() -> NSMenu)?
     override var intrinsicContentSize: NSSize {
+        if title.isEmpty {
+            return NSSize(width: 34, height: 32)
+        }
         let width = (title as NSString).size(withAttributes: [.font: font ?? NSFont.systemFont(ofSize: 13, weight: .semibold)]).width
         return NSSize(width: ceil(width) + 42, height: 36)
     }
@@ -662,6 +667,9 @@ final class GroupSelectorCell: NSButtonCell {
 
     /// NSButtonCell otherwise centers a short name inside the reserved title rectangle.
     override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
+        guard !title.string.isEmpty else {
+            return .zero
+        }
         let rect = titleRect(forBounds: controlView.bounds)
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .left
@@ -680,6 +688,6 @@ final class GroupSelectorCell: NSButtonCell {
     }
 
     override func titleRect(forBounds rect: NSRect) -> NSRect {
-        NSRect(x: rect.minX + 36, y: rect.midY - 8, width: max(0, rect.width - 44), height: 16)
+        title.isEmpty ? .zero : NSRect(x: rect.minX + 36, y: rect.midY - 8, width: max(0, rect.width - 44), height: 16)
     }
 }

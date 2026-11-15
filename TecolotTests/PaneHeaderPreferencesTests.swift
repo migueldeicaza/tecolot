@@ -150,8 +150,15 @@ struct PaneHeaderPreferencesTests {
         #expect(button.alignment == .left)
         #expect(font.fontDescriptor.symbolicTraits.contains(.bold))
         let cell = try #require(button.cell as? GroupSelectorCell)
+        button.title = "TabSpec"
         #expect(cell.imageRect(forBounds: NSRect(x: 0, y: 0, width: 134, height: 36)).minX == 10.5)
         #expect(cell.titleRect(forBounds: NSRect(x: 0, y: 0, width: 134, height: 36)).minX == 36)
+        button.title = ""
+        #expect(button.intrinsicContentSize == NSSize(width: 34, height: 32))
+        let bounds = NSRect(x: 0, y: 0, width: 34, height: 32)
+        #expect(cell.imageRect(forBounds: bounds) == NSRect(x: 10.5, y: 8, width: 16, height: 16))
+        #expect(cell.titleRect(forBounds: bounds) == .zero)
+        #expect(cell.drawTitle(NSAttributedString(string: ""), withFrame: bounds, in: button) == .zero)
     }
 
     @Test func shortSelectorNamesPaintAtTheLeadingInsetRatherThanTheCenter() throws {

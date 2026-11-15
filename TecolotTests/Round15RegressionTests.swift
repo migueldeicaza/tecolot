@@ -88,8 +88,13 @@ struct Round15RegressionTests {
     }
 
     @Test func selectorAXRowsHaveMenuLabelsAndPressAndConfirmDismisses() throws {
-        let (manager, _, owner, _) = try fixture()
+        let (manager, group, owner, _) = try fixture()
         defer { stop(manager) }
+        #expect(!owner.tabBar.groupButton.isHidden)
+        #expect(owner.tabBar.groupButton.title.isEmpty)
+        #expect(owner.tabBar.groupButton.isAccessibilityElement())
+        #expect(owner.tabBar.groupButton.accessibilityLabel() == "Go to Group")
+        #expect(owner.tabBar.groupButton.accessibilityValue() as? String == group.name)
         let panel = GroupSwitcherPanel()
         owner.groupPresenter = panel
         owner.showGroups()

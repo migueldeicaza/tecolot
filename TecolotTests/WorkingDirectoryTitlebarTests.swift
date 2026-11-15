@@ -124,7 +124,8 @@ struct WorkingDirectoryTitlebarTests {
         #expect(controller.tabBar.subviews.contains {
             $0 is ThemeTitlebarControl
         })
-        #expect(controller.tabBar.groupButton.title == group.name)
+        #expect(controller.tabBar.groupButton.title.isEmpty)
+        #expect(controller.tabBar.groupButton.accessibilityValue() as? String == group.name)
     }
 
     @Test func themeButtonTogglesTheExistingPickerState() throws {

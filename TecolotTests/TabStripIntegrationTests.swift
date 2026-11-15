@@ -8,17 +8,17 @@ private final class GroupAnchorRecorder: GroupSwitcherPresenting {
     private(set) var anchor: NSView?
     private(set) var rect: NSRect?
 
-    func present(for controller: TerminalWindowController, manager: TerminalWindowManager, anchor: NSView, rect: NSRect?) {
+    func present(for controller: TerminalWindowController, manager: TerminalWindowManager, anchor: NSView) {
         self.anchor = anchor
-        self.rect = rect ?? anchor.bounds
+        self.rect = anchor.bounds
     }
 }
 
 @MainActor
 struct TabStripIntegrationTests {
     @Test(arguments: [0, 1, 2, 3])
-    func groupCaptionRule(groupCount: Int) {
-        #expect(HorizontalTabBarView.showsGroupCaption(groupCount: groupCount) == (groupCount > 1))
+    func groupNameRule(groupCount: Int) {
+        #expect(HorizontalTabBarView.showsGroupName(groupCount: groupCount) == (groupCount > 1))
     }
 
     @Test(arguments: [false, true])
@@ -32,62 +32,98 @@ struct TabStripIntegrationTests {
             TerminalWindowController(group: $0, manager: manager, defaults: defaults)
         }
         defer {
-            for group in manager.groups { manager.closeGroup(group) }
+            for group in manager.groups {
+                manager.closeGroup(group)
+            }
             manager.makeWindow = nil
         }
         let group = manager.newGroup(tab: TerminalTab(startsProcesses: false))
+        manager.rename(group, to: "TabSpec")
         let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
+        owner.window?.setContentSize(NSSize(width: 1180, height: 760))
+        owner.window?.contentView?.layoutSubtreeIfNeeded()
         let bar = owner.tabBar
         bar.layoutSubtreeIfNeeded()
         let cell = try #require(bar.cells.first)
+        let selectorCell = try #require(bar.groupButton.cell as? GroupSelectorCell)
+        let glyph = bar.convert(selectorCell.imageRect(forBounds: bar.groupButton.bounds), from: bar.groupButton)
         #expect(!bar.isHidden)
-        #expect(bar.groupButton.isHidden)
-        #expect(!bar.groupButton.isAccessibilityElement())
-        #expect(bar.scroll.frame.minX == 85)
-        #expect(bar.scroll.frame.minX == bar.groupButton.frame.minX)
+        #expect(!bar.groupButton.isHidden)
+        #expect(bar.groupButton.title.isEmpty)
+        #expect(bar.groupButton.isAccessibilityElement())
+        #expect(bar.groupButton.accessibilityLabel() == "Go to Group")
+        #expect(bar.groupButton.accessibilityValue() as? String == group.name)
+        #expect(bar.groupButton.toolTip == "Go to Group (⌘K)")
+        #expect(bar.groupButton.frame == NSRect(x: 85, y: 7, width: 34, height: 32))
+        #expect(bar.scroll.frame == NSRect(x: 127, y: 7, width: 936, height: 32))
+        #expect(selectorCell.titleRect(forBounds: bar.groupButton.bounds) == .zero)
+        #expect(glyph == NSRect(x: 95.5, y: 15, width: 16, height: 16))
 
         let second = manager.newGroup(tab: TerminalTab(startsProcesses: false))
+        manager.rename(second, to: "Two")
         bar.layoutSubtreeIfNeeded()
         #expect(!bar.groupButton.isHidden)
+        #expect(bar.groupButton.title == group.name)
         #expect(bar.groupButton.isAccessibilityElement())
-        #expect(bar.scroll.frame.minX == bar.groupButton.frame.maxX + 8)
+        #expect(bar.groupButton.accessibilityValue() as? String == group.name)
+        #expect(bar.groupButton.frame == NSRect(x: 85, y: 5, width: 105, height: 36))
+        #expect(bar.scroll.frame == NSRect(x: 198, y: 7, width: 865, height: 32))
+        #expect(bar.convert(selectorCell.imageRect(forBounds: bar.groupButton.bounds), from: bar.groupButton) == glyph)
         if openSecondWindow {
             let other = try #require(manager.openWindow(group: second) as? TerminalWindowController)
             other.tabBar.layoutSubtreeIfNeeded()
             #expect(!other.tabBar.groupButton.isHidden)
+            #expect(other.tabBar.groupButton.title == second.name)
+            #expect(other.tabBar.groupButton.accessibilityValue() as? String == second.name)
+            #expect(other.tabBar.groupButton.frame == NSRect(x: 85, y: 5, width: 105, height: 36))
             #expect(other.tabBar.scroll.frame.minX == other.tabBar.groupButton.frame.maxX + 8)
         } else {
             #expect(manager.backgroundGroups.contains { $0 === second })
         }
         manager.closeGroup(second)
         bar.layoutSubtreeIfNeeded()
-        #expect(bar.groupButton.isHidden)
-        #expect(!bar.groupButton.isAccessibilityElement())
-        #expect(bar.scroll.frame.minX == 85)
+        #expect(!bar.groupButton.isHidden)
+        #expect(bar.groupButton.title.isEmpty)
+        #expect(bar.groupButton.isAccessibilityElement())
+        #expect(bar.groupButton.accessibilityValue() as? String == group.name)
+        #expect(bar.groupButton.frame == NSRect(x: 85, y: 7, width: 34, height: 32))
+        #expect(bar.scroll.frame == NSRect(x: 127, y: 7, width: 936, height: 32))
         #expect(bar.cells.first === cell)
         #expect(cell.tab.hostView.window === owner.window)
     }
 
-    @Test func groupSwitcherUsesVisibleLeadingRectWhenCaptionIsHidden() throws {
+    @Test(arguments: ["horizontal", "vertical"])
+    func groupSwitcherAnchorsOnButtonInBothCaptionStates(style: String) throws {
+        let suite = "GroupAnchor-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.set(style, forKey: ProgramActivityPreferences.tabStyleKey)
+        defer { defaults.removePersistentDomain(forName: suite) }
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        manager.makeWindow = {
+            TerminalWindowController(group: $0, manager: manager, defaults: defaults)
+        }
+        defer { manager.makeWindow = nil }
         let group = manager.newGroup(tab: TerminalTab(startsProcesses: false))
         let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
         defer { manager.closeGroup(group) }
         let recorder = GroupAnchorRecorder()
         owner.groupPresenter = recorder
-        owner.showGroups()
+        owner.tabBar.layoutSubtreeIfNeeded()
+        owner.tabBar.groupButton.performClick(nil)
         let anchor = try #require(recorder.anchor)
         let rect = try #require(recorder.rect)
-        #expect(owner.tabBar.groupButton.isHidden)
-        #expect(anchor === owner.tabBar)
-        #expect(!anchor.isHiddenOrHasHiddenAncestor)
+        #expect(!owner.tabBar.groupButton.isHidden)
+        #expect(owner.tabBar.groupButton.title.isEmpty)
+        #expect(anchor === owner.tabBar.groupButton)
+        #expect(anchor.isHiddenOrHasHiddenAncestor == (style == "vertical"))
         #expect(anchor.bounds.contains(rect))
-        #expect(rect.minX == owner.tabBar.scroll.frame.minX)
+        #expect(rect == owner.tabBar.groupButton.bounds)
         #expect(rect.height > 0 && rect.width > 0)
 
         let second = manager.newGroup(tab: TerminalTab(startsProcesses: false))
         defer { manager.closeGroup(second) }
         owner.showGroups()
+        #expect(owner.tabBar.groupButton.title == group.name)
         #expect(recorder.anchor === owner.tabBar.groupButton)
         #expect(recorder.rect == owner.tabBar.groupButton.bounds)
     }
@@ -105,9 +141,11 @@ struct TabStripIntegrationTests {
         let bar = owner.tabBar
         bar.layoutSubtreeIfNeeded()
         #expect(bar.frame == NSRect(x: 0, y: 0, width: 1180, height: 46))
-        #expect(bar.groupButton.frame == NSRect(x: 85, y: 5, width: 105, height: 36))
-        #expect(bar.groupButton.isHidden)
-        #expect(bar.scroll.frame == NSRect(x: 85, y: 7, width: 978, height: 32))
+        #expect(bar.groupButton.frame == NSRect(x: 85, y: 7, width: 34, height: 32))
+        #expect(!bar.groupButton.isHidden)
+        #expect(bar.groupButton.title.isEmpty)
+        #expect(bar.groupButton.accessibilityValue() as? String == group.name)
+        #expect(bar.scroll.frame == NSRect(x: 127, y: 7, width: 936, height: 32))
         #expect(bar.cells[0].frame.width == 242)
         #expect(first.hostView.frame == NSRect(x: 8, y: 46, width: 1164, height: 706))
         for _ in 1..<20 {
@@ -260,28 +298,38 @@ struct TabStripIntegrationTests {
         }
     }
 
-    @Test func renameCommandsAndContextMenusUseInlineEditors() throws {
+    @Test(arguments: ["TabSpec", String(repeating: "Wide ", count: 20)])
+    func renameCommandsAndContextMenusUseInlineEditors(initialGroupName: String) throws {
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         let tab = TerminalTab(startsProcesses: false)
         let group = manager.newGroup(tab: tab)
+        manager.rename(group, to: initialGroupName)
         let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
         defer { manager.closeGroup(group) }
-        #expect(owner.tabBar.groupButton.isHidden)
+        owner.window?.setContentSize(NSSize(width: 1180, height: 760))
+        owner.window?.contentView?.layoutSubtreeIfNeeded()
+        #expect(!owner.tabBar.groupButton.isHidden)
+        #expect(owner.tabBar.groupButton.title.isEmpty)
         owner.renameGroup() // File > Rename Group… routes here.
         let groupEditor = try #require(owner.tabBar.subviews.compactMap {
             $0 as? InlineNameField
         }.first)
+        let captionWidth: CGFloat = initialGroupName == "TabSpec" ? 105 : 190
         #expect(!groupEditor.isHiddenOrHasHiddenAncestor)
-        #expect(groupEditor.frame == owner.tabBar.groupButton.frame.insetBy(dx: 2, dy: 6))
+        #expect(owner.tabBar.groupButton.frame == NSRect(x: 85, y: 5, width: captionWidth, height: 36))
+        #expect(groupEditor.frame == NSRect(x: 87, y: 11, width: captionWidth - 4, height: 24))
         #expect(owner.tabBar.groupButton.isHidden)
-        #expect(owner.tabBar.scroll.frame.minX == owner.tabBar.groupButton.frame.maxX + 8)
+        #expect(owner.tabBar.scroll.frame == NSRect(x: 93 + captionWidth, y: 7, width: 970 - captionWidth, height: 32))
         groupEditor.stringValue = "Inline group"
         #expect(groupEditor.control(groupEditor, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:))))
         #expect(group.name == "Inline group")
         #expect(groupEditor.superview == nil)
         owner.tabBar.layoutSubtreeIfNeeded()
-        #expect(owner.tabBar.groupButton.isHidden)
-        #expect(owner.tabBar.scroll.frame.minX == 85)
+        #expect(!owner.tabBar.groupButton.isHidden)
+        #expect(owner.tabBar.groupButton.title.isEmpty)
+        #expect(owner.tabBar.groupButton.accessibilityValue() as? String == "Inline group")
+        #expect(owner.tabBar.groupButton.frame == NSRect(x: 85, y: 7, width: 34, height: 32))
+        #expect(owner.tabBar.scroll.frame == NSRect(x: 127, y: 7, width: 936, height: 32))
 
         owner.renameTab(tab)
         let cell = try #require(owner.tabBar.cells.first)
@@ -319,8 +367,12 @@ struct TabStripIntegrationTests {
             #expect(inline.superview == nil)
         }
         owner.tabBar.layoutSubtreeIfNeeded()
-        #expect(owner.tabBar.groupButton.isHidden)
-        #expect(owner.tabBar.scroll.frame.minX == 85)
+        #expect(!owner.tabBar.groupButton.isHidden)
+        #expect(owner.tabBar.groupButton.title.isEmpty)
+        #expect(owner.tabBar.groupButton.isAccessibilityElement())
+        #expect(owner.tabBar.groupButton.accessibilityValue() as? String == "Inline group")
+        #expect(owner.tabBar.groupButton.frame == NSRect(x: 85, y: 7, width: 34, height: 32))
+        #expect(owner.tabBar.scroll.frame == NSRect(x: 127, y: 7, width: 936, height: 32))
         #expect(owner.window?.isVisible == false)
     }
 

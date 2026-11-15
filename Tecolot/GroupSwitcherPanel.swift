@@ -63,7 +63,7 @@ private enum GroupSwitcherMetrics {
 
 @MainActor
 protocol GroupSwitcherPresenting {
-    func present(for controller: TerminalWindowController, manager: TerminalWindowManager, anchor: NSView, rect: NSRect?)
+    func present(for controller: TerminalWindowController, manager: TerminalWindowManager, anchor: NSView)
 }
 
 /// A searchable menu-like panel, with no NSMenu tracking loop around its field.
@@ -210,7 +210,7 @@ NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
         }
     }
 
-    func present(for controller: TerminalWindowController, manager: TerminalWindowManager, anchor: NSView, rect: NSRect? = nil) {
+    func present(for controller: TerminalWindowController, manager: TerminalWindowManager, anchor: NSView) {
         guard !dismissal.suppresses(pointerTimestamp: currentPointerTimestamp) else {
             return
         }
@@ -226,8 +226,7 @@ NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
         previousResponder = controller.window?.firstResponder
         appearance = controller.window?.appearance
         filterField.stringValue = ""
-        let rect = rect ?? anchor.bounds
-        let corner = anchor.convert(NSPoint(x: rect.minX - 3, y: rect.maxY + 3), to: nil)
+        let corner = anchor.convert(NSPoint(x: -3, y: anchor.bounds.maxY + 3), to: nil)
         anchorPoint = controller.window?.convertPoint(toScreen: corner) ?? .zero
         reload()
         controller.window?.addChildWindow(self, ordered: .above)
