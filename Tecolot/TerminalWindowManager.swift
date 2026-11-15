@@ -229,10 +229,13 @@ final class TerminalWindowManager {
             return
         }
         group.selection = tab.id
-        if window(showing: group) != nil {
+        let startsTabs = window(showing: group) != nil && group.tabs.contains(where: \.isDormant)
+        if startsTabs {
             start(group)
+            changed()
+        } else {
+            presentationChanged(in: group, selectionChanged: true)
         }
-        changed()
         tab.loadedWorkspace?.focusedController?.requestFocus()
     }
 
@@ -265,14 +268,14 @@ final class TerminalWindowManager {
 
     func setCollapsed(_ collapsed: Bool, group: TerminalTabGroup) {
         group.isCollapsed = collapsed
-        changed()
+        presentationChanged(in: group)
     }
 
     func collapseOthers(_ group: TerminalTabGroup) {
         for other in groups {
             other.isCollapsed = other !== group
         }
-        changed()
+        presentationChanged(in: group)
     }
 
     func moveGroup(_ group: TerminalTabGroup, offset: Int) {
@@ -501,6 +504,32 @@ final class TerminalWindowManager {
         }
         windowPresentations[window.id] = next
         window.show(group)
+    }
+
+    /// Presentation-only mutations retain registry membership and other windows' hosts.
+    private func presentationChanged(in group: TerminalTabGroup, selectionChanged: Bool = false) {
+        persistenceDidChange?(false)
+        if let owner = window(showing: group) {
+            mount(group, in: owner)
+            (owner as? TerminalWindowController)?.sidebar.reload()
+            if selectionChanged {
+                for tab in group.tabs {
+                    tab.loadedWorkspace?.updateProcessInspection()
+                }
+                for pane in group.selectedTab?.loadedWorkspace?.controllers ?? [] {
+                    let records = pane.programStatus.activityRecords
+                    let hadAttention = pane.programStatus.quiet || pane.programStatus.notified
+                    pane.markProgramActivitySeenIfVisible()
+                    if records != pane.programStatus.activityRecords
+                        || hadAttention != (pane.programStatus.quiet || pane.programStatus.notified) {
+                        NotificationCenter.default.post(name: .programActivityDidChange, object: pane)
+                    }
+                }
+                if let window = (owner as? TerminalWindowController)?.window {
+                    NotificationCenter.default.post(name: .terminalFocusedPaneDidChange, object: window)
+                }
+            }
+        }
     }
 
     private func changed() {

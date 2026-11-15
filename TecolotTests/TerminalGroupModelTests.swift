@@ -139,6 +139,44 @@ struct TerminalWindowManagerTests {
         check(manager)
     }
 
+    @Test func selectionAndCollapseAvoidGlobalMutationNotifications() throws {
+        let manager = manager()
+        let first = tab()
+        let group = manager.newGroup(tab: first)
+        let owner = try #require(manager.openWindow(group: group) as? ModelWindow)
+        manager.addTab(tab(), to: group)
+        let other = manager.newGroup(tab: tab())
+        let otherOwner = try #require(manager.openWindow(group: other) as? ModelWindow)
+        owner.shows = 0
+        otherOwner.shows = 0
+        var saves = 0
+        var groupCounts: [Int] = []
+        var globalFocusChanges = 0
+        manager.persistenceDidChange = { _ in saves += 1 }
+        let groupsObserver = NotificationCenter.default.addObserver(forName: .groupsDidChange, object: manager, queue: .main) { _ in
+            MainActor.assumeIsolated { groupCounts.append(manager.groups.count) }
+        }
+        let focusObserver = NotificationCenter.default.addObserver(forName: .terminalFocusedPaneDidChange, object: nil, queue: .main) { note in
+            MainActor.assumeIsolated { if note.object == nil { globalFocusChanges += 1 } }
+        }
+        defer {
+            NotificationCenter.default.removeObserver(groupsObserver)
+            NotificationCenter.default.removeObserver(focusObserver)
+            for group in manager.groups { manager.closeGroup(group) }
+        }
+        manager.select(first, in: group)
+        manager.setCollapsed(true, group: group)
+        manager.collapseOthers(group)
+        #expect(saves == 3)
+        #expect(owner.shows == 1 && otherOwner.shows == 0)
+        #expect(groupCounts.isEmpty)
+        #expect(globalFocusChanges == 0)
+        // Structural changes still announce counts for captions, sidebars and Activity.
+        let added = manager.newGroup(tab: tab())
+        manager.closeGroup(added)
+        #expect(groupCounts == [3, 2])
+    }
+
     @Test func changesRefreshOnlyTheAffectedWindow() throws {
         let manager = manager()
         let firstTab = tab()

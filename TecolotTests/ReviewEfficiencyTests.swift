@@ -26,6 +26,21 @@ private nonisolated final class ReviewNotificationCenter: NotificationCenter, @u
 
 @MainActor
 struct ReviewEfficiencyTests {
+    @Test func groupCountStillRefreshesTheHorizontalCaption() throws {
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        let group = manager.newGroup(tab: TerminalTab(startsProcesses: false))
+        let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
+        defer { for group in manager.groups { manager.closeGroup(group) } }
+        let button = try #require(owner.tabBar.subviews.compactMap { $0 as? NSButton }.first {
+            $0.accessibilityLabel() == "Go to Group"
+        })
+        #expect(button.title.isEmpty)
+        let background = manager.newGroup(tab: TerminalTab(startsProcesses: false))
+        #expect(button.title == group.name)
+        manager.closeGroup(background)
+        #expect(button.title.isEmpty)
+    }
+
     @Test func cachedRowsDoNotBecomeUnseenActivity() async {
         let controller = TerminalSessionController(startsProcess: false)
         let session = RemoteSession(socket: -1, clientName: "review", build: "test")
