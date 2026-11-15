@@ -31,7 +31,7 @@ enum GroupSessionEnder {
         let unavailable: [String]
         var needsConfirmation: Bool {
             !busy.isEmpty || panes.contains {
-                $0.kind != .local
+                $0.kind != .local || $0.local.map(TerminalClosePolicy.requiresConfirmation(state:)) == true
             }
         }
     }

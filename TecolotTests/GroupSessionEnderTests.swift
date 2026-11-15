@@ -80,6 +80,24 @@ struct GroupSessionEnderTests {
         #expect(alert.buttons[1].keyEquivalent == "\u{1b}")
     }
 
+    @Test(arguments: AskBeforeClosing.allCases, [false, true])
+    func idleLocalConfirmationMatchesPlainClose(preference: AskBeforeClosing, running: Bool) async throws {
+        let state = TerminalClosePolicy.PaneState(
+            persistent: false, running: running, childProcesses: 0, askBeforeClosing: preference
+        )
+        let plan = await GroupSessionEnder.plan([pane(.local, local: state)]) { _ in (nil, nil) }
+        let expected = TerminalClosePolicy.requiresConfirmation(state: state)
+        #expect(plan.needsConfirmation == expected)
+        var asked = false
+        var closed = false
+        try await GroupSessionEnder.perform(plan, confirm: { _ in
+            asked = true
+            return .cancel
+        }, end: { _ in }, close: { closed = true })
+        #expect(asked == expected)
+        #expect(closed == !expected)
+    }
+
     @Test func idleLocalGroupSkipsConfirmationButHelperGroupsConfirm() async throws {
         for kind in [RestorePaneKind.local, .persistent, .remote] {
             let plan = await GroupSessionEnder.plan([pane(kind)]) { _ in
