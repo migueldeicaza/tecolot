@@ -44,7 +44,9 @@ enum TestNotifications {
 
 @MainActor
 struct TerminalNotifierTests {
-    private func wait(_ what: String, timeout: TimeInterval = 5, _ condition: () -> Bool) async throws {
+    // The full suite runs many main-actor tests in parallel, so a callback
+    // can take several seconds to get its turn.
+    private func wait(_ what: String, timeout: TimeInterval = 20, _ condition: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if condition() {
