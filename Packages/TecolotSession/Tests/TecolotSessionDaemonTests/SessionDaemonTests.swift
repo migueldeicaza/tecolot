@@ -201,6 +201,127 @@ struct SessionDaemonTests {
         }
     }
 
+    /// The shell exits before the helper finishes its start: the record
+    /// still shows the exit.
+    @Test func immediateExitMarksTheRecord() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory.url) }
+        let launch = SessionLaunch(
+            executable: "/bin/sh",
+            arguments: ["-c", "exit 3"],
+            environment: ["PATH=/usr/bin:/bin"],
+            columns: 40,
+            rows: 8
+        )
+        let record = try directory.create(launch, helperPath: try helperPath())
+        defer { kill(record.pid, SIGTERM) }
+        try await waitFor("exit in the record") {
+            directory.readRecord(record.id)?.exited == true
+        }
+        #expect(directory.readRecord(record.id)?.exitCode == 3)
+    }
+
+    /// The record keeps the start time of the helper process, so that a
+    /// slow start does not make the helper look like another process.
+    @Test func recordKeepsTheHelperStartTime() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory.url) }
+        let launch = SessionLaunch(
+            executable: "/bin/sh",
+            arguments: ["-c", "exec sleep 60"],
+            environment: ["PATH=/usr/bin:/bin"],
+            columns: 40,
+            rows: 8
+        )
+        let record = try directory.create(launch, helperPath: try helperPath())
+        defer { kill(record.pid, SIGTERM) }
+        let started = try #require(SessionDirectory.processStartTime(record.pid))
+        #expect(abs(record.createdAt.timeIntervalSince(started)) < 1)
+        #expect(SessionDirectory.isHelperRunning(record))
+    }
+
+    /// The caller stops waiting: no session stays without a pane.
+    @Test func timedOutCreateLeavesNoSession() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory.url) }
+        let launch = SessionLaunch(
+            executable: "/bin/sh",
+            arguments: ["-c", "exec sleep 60"],
+            environment: ["PATH=/usr/bin:/bin"],
+            columns: 40,
+            rows: 8
+        )
+        // Timeout 0: the helper finds no launch file. A short timeout can end
+        // after the helper read the file: it then finds the pipe closed. When
+        // the helper is fast enough, the create works: end that session.
+        #expect(throws: (any Error).self) {
+            _ = try directory.create(launch, helperPath: try helperPath(), timeout: 0)
+        }
+        for timeout in [0.005, 0.01, 0.02, 0.03] {
+            if let record = try? directory.create(launch, helperPath: try helperPath(), timeout: timeout) {
+                try directory.terminate(record.id, signal: SIGTERM)
+            }
+        }
+        // Give the helper time to start (or to fail to start), then check
+        // that it ended and removed its files.
+        try await Task.sleep(nanoseconds: 500_000_000)
+        try await waitFor("no session") {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.url.path)) ?? []
+            return names.allSatisfy {
+                $0.hasSuffix(".log")
+            }
+        }
+        #expect(directory.list().isEmpty)
+    }
+
+    /// The helper reads the launch file and starts the session, but the
+    /// process that started it no longer reads the ready pipe: the helper
+    /// ends the session.
+    @Test func helperEndsTheSessionWhenNobodyWaits() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory.url) }
+        let launch = SessionLaunch(
+            executable: "/bin/sh",
+            arguments: ["-c", "exec sleep 60"],
+            environment: ["PATH=/usr/bin:/bin"],
+            columns: 40,
+            rows: 8
+        )
+        let id = SessionDirectory.makeIdentifier()
+        try JSONEncoder().encode(launch).write(to: directory.launchURL(for: id))
+        var ready: [Int32] = [0, 0]
+        #expect(pipe(&ready) == 0)
+        // Nobody reads the pipe.
+        close(ready[0])
+        let pid = try SessionDirectory.spawn(
+            try helperPath(),
+            arguments: [
+                "tecolot-sessiond",
+                "serve",
+                "--id",
+                id,
+                "--runtime-dir",
+                directory.url.path,
+                "--ready-fd",
+                "3"
+            ],
+            readyFD: ready[1],
+            log: directory.logURL(for: id).path,
+            newSession: true
+        )
+        close(ready[1])
+        var status: Int32 = 0
+        _ = waitpid(pid, &status, 0)
+        try await waitFor("launch file read") {
+            !FileManager.default.fileExists(atPath: directory.launchURL(for: id).path)
+        }
+        try await waitFor("session ended") {
+            !FileManager.default.fileExists(atPath: directory.recordURL(for: id).path)
+                && !FileManager.default.fileExists(atPath: directory.socketPath(for: id))
+                && !FileManager.default.fileExists(atPath: directory.logURL(for: id).path)
+        }
+    }
+
     @Test func badLaunchReportsAnError() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory.url) }

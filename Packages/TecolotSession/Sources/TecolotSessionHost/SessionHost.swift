@@ -1431,7 +1431,10 @@ public final class SessionHost: @unchecked Sendable {
         } else {
             pixels = kittyImages.pixels[request.imageID]
         }
-        guard let pixels, pixels.rgba.count == pixels.width * pixels.height * 4 else {
+        guard
+            let pixels, pixels.rgba.count == pixels.width * pixels.height * 4,
+            pixels.width * pixels.height <= ImageDataMessage.maximumPixels
+        else {
             client.channel.send(
                 ImageDataMessage(imageID: request.imageID, width: 0, height: 0),
                 priority: .bulk, requestID: requestID

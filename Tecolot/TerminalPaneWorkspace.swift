@@ -489,6 +489,11 @@ final class TerminalPaneWorkspace {
             guard liveIDs.contains(controller.id) else {
                 continue
             }
+            // A persistent or remote pane has no local process: the helper
+            // reports its foreground program (SessionInfo).
+            guard controller.persistentView == nil else {
+                continue
+            }
             let currentProcess = controller.terminal?.process
             let currentDescriptor = currentProcess?.running == true ? currentProcess?.childfd : nil
             guard descriptor == currentDescriptor else {

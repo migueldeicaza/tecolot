@@ -41,6 +41,11 @@ extension TerminalSessionController {
     /// that ended does not come back.
     @MainActor
     func restorePane() -> RestorePane? {
+        if isUnshownRestoredPane, let presetRestoration {
+            // A hidden pane of a tab that came back zoomed never got a view,
+            // so nothing started: save the state that it came from.
+            return presetRestoration.pane
+        }
         let kind: RestorePaneKind
         if remoteDestination != nil {
             guard !remoteSessionEnded else {
@@ -70,6 +75,11 @@ extension TerminalSessionController {
         )
     }
 
+    /// A pane of a restored tab that did not get a view yet.
+    var isUnshownRestoredPane: Bool {
+        presetRestoration != nil && terminal == nil && persistentView == nil
+    }
+
     /// The directory to restore. Reads the shell's directory only when no
     /// report came, or the last one came from another host.
     @MainActor
@@ -92,8 +102,15 @@ extension TerminalSessionController {
     /// persistent session.
     @MainActor
     func copyScrollback(limit: Int) -> ScrollbackSnapshot.Pending? {
+        guard limit > 0, persistentView == nil else {
+            return nil
+        }
+        // The shell did not start: save the file that the pane came from.
+        if !hasStartedShell, let restoredTextFile {
+            return ScrollbackSnapshot.Pending(paneID: id, savedFile: restoredTextFile)
+        }
         guard
-            limit > 0, persistentView == nil, let terminal,
+            let terminal,
             let snapshot = terminal.terminalContentSnapshot(
                 region: .history(maximumScrollbackRows: limit),
                 buffer: .normal
@@ -113,11 +130,14 @@ extension TerminalSessionController {
     /// save, also when the file is not read yet. A limit of 0 saves no text.
     @MainActor
     func copyRemoteRows(limit: Int) -> RemoteRowCopy? {
-        guard limit > 0, remoteDestination != nil, let view = persistentView else {
+        guard limit > 0, remoteDestination != nil else {
             return nil
         }
         if let restoredRowsURL {
             return RemoteRowCopy(paneID: id, rows: .saved(restoredRowsURL))
+        }
+        guard let view = persistentView else {
+            return nil
         }
         guard let rows = RemoteRowSnapshot.capture(view.session, sessionID: persistentSessionID ?? "", limit: limit)
         else {
@@ -178,11 +198,17 @@ extension TerminalSessionController {
         Task { [weak self] in
             async let directory = RestoreDirectoryCheck.resolve(path)
             async let saved = Task.detached(priority: .userInitiated) {
-                textURL.flatMap(RestoreStore.takeText(at:))
+                textURL.flatMap(RestoreStore.takeTextFile(at:))
             }.value
-            let (check, text) = await (directory, saved)
+            let (check, file) = await (directory, saved)
             guard let self else {
                 return
+            }
+            let text = file?.decoded
+            // Keep the file until the shell starts: a pane that does not
+            // show (a hidden pane of a zoomed tab) saves it again at quit.
+            if !self.hasStartedShell {
+                self.restoredTextFile = file?.data
             }
             var replay = ""
             if limit > 0, let text {
