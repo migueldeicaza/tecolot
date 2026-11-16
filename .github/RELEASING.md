@@ -125,7 +125,8 @@ refuses to deploy a site that does not carry the feed at that path.
 
 ## Make a release
 
-The tag must contain two or three numeric parts. A leading `v` is optional.
+The tag must contain two or three numeric parts, optionally followed by a
+pre-release suffix such as `-beta.1`. A leading `v` is optional.
 The recommended form is:
 
 ```sh
@@ -133,10 +134,23 @@ git tag -a v1.0.0 -m "Tecolot 1.0.0"
 git push origin v1.0.0
 ```
 
-The workflow uses the tag as `MARKETING_VERSION`. It uses the GitHub run number
-as `CURRENT_PROJECT_VERSION`. If notarization succeeds, the workflow publishes
+The workflow uses the numeric part of the tag as `MARKETING_VERSION`. It uses
+the GitHub run number as `CURRENT_PROJECT_VERSION`. If notarization succeeds,
+the workflow publishes
 `Tecolot-1.0.0.dmg` and `Tecolot-1.0.0.zip` on the GitHub release for that tag,
 then commits the new appcast entry to `main`.
+
+To build a pre-release from a branch, push a tag with a suffix from that branch:
+
+```sh
+git tag -a v0.99.10-session.1 -m "Tecolot 0.99.10 session pre-release"
+git push origin v0.99.10-session.1
+```
+
+Tags with a suffix create a GitHub pre-release and never become the latest
+release. They include the signed, notarized DMG and ZIP, but do not update the
+Sparkle appcast or trigger a website deployment. Stable users continue to
+receive only stable releases through automatic updates.
 
 Sparkle compares `CURRENT_PROJECT_VERSION`, that is `CFBundleVersion`, and not
 the tag. The GitHub run number always increases, which is what Sparkle needs. Do
