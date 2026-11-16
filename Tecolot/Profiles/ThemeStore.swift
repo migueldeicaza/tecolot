@@ -30,8 +30,9 @@ private struct UserThemeMigrator: VersionedDocumentMigrator {
     }
 
     func validate(_ theme: TerminalTheme) throws {
-        guard theme.isValid,
-              !theme.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard
+            theme.isValid,
+            !theme.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw VersionedPersistenceError.invalidDocument("The theme contains invalid values.")
         }
     }
@@ -132,12 +133,16 @@ public final class ThemeStore: ObservableObject {
         favorites = favoritesResult.value ?? []
         issueCenter?.replaceIssues(
             in: .themeFavorites,
-            with: favoritesResult.issue.map { [$0] } ?? []
+            with: favoritesResult.issue.map {
+                [$0]
+            } ?? []
         )
     }
 
     public func theme(named name: String) -> TerminalTheme {
-        themes.first { $0.name == name } ?? TerminalTheme.fallback
+        themes.first {
+            $0.name == name
+        } ?? TerminalTheme.fallback
     }
 
     /// The theme that keeps `name` from being used for a user theme, or nil.
@@ -157,8 +162,12 @@ public final class ThemeStore: ObservableObject {
     }
 
     public func themes(matching query: String) -> [TerminalTheme] {
-        guard !query.isEmpty else { return themes }
-        return themes.filter { $0.name.localizedCaseInsensitiveContains(query) }
+        guard !query.isEmpty else {
+            return themes
+        }
+        return themes.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+        }
     }
 
     public func forkName(basedOn base: String) -> String {
@@ -237,7 +246,9 @@ public final class ThemeStore: ObservableObject {
             try ensureFavoritesAreWritable()
         }
 
-        let sourceURL = existingUserThemeName.flatMap { userThemeFiles[$0] }
+        let sourceURL = existingUserThemeName.flatMap {
+            userThemeFiles[$0]
+        }
         let originalSourceData: Data?
         if isRename, let sourceURL {
             do {
@@ -274,9 +285,10 @@ public final class ThemeStore: ObservableObject {
             }
         }
 
-        if isRename,
-           let existingUserThemeName,
-           favorites.contains(existingUserThemeName) {
+        if
+            isRename,
+            let existingUserThemeName,
+            favorites.contains(existingUserThemeName) {
             let oldFavorites = favorites
             favorites.remove(existingUserThemeName)
             favorites.insert(copy.name)
@@ -302,7 +314,10 @@ public final class ThemeStore: ObservableObject {
         // The failed document can contain this theme even when the fallback set
         // is empty, so every deletion must wait for favorites recovery.
         try ensureFavoritesAreWritable()
-        guard let theme = themes.first(where: { $0.name == name }), !theme.isBuiltIn else {
+        guard
+            let theme = themes.first(where: {
+                $0.name == name
+            }), !theme.isBuiltIn else {
             throw ProfilesError.themeIsBuiltIn
         }
         let url = userThemeFiles[name]
@@ -349,10 +364,11 @@ public final class ThemeStore: ObservableObject {
             }
             imported = try migrator.decode(data, from: version)
             try migrator.validate(imported)
-        } else if let iTermTheme = ThemeStore.iTermTheme(
-            from: data,
-            name: url.deletingPathExtension().lastPathComponent
-        ) {
+        } else if
+            let iTermTheme = ThemeStore.iTermTheme(
+                from: data,
+                name: url.deletingPathExtension().lastPathComponent
+            ) {
             imported = iTermTheme
         } else {
             throw ProfilesError.invalidTheme
@@ -376,18 +392,20 @@ public final class ThemeStore: ObservableObject {
     }
 
     nonisolated private static func loadRawThemes(in directory: URL) -> [TerminalTheme] {
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil
-        ) else {
+        guard
+            let files = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil
+            ) else {
             return []
         }
         return files.compactMap { file in
-            guard file.pathExtension == "json",
-                  file.lastPathComponent != "favorites.json",
-                  let data = try? Data(contentsOf: file),
-                  let theme = try? JSONDecoder().decode(TerminalTheme.self, from: data),
-                  theme.isValid else {
+            guard
+                file.pathExtension == "json",
+                file.lastPathComponent != "favorites.json",
+                let data = try? Data(contentsOf: file),
+                let theme = try? JSONDecoder().decode(TerminalTheme.self, from: data),
+                theme.isValid else {
                 return nil
             }
             return theme
@@ -395,11 +413,14 @@ public final class ThemeStore: ObservableObject {
     }
 
     nonisolated static func loadFavorites(from url: URL) -> Set<String> {
-        guard let data = try? Data(contentsOf: url) else { return [] }
+        guard let data = try? Data(contentsOf: url) else {
+            return []
+        }
         let migrator = FavoritesMigrator()
-        guard let version = try? migrator.sourceVersion(in: data),
-              version <= migrator.currentVersion,
-              let value = try? migrator.decode(data, from: version) else {
+        guard
+            let version = try? migrator.sourceVersion(in: data),
+            version <= migrator.currentVersion,
+            let value = try? migrator.decode(data, from: version) else {
             return []
         }
         return value
@@ -426,16 +447,22 @@ public final class ThemeStore: ObservableObject {
         }
         var values: [(TerminalTheme, URL)] = []
         var issues: [PersistenceIssue] = []
-        for file in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
-        where file.pathExtension == "json" && file.lastPathComponent != "favorites.json" {
+        for file in files.sorted(by: {
+            $0.lastPathComponent < $1.lastPathComponent
+        })
+            where file.pathExtension == "json" && file.lastPathComponent != "favorites.json" {
             let result = VersionedFileLoader.load(
                 from: file,
                 domain: .userThemes,
                 backupRoot: backupDirectory,
                 migrator: UserThemeMigrator()
             )
-            if let value = result.value { values.append((value, file)) }
-            if let issue = result.issue { issues.append(issue) }
+            if let value = result.value {
+                values.append((value, file))
+            }
+            if let issue = result.issue {
+                issues.append(issue)
+            }
         }
         return (values, issues)
     }
@@ -455,18 +482,22 @@ public final class ThemeStore: ObservableObject {
     }
 
     nonisolated private static func iTermTheme(from data: Data, name: String) -> TerminalTheme? {
-        guard let propertyList = try? PropertyListSerialization.propertyList(
-            from: data,
-            options: [],
-            format: nil
-        ), let dictionary = propertyList as? [String: Any] else {
+        guard
+            let propertyList = try? PropertyListSerialization.propertyList(
+                from: data,
+                options: [],
+                format: nil
+            ), let dictionary = propertyList as? [String: Any] else {
             return nil
         }
 
-        let ansi = (0..<16).compactMap { color(named: "Ansi \($0) Color", in: dictionary) }
-        guard ansi.count == 16,
-              let foreground = color(named: "Foreground Color", in: dictionary),
-              let background = color(named: "Background Color", in: dictionary) else {
+        let ansi = (0..<16).compactMap {
+            color(named: "Ansi \($0) Color", in: dictionary)
+        }
+        guard
+            ansi.count == 16,
+            let foreground = color(named: "Foreground Color", in: dictionary),
+            let background = color(named: "Background Color", in: dictionary) else {
             return nil
         }
         return TerminalTheme(
@@ -485,11 +516,12 @@ public final class ThemeStore: ObservableObject {
         named name: String,
         in dictionary: [String: Any]
     ) -> ProfileColor? {
-        guard let components = dictionary[name] as? [String: Any],
-              let red = (components["Red Component"] as? NSNumber)?.doubleValue,
-              let green = (components["Green Component"] as? NSNumber)?.doubleValue,
-              let blue = (components["Blue Component"] as? NSNumber)?.doubleValue,
-              red.isFinite, green.isFinite, blue.isFinite else {
+        guard
+            let components = dictionary[name] as? [String: Any],
+            let red = (components["Red Component"] as? NSNumber)?.doubleValue,
+            let green = (components["Green Component"] as? NSNumber)?.doubleValue,
+            let blue = (components["Blue Component"] as? NSNumber)?.doubleValue,
+            red.isFinite, green.isFinite, blue.isFinite else {
             return nil
         }
 
@@ -516,7 +548,9 @@ public final class ThemeStore: ObservableObject {
         destinationURL: URL,
         originalSourceData: Data?
     ) {
-        guard let sourceURL, let originalSourceData else { return }
+        guard let sourceURL, let originalSourceData else {
+            return
+        }
         if sourceURL.standardizedFileURL == destinationURL.standardizedFileURL {
             try? originalSourceData.write(to: sourceURL, options: .atomic)
         } else {
@@ -549,13 +583,20 @@ public enum ProfilesError: Error, Equatable {
 extension ProfilesError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case .invalidTheme: return "The theme file is not valid."
-        case .themeIsBuiltIn: return "A built-in theme cannot be changed."
-        case .duplicateThemeName: return "A theme with this name, or a very similar name, already exists."
-        case .invalidName: return "Enter a profile name."
-        case .duplicateName: return "A profile with this name already exists."
-        case .cannotDeleteLastProfile: return "The last profile cannot be deleted."
-        case .profileNotFound: return "The profile no longer exists."
+        case .invalidTheme:
+            return "The theme file is not valid."
+        case .themeIsBuiltIn:
+            return "A built-in theme cannot be changed."
+        case .duplicateThemeName:
+            return "A theme with this name, or a very similar name, already exists."
+        case .invalidName:
+            return "Enter a profile name."
+        case .duplicateName:
+            return "A profile with this name already exists."
+        case .cannotDeleteLastProfile:
+            return "The last profile cannot be deleted."
+        case .profileNotFound:
+            return "The profile no longer exists."
         }
     }
 }

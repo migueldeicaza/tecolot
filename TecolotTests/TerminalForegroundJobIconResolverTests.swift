@@ -50,9 +50,11 @@ struct TerminalForegroundJobIconResolverTests {
     }
 
     @Test func shellUnknownMemberAndInspectionFailureClearRememberedCommand() {
-        for next in [snapshot([process(101, "/bin/zsh")]),
-                     snapshot([process(101, "/usr/bin/less"), process(102, nil)]),
-                     snapshot([])] {
+        for next in [
+            snapshot([process(101, "/bin/zsh")]),
+            snapshot([process(101, "/usr/bin/less"), process(102, nil)]),
+            snapshot([])
+        ] {
             var resolver = TerminalForegroundJobIconResolver()
             _ = resolver.executablePath(for: snapshot([process(100, "/usr/bin/git"), process(101, "/usr/bin/less")]), descriptor: 4)
             _ = resolver.executablePath(for: next, descriptor: 4)
@@ -66,7 +68,9 @@ struct TerminalForegroundJobIconResolverTests {
 
     @Test func inspectorFindsCurrentProcessInItsGroup() {
         let processes = SystemTerminalProcessInspector().foregroundProcesses(in: getpgrp())
-        #expect(processes.contains { $0.processID == getpid() && $0.startSeconds > 0 && $0.executablePath != nil })
+        #expect(processes.contains {
+            $0.processID == getpid() && $0.startSeconds > 0 && $0.executablePath != nil
+        })
         #expect(SystemTerminalProcessInspector().foregroundProcesses(in: -1).isEmpty)
     }
 }

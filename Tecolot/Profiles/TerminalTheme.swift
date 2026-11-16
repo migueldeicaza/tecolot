@@ -10,7 +10,9 @@ import Foundation
 
 public struct TerminalTheme: Identifiable, Codable, Equatable, Sendable {
     /// Stable identifier derived from the name (lowercased, dashed)
-    public var id: String { TerminalTheme.slug (for: name) }
+    public var id: String {
+        TerminalTheme.slug (for: name)
+    }
 
     /// Display name, unique within a store
     public var name: String
@@ -44,11 +46,18 @@ public struct TerminalTheme: Identifiable, Codable, Equatable, Sendable {
         case selectionBackground, selectionText
     }
 
-    public init (name: String, ansi: [ProfileColor], foreground: ProfileColor,
-                 background: ProfileColor, cursor: ProfileColor? = nil,
-                 cursorText: ProfileColor? = nil, selectionBackground: ProfileColor? = nil,
-                 selectionText: ProfileColor? = nil, isBuiltIn: Bool = false,
-                 baseThemeName: String? = nil) {
+    public init (
+        name: String,
+        ansi: [ProfileColor],
+        foreground: ProfileColor,
+        background: ProfileColor,
+        cursor: ProfileColor? = nil,
+        cursorText: ProfileColor? = nil,
+        selectionBackground: ProfileColor? = nil,
+        selectionText: ProfileColor? = nil,
+        isBuiltIn: Bool = false,
+        baseThemeName: String? = nil
+    ) {
         self.name = name
         self.baseThemeName = baseThemeName
         self.ansi = ansi

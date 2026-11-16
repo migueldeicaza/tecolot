@@ -120,9 +120,10 @@ struct ThemeMapView: View {
             }
             .gesture(
                 SpatialTapGesture().onEnded { value in
-                    if let name = nearestTheme(
-                        to: value.location, points: points, matching: matching, in: rect
-                    ) {
+                    if
+                        let name = nearestTheme(
+                            to: value.location, points: points, matching: matching, in: rect
+                        ) {
                         pinnedThemeName = name
                         selectTheme(named: name)
                     }
@@ -134,8 +135,9 @@ struct ThemeMapView: View {
                 handleKey(press, points: points, matching: matching, in: rect)
             }
             .contextMenu {
-                if let onShowSimilar,
-                   let name = hoveredThemeName ?? pinnedThemeName {
+                if
+                    let onShowSimilar,
+                    let name = hoveredThemeName ?? pinnedThemeName {
                     Button("Show Similar Themes") {
                         onShowSimilar(name)
                     }
@@ -147,7 +149,9 @@ struct ThemeMapView: View {
         }
         .onChange(of: mode) { oldMode, _ in
             fromPositions = Dictionary(
-                uniqueKeysWithValues: projectedPoints(for: oldMode).map { ($0.id, $0.position) }
+                uniqueKeysWithValues: projectedPoints(for: oldMode).map {
+                    ($0.id, $0.position)
+                }
             )
             clearHover()
             animationProgress = 0
@@ -161,14 +165,18 @@ struct ThemeMapView: View {
     // MARK: - Projection
 
     private func projectedPoints(for mode: ThemePlotMode) -> [ThemePlotPoint] {
-        guard let catalog else { return [] }
+        guard let catalog else {
+            return []
+        }
         return ThemeProjection.project(
             themes: themes, metrics: metrics, catalog: catalog, mode: mode
         )
     }
 
     private var matchingNames: Set<String> {
-        Set(themes.map(\.name).filter { ThemeBrowserSections.matches($0, query: query) })
+        Set(themes.map(\.name).filter {
+            ThemeBrowserSections.matches($0, query: query)
+        })
     }
 
     // MARK: - Hover
@@ -177,14 +185,20 @@ struct ThemeMapView: View {
         at location: CGPoint, points: [ThemePlotPoint], matching: Set<String>, in rect: CGRect
     ) {
         let name = nearestTheme(to: location, points: points, matching: matching, in: rect)
-        guard name != hoveredThemeName else { return }
+        guard name != hoveredThemeName else {
+            return
+        }
         hoveredThemeName = name
         showHoverCard = false
         hoverDebounce?.cancel()
-        guard name != nil else { return }
+        guard name != nil else {
+            return
+        }
         hoverDebounce = Task {
             try? await Task.sleep(for: .milliseconds(100))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                return
+            }
             showHoverCard = true
         }
     }
@@ -216,10 +230,17 @@ struct ThemeMapView: View {
     private func coLocatedGroup(
         around name: String, points: [ThemePlotPoint], matching: Set<String>, in rect: CGRect
     ) -> [String] {
-        guard let anchor = points.first(where: { $0.id == name }) else { return [name] }
+        guard
+            let anchor = points.first(where: {
+                $0.id == name
+            }) else {
+            return [name]
+        }
         let anchorPoint = PlotGeometry.viewPoint(for: anchor.position, in: rect)
         return points.filter { point in
-            guard matching.contains(point.id) else { return false }
+            guard matching.contains(point.id) else {
+                return false
+            }
             let viewPoint = PlotGeometry.viewPoint(for: point.position, in: rect)
             return hypot(anchorPoint.x - viewPoint.x, anchorPoint.y - viewPoint.y)
                 <= PlotGeometry.coLocatedRadius
@@ -230,7 +251,12 @@ struct ThemeMapView: View {
     // MARK: - Selection and keyboard
 
     private func selectTheme(named name: String) {
-        guard let theme = themes.first(where: { $0.name == name }) else { return }
+        guard
+            let theme = themes.first(where: {
+                $0.name == name
+            }) else {
+            return
+        }
         onSelect(theme)
     }
 
@@ -239,18 +265,23 @@ struct ThemeMapView: View {
     ) -> KeyPress.Result {
         switch press.key {
         case .return:
-            guard let name = pinnedThemeName ?? hoveredThemeName else { return .ignored }
+            guard let name = pinnedThemeName ?? hoveredThemeName else {
+                return .ignored
+            }
             selectTheme(named: name)
             return .handled
         case .escape:
             // With no pin, Escape falls through (and closes the popover)
-            guard pinnedThemeName != nil else { return .ignored }
+            guard pinnedThemeName != nil else {
+                return .ignored
+            }
             pinnedThemeName = nil
             return .handled
         case .upArrow, .downArrow, .leftArrow, .rightArrow:
             // While hovering a co-located pile, ↑/↓ cycles through it
-            if let hovered = hoveredThemeName,
-               press.key == .upArrow || press.key == .downArrow {
+            if
+                let hovered = hoveredThemeName,
+                press.key == .upArrow || press.key == .downArrow {
                 let group = coLocatedGroup(
                     around: hovered, points: points, matching: matching, in: rect
                 )
@@ -262,14 +293,19 @@ struct ThemeMapView: View {
             }
             let direction: CGVector
             switch press.key {
-            case .upArrow: direction = CGVector(dx: 0, dy: -1)
-            case .downArrow: direction = CGVector(dx: 0, dy: 1)
-            case .leftArrow: direction = CGVector(dx: -1, dy: 0)
-            default: direction = CGVector(dx: 1, dy: 0)
+            case .upArrow:
+                direction = CGVector(dx: 0, dy: -1)
+            case .downArrow:
+                direction = CGVector(dx: 0, dy: 1)
+            case .leftArrow:
+                direction = CGVector(dx: -1, dy: 0)
+            default:
+                direction = CGVector(dx: 1, dy: 0)
             }
-            if let next = nextTheme(
-                inDirection: direction, points: points, matching: matching, in: rect
-            ) {
+            if
+                let next = nextTheme(
+                    inDirection: direction, points: points, matching: matching, in: rect
+                ) {
                 pinnedThemeName = next
             }
             return .handled
@@ -286,7 +322,10 @@ struct ThemeMapView: View {
     ) -> String? {
         let anchorName = pinnedThemeName ?? hoveredThemeName ?? selectedThemeName
         let anchorPosition: CGPoint
-        if let anchor = points.first(where: { $0.id == anchorName }) {
+        if
+            let anchor = points.first(where: {
+                $0.id == anchorName
+            }) {
             anchorPosition = PlotGeometry.viewPoint(for: anchor.position, in: rect)
         } else {
             anchorPosition = CGPoint(x: rect.midX, y: rect.midY)
@@ -297,9 +336,13 @@ struct ThemeMapView: View {
             let dx = viewPoint.x - anchorPosition.x
             let dy = viewPoint.y - anchorPosition.y
             let along = dx * direction.dx + dy * direction.dy
-            guard along > 0 else { continue }
+            guard along > 0 else {
+                continue
+            }
             let distance = hypot(dx, dy)
-            guard distance > 0 else { continue }
+            guard distance > 0 else {
+                continue
+            }
             let anglePenalty = 1 - along / distance  // 0 straight ahead, 1 perpendicular
             let score = distance * (1 + 3 * anglePenalty)
             if score < (best?.score ?? .infinity) {
@@ -316,11 +359,16 @@ struct ThemeMapView: View {
         points: [ThemePlotPoint], matching: Set<String>, in rect: CGRect, size: CGSize
     ) -> some View {
         // The card is strictly hover-driven; leaving the point dismisses it
-        if showHoverCard,
-           let cardName = hoveredThemeName,
-           let theme = themes.first(where: { $0.name == cardName }),
-           let themeMetrics = metrics[cardName],
-           let point = points.first(where: { $0.id == cardName }) {
+        if
+            showHoverCard,
+            let cardName = hoveredThemeName,
+            let theme = themes.first(where: {
+                $0.name == cardName
+            }),
+            let themeMetrics = metrics[cardName],
+            let point = points.first(where: {
+                $0.id == cardName
+            }) {
             let anchor = PlotGeometry.viewPoint(for: point.position, in: rect)
             let cardSize = CGSize(width: 244, height: 200)
             let x = min(max(anchor.x + 16, 4), max(size.width - cardSize.width - 4, 4))
@@ -405,7 +453,10 @@ private struct PlotCanvas: View, Animatable {
             for point in points where point.id != hoveredID {
                 draw(point, in: context, rect: rect)
             }
-            if let hovered = points.first(where: { $0.id == hoveredID }) {
+            if
+                let hovered = points.first(where: {
+                    $0.id == hoveredID
+                }) {
                 draw(hovered, in: context, rect: rect)
             }
         }

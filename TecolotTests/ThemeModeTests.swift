@@ -42,7 +42,9 @@ struct ThemeModeTests {
         #expect(changed)
         #expect(profile.darkThemeName == TerminalProfile.defaultThemeName(isDark: true))
         #expect(profile.lightThemeName == TerminalProfile.defaultThemeName(isDark: false))
-        #expect(!profile.replaceThemeName("Absent") { _ in "Other" })
+        #expect(!profile.replaceThemeName("Absent") { _ in
+            "Other"
+        })
     }
 
     // MARK: Groups
@@ -99,7 +101,9 @@ struct ThemeModeTests {
         first.setThemeName("Mine", isDark: true)
         try profiles.update(first)
 
-        try profiles.replaceThemeName("Mine") { _ in "Renamed" }
+        try profiles.replaceThemeName("Mine") { _ in
+            "Renamed"
+        }
 
         #expect(profiles.defaultProfile.darkThemeName == "Renamed")
         #expect(profiles.profile(named: "Second")?.lightThemeName == "Renamed")
@@ -115,7 +119,9 @@ struct ThemeLibraryTests {
         let directory: URL
         let themes: ThemeStore
         let profiles: ProfileStore
-        var library: ThemeLibrary { ThemeLibrary(themes: themes, profiles: profiles) }
+        var library: ThemeLibrary {
+            ThemeLibrary(themes: themes, profiles: profiles)
+        }
     }
 
     private func makeFixture() throws -> Fixture {
@@ -150,8 +156,12 @@ struct ThemeLibraryTests {
 
         #expect(fixture.profiles.defaultProfile.darkThemeName == "Mine2")
         #expect(fixture.profiles.defaultProfile.lightThemeName == "Mine2")
-        #expect(fixture.themes.themes.contains { $0.name == "Mine2" })
-        #expect(!fixture.themes.themes.contains { $0.name == "Mine" })
+        #expect(fixture.themes.themes.contains {
+            $0.name == "Mine2"
+        })
+        #expect(!fixture.themes.themes.contains {
+            $0.name == "Mine"
+        })
     }
 
     @Test func failedRenameKeepsProfiles() throws {
@@ -171,8 +181,12 @@ struct ThemeLibraryTests {
             try fixture.library.save(renamed, replacing: "Mine")
         }
         #expect(fixture.profiles.defaultProfile.darkThemeName == "Mine")
-        #expect(fixture.themes.themes.contains { $0.name == "Mine" })
-        #expect(fixture.themes.themes.contains { $0.name == "Other!" })
+        #expect(fixture.themes.themes.contains {
+            $0.name == "Mine"
+        })
+        #expect(fixture.themes.themes.contains {
+            $0.name == "Other!"
+        })
     }
 
     @Test func deleteUsesBaseOnlyForTheSameMode() throws {
@@ -190,7 +204,9 @@ struct ThemeLibraryTests {
 
         #expect(fixture.profiles.defaultProfile.darkThemeName == "Dracula")
         #expect(fixture.profiles.defaultProfile.lightThemeName == TerminalProfile.defaultThemeName(isDark: false))
-        #expect(!fixture.themes.themes.contains { $0.name == "Mine" })
+        #expect(!fixture.themes.themes.contains {
+            $0.name == "Mine"
+        })
     }
 
     @Test func similarFileNameIsAConflict() throws {

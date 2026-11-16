@@ -92,7 +92,9 @@ final class ThemeBrowserSectionsTests {
             favorites: ["Zealous Favorite"],
             query: "",
             page: nil,
-            order: { index.sorted($0, by: .backgroundLightness) }
+            order: {
+                index.sorted($0, by: .backgroundLightness)
+            }
         )
 
         #expect(sections.favorites.map(\.name) == ["Zealous Favorite"])
@@ -113,7 +115,9 @@ final class ThemeBrowserSectionsTests {
             favorites: [],
             query: "",
             page: nil,
-            order: { index.sorted($0, by: .foregroundContrast) }
+            order: {
+                index.sorted($0, by: .foregroundContrast)
+            }
         )
 
         #expect(sections.others.map(\.name) == ["Alpha Twin", "Beta Twin"])

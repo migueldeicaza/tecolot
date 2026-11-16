@@ -37,7 +37,7 @@ struct ThemeHoverCard: View {
                     statRow(
                         "Palette",
                         "\(percent(metrics.ansiColorfulness, in: catalog.colorfulnessSorted)) colorful, "
-                        + "\(percent(metrics.ansiSeparationP10, in: catalog.distinctnessSorted)) distinct"
+                            + "\(percent(metrics.ansiSeparationP10, in: catalog.distinctnessSorted)) distinct"
                     )
                 }
             }

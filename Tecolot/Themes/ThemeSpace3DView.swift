@@ -11,7 +11,9 @@ private struct ProjectedThemePoint3D: Identifiable {
     let screenPoint: CGPoint
     let depth: Double
 
-    var id: String { point.id }
+    var id: String {
+        point.id
+    }
 }
 
 struct ThemeSpace3DView: View {
@@ -45,12 +47,12 @@ struct ThemeSpace3DView: View {
                     matching: matching,
                     hoveredID: hoveredThemeName,
                     pinnedID: pinnedThemeName,
-                selectedID: selectedThemeName,
-                mode: mode,
-                camera: activeCamera,
-                horizontalScale: horizontalProjectionScale,
-                emphasis: emphasis,
-                neighborIDs: neighborIDs
+                    selectedID: selectedThemeName,
+                    mode: mode,
+                    camera: activeCamera,
+                    horizontalScale: horizontalProjectionScale,
+                    emphasis: emphasis,
+                    neighborIDs: neighborIDs
                 )
                 hoverCard(points: projected, matching: matching, size: geometry.size)
             }
@@ -118,8 +120,9 @@ struct ThemeSpace3DView: View {
                 )
             }
             .contextMenu {
-                if let onShowSimilar,
-                   let name = hoveredThemeName ?? pinnedThemeName {
+                if
+                    let onShowSimilar,
+                    let name = hoveredThemeName ?? pinnedThemeName {
                     Button("Show Similar Themes") {
                         onShowSimilar(name)
                     }
@@ -143,7 +146,9 @@ struct ThemeSpace3DView: View {
     }
 
     private var matchingNames: Set<String> {
-        Set(themes.map(\.name).filter { ThemeBrowserSections.matches($0, query: query) })
+        Set(themes.map(\.name).filter {
+            ThemeBrowserSections.matches($0, query: query)
+        })
     }
 
     /// Color Space is a chroma ring rather than a cube. It can use the
@@ -153,7 +158,9 @@ struct ThemeSpace3DView: View {
     }
 
     private func projectedPoints(in size: CGSize) -> [ProjectedThemePoint3D] {
-        guard let catalog else { return [] }
+        guard let catalog else {
+            return []
+        }
         let points = ThemeProjection3D.project(
             themes: themes,
             metrics: metrics,
@@ -194,14 +201,20 @@ struct ThemeSpace3DView: View {
         matching: Set<String>
     ) {
         let name = nearestTheme(to: location, points: points, matching: matching)
-        guard name != hoveredThemeName else { return }
+        guard name != hoveredThemeName else {
+            return
+        }
         hoveredThemeName = name
         showHoverCard = false
         hoverDebounce?.cancel()
-        guard name != nil else { return }
+        guard name != nil else {
+            return
+        }
         hoverDebounce = Task {
             try? await Task.sleep(for: .milliseconds(100))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                return
+            }
             showHoverCard = true
         }
     }
@@ -220,11 +233,15 @@ struct ThemeSpace3DView: View {
         matching: Set<String>
     ) -> String? {
         points
-            .filter { matching.contains($0.id) }
+            .filter {
+                matching.contains($0.id)
+            }
             .map { point in
                 (point: point, distance: hypot(location.x - point.screenPoint.x, location.y - point.screenPoint.y))
             }
-            .filter { $0.distance <= PlotGeometry.hitRadius }
+            .filter {
+                $0.distance <= PlotGeometry.hitRadius
+            }
             .sorted {
                 if abs($0.distance - $1.distance) > 0.001 {
                     return $0.distance < $1.distance
@@ -240,7 +257,12 @@ struct ThemeSpace3DView: View {
         points: [ProjectedThemePoint3D],
         matching: Set<String>
     ) -> [String] {
-        guard let anchor = points.first(where: { $0.id == name }) else { return [name] }
+        guard
+            let anchor = points.first(where: {
+                $0.id == name
+            }) else {
+            return [name]
+        }
         return points
             .filter { point in
                 matching.contains(point.id)
@@ -269,13 +291,20 @@ struct ThemeSpace3DView: View {
     // MARK: - Selection and keyboard
 
     private func select(at location: CGPoint, points: [ProjectedThemePoint3D], matching: Set<String>) {
-        guard let name = nearestTheme(to: location, points: points, matching: matching) else { return }
+        guard let name = nearestTheme(to: location, points: points, matching: matching) else {
+            return
+        }
         pinnedThemeName = name
         selectTheme(named: name)
     }
 
     private func selectTheme(named name: String) {
-        guard let theme = themes.first(where: { $0.name == name }) else { return }
+        guard
+            let theme = themes.first(where: {
+                $0.name == name
+            }) else {
+            return
+        }
         onSelect(theme)
     }
 
@@ -286,26 +315,35 @@ struct ThemeSpace3DView: View {
         defaultAnchor: CGPoint
     ) -> KeyPress.Result {
         if press.characters == "+" || press.characters == "=" {
-            updateCamera { $0.setZoom($0.zoom * 1.2) }
+            updateCamera {
+                $0.setZoom($0.zoom * 1.2)
+            }
             return .handled
         }
         if press.characters == "-" {
-            updateCamera { $0.setZoom($0.zoom / 1.2) }
+            updateCamera {
+                $0.setZoom($0.zoom / 1.2)
+            }
             return .handled
         }
 
         switch press.key {
         case .return:
-            guard let name = pinnedThemeName ?? hoveredThemeName else { return .ignored }
+            guard let name = pinnedThemeName ?? hoveredThemeName else {
+                return .ignored
+            }
             selectTheme(named: name)
             return .handled
         case .escape:
-            guard pinnedThemeName != nil else { return .ignored }
+            guard pinnedThemeName != nil else {
+                return .ignored
+            }
             pinnedThemeName = nil
             return .handled
         case .upArrow, .downArrow, .leftArrow, .rightArrow:
-            if let hovered = hoveredThemeName,
-               press.key == .upArrow || press.key == .downArrow {
+            if
+                let hovered = hoveredThemeName,
+                press.key == .upArrow || press.key == .downArrow {
                 let group = coLocatedGroup(around: hovered, points: points, matching: matching)
                 if group.count > 1, let index = group.firstIndex(of: hovered) {
                     let step = press.key == .downArrow ? 1 : group.count - 1
@@ -315,17 +353,22 @@ struct ThemeSpace3DView: View {
             }
             let direction: CGVector
             switch press.key {
-            case .upArrow: direction = CGVector(dx: 0, dy: -1)
-            case .downArrow: direction = CGVector(dx: 0, dy: 1)
-            case .leftArrow: direction = CGVector(dx: -1, dy: 0)
-            default: direction = CGVector(dx: 1, dy: 0)
+            case .upArrow:
+                direction = CGVector(dx: 0, dy: -1)
+            case .downArrow:
+                direction = CGVector(dx: 0, dy: 1)
+            case .leftArrow:
+                direction = CGVector(dx: -1, dy: 0)
+            default:
+                direction = CGVector(dx: 1, dy: 0)
             }
-            if let next = nextTheme(
-                inDirection: direction,
-                points: points,
-                matching: matching,
-                defaultAnchor: defaultAnchor
-            ) {
+            if
+                let next = nextTheme(
+                    inDirection: direction,
+                    points: points,
+                    matching: matching,
+                    defaultAnchor: defaultAnchor
+                ) {
                 pinnedThemeName = next
             }
             return .handled
@@ -341,16 +384,22 @@ struct ThemeSpace3DView: View {
         defaultAnchor: CGPoint
     ) -> String? {
         let anchorName = pinnedThemeName ?? hoveredThemeName ?? selectedThemeName
-        let anchor = points.first(where: { $0.id == anchorName })?.screenPoint
+        let anchor = points.first(where: {
+            $0.id == anchorName
+        })?.screenPoint
             ?? defaultAnchor
         var best: (name: String, score: CGFloat)?
         for point in points where matching.contains(point.id) && point.id != anchorName {
             let dx = point.screenPoint.x - anchor.x
             let dy = point.screenPoint.y - anchor.y
             let along = dx * direction.dx + dy * direction.dy
-            guard along > 0 else { continue }
+            guard along > 0 else {
+                continue
+            }
             let distance = hypot(dx, dy)
-            guard distance > 0 else { continue }
+            guard distance > 0 else {
+                continue
+            }
             let anglePenalty = 1 - along / distance
             let score = distance * (1 + 3 * anglePenalty)
             if score < (best?.score ?? .infinity) {
@@ -363,14 +412,21 @@ struct ThemeSpace3DView: View {
     // MARK: - Similarity rendering
 
     private func similarityEmphasis(for points: [ProjectedThemePoint3D]) -> [String: Double] {
-        guard mode == .similaritySpace3D,
-              let pinnedName = pinnedThemeName,
-              let pinnedMetrics = metrics[pinnedName] else { return [:] }
+        guard
+            mode == .similaritySpace3D,
+            let pinnedName = pinnedThemeName,
+            let pinnedMetrics = metrics[pinnedName] else {
+            return [:]
+        }
         let distances = points.compactMap { point -> (String, Double)? in
-            guard let other = metrics[point.id] else { return nil }
+            guard let other = metrics[point.id] else {
+                return nil
+            }
             return (point.id, themeDistance(pinnedMetrics, other))
         }
-        let nonzero = distances.map(\.1).filter { $0 > 0 }
+        let nonzero = distances.map(\.1).filter {
+            $0 > 0
+        }
         let sigma = max(ThemeColorMath.quantile(nonzero, 0.20), 1e-12)
         return Dictionary(uniqueKeysWithValues: distances.map { name, distance in
             let emphasis = exp(-(distance * distance) / (2 * sigma * sigma))
@@ -379,17 +435,26 @@ struct ThemeSpace3DView: View {
     }
 
     private func similarityNeighborIDs(for points: [ProjectedThemePoint3D]) -> Set<String> {
-        guard mode == .similaritySpace3D,
-              let pinnedName = pinnedThemeName,
-              let pinnedMetrics = metrics[pinnedName] else { return [] }
+        guard
+            mode == .similaritySpace3D,
+            let pinnedName = pinnedThemeName,
+            let pinnedMetrics = metrics[pinnedName] else {
+            return []
+        }
         return Set(
             points
-                .filter { $0.id != pinnedName }
+                .filter {
+                    $0.id != pinnedName
+                }
                 .compactMap { point -> (String, Double)? in
-                    guard let other = metrics[point.id] else { return nil }
+                    guard let other = metrics[point.id] else {
+                        return nil
+                    }
                     return (point.id, themeDistance(pinnedMetrics, other))
                 }
-                .sorted { $0.1 < $1.1 }
+                .sorted {
+                    $0.1 < $1.1
+                }
                 .prefix(5)
                 .map(\.0)
         )
@@ -403,11 +468,16 @@ struct ThemeSpace3DView: View {
         matching: Set<String>,
         size: CGSize
     ) -> some View {
-        if showHoverCard,
-           let cardName = hoveredThemeName,
-           let theme = themes.first(where: { $0.name == cardName }),
-           let themeMetrics = metrics[cardName],
-           let point = points.first(where: { $0.id == cardName }) {
+        if
+            showHoverCard,
+            let cardName = hoveredThemeName,
+            let theme = themes.first(where: {
+                $0.name == cardName
+            }),
+            let themeMetrics = metrics[cardName],
+            let point = points.first(where: {
+                $0.id == cardName
+            }) {
             let cardSize = CGSize(width: 244, height: 220)
             let x = min(max(point.screenPoint.x + 16, 4), max(size.width - cardSize.width - 4, 4))
             let above = point.screenPoint.y > size.height * 0.55
@@ -431,15 +501,27 @@ struct ThemeSpace3DView: View {
         of name: String,
         in points: [ProjectedThemePoint3D]
     ) -> (rank: Int, total: Int)? {
-        guard mode == .similaritySpace3D,
-              let pinnedName = pinnedThemeName,
-              let pinnedMetrics = metrics[pinnedName] else { return nil }
+        guard
+            mode == .similaritySpace3D,
+            let pinnedName = pinnedThemeName,
+            let pinnedMetrics = metrics[pinnedName] else {
+            return nil
+        }
         let ordered = points.compactMap { point -> (String, Double)? in
-            guard let other = metrics[point.id] else { return nil }
+            guard let other = metrics[point.id] else {
+                return nil
+            }
             return (point.id, themeDistance(pinnedMetrics, other))
         }
-        .sorted { $0.1 < $1.1 }
-        guard let index = ordered.firstIndex(where: { $0.0 == name }) else { return nil }
+        .sorted {
+            $0.1 < $1.1
+        }
+        guard
+            let index = ordered.firstIndex(where: {
+                $0.0 == name
+            }) else {
+            return nil
+        }
         return (index + 1, ordered.count)
     }
 
@@ -478,11 +560,16 @@ private struct ThemeSpace3DCanvas: View {
         Canvas { context, size in
             drawReferenceGeometry(in: context, size: size)
             drawNeighborLines(in: context)
-            let ordered = points.sorted { $0.depth < $1.depth }
+            let ordered = points.sorted {
+                $0.depth < $1.depth
+            }
             for point in ordered where point.id != hoveredID {
                 draw(point, in: context)
             }
-            if let hovered = points.first(where: { $0.id == hoveredID }) {
+            if
+                let hovered = points.first(where: {
+                    $0.id == hoveredID
+                }) {
                 draw(hovered, in: context)
             }
         }
@@ -510,9 +597,14 @@ private struct ThemeSpace3DCanvas: View {
     }
 
     private func drawNeighborLines(in context: GraphicsContext) {
-        guard mode == .similaritySpace3D,
-              let pinnedID,
-              let anchor = points.first(where: { $0.id == pinnedID }) else { return }
+        guard
+            mode == .similaritySpace3D,
+            let pinnedID,
+            let anchor = points.first(where: {
+                $0.id == pinnedID
+            }) else {
+            return
+        }
         for neighbor in points where neighborIDs.contains(neighbor.id) {
             var path = Path()
             path.move(to: anchor.screenPoint)

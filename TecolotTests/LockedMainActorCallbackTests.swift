@@ -25,6 +25,7 @@ struct LockedMainActorCallbackTests {
         #expect(addresses.count == 1_000)
         #expect(
             stackGrowth < 4_096,
-            "callback stack grew by \(stackGrowth) bytes")
+            "callback stack grew by \(stackGrowth) bytes"
+        )
     }
 }

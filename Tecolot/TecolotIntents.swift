@@ -22,7 +22,9 @@ struct OpenTerminalWindowIntent: AppIntent {
     }
 
     private var normalizedDirectory: String? {
-        guard let workingDirectory else { return nil }
+        guard let workingDirectory else {
+            return nil
+        }
         let trimmed = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }

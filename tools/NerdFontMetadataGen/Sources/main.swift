@@ -40,12 +40,14 @@ let outputURL = repoRoot.appendingPathComponent("Tecolot/NerdFont/NerdFontGlyphM
 
 // MARK: Parse glyphnames.json
 
-guard let glyphData = try? Data(contentsOf: glyphNamesURL),
-      let root = try? JSONSerialization.jsonObject(with: glyphData) as? [String: Any] else {
+guard
+    let glyphData = try? Data(contentsOf: glyphNamesURL),
+    let root = try? JSONSerialization.jsonObject(with: glyphData) as? [String: Any] else {
     fail("cannot read \(glyphNamesURL.path)")
 }
-guard let metadata = root["METADATA"] as? [String: Any],
-      let metadataVersion = metadata["version"] as? String else {
+guard
+    let metadata = root["METADATA"] as? [String: Any],
+    let metadataVersion = metadata["version"] as? String else {
     fail("glyphnames.json has no METADATA.version")
 }
 
@@ -53,7 +55,9 @@ enum PolicyClass: String, Comparable {
     case icon
     case stretch
 
-    static func < (lhs: PolicyClass, rhs: PolicyClass) -> Bool { lhs.rawValue < rhs.rawValue }
+    static func < (lhs: PolicyClass, rhs: PolicyClass) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
 }
 
 /// The Powerline blocks fill their cell exactly on both axes, matching the
@@ -71,9 +75,10 @@ func policyClass (for code: UInt32) -> PolicyClass {
 
 var classByCode: [UInt32: PolicyClass] = [:]
 for (name, value) in root where name != "METADATA" {
-    guard let entry = value as? [String: Any],
-          let codeString = entry["code"] as? String,
-          let code = UInt32(codeString, radix: 16) else {
+    guard
+        let entry = value as? [String: Any],
+        let codeString = entry["code"] as? String,
+        let code = UInt32(codeString, radix: 16) else {
         fail("malformed entry for \(name)")
     }
     let cls = policyClass(for: code)
@@ -82,13 +87,16 @@ for (name, value) in root where name != "METADATA" {
     }
     classByCode[code] = cls
 }
-guard !classByCode.isEmpty else { fail("no codepoints parsed") }
+guard !classByCode.isEmpty else {
+    fail("no codepoints parsed")
+}
 
 // MARK: Validate against the pinned TTF
 
-guard let descriptors = CTFontManagerCreateFontDescriptorsFromURL(fontURL as CFURL)
-        as? [CTFontDescriptor],
-      let descriptor = descriptors.first else {
+guard
+    let descriptors = CTFontManagerCreateFontDescriptorsFromURL(fontURL as CFURL)
+    as? [CTFontDescriptor],
+    let descriptor = descriptors.first else {
     fail("cannot read font at \(fontURL.path)")
 }
 let font = CTFontCreateWithFontDescriptor(descriptor, 12, nil)
@@ -112,13 +120,18 @@ for code in classByCode.keys {
 }
 if !missing.isEmpty {
     let sample = missing.sorted().prefix(10)
-        .map { String(format: "U+%04X", $0) }.joined(separator: ", ")
+        .map {
+            String(format: "U+%04X", $0)
+        }.joined(separator: ", ")
     fail("\(missing.count) metadata codepoints have no glyph in the TTF: \(sample)…")
 }
 
 // MARK: Merge into ranges and emit
 
-struct Run { var lower: UInt32; var upper: UInt32; let cls: PolicyClass }
+struct Run { var lower: UInt32
+    var upper: UInt32
+    let cls: PolicyClass
+}
 var runs: [Run] = []
 for code in classByCode.keys.sorted() {
     let cls = classByCode[code]!
@@ -163,8 +176,12 @@ enum NerdFontGlyphMetadata {
 
 """
 for run in runs {
-    out += String(format: "        Entry(lower: 0x%04X, upper: 0x%04X, policy: .%@),\n",
-                  run.lower, run.upper, run.cls.rawValue)
+    out += String(
+        format: "        Entry(lower: 0x%04X, upper: 0x%04X, policy: .%@),\n",
+        run.lower,
+        run.upper,
+        run.cls.rawValue
+    )
 }
 out += """
     ]

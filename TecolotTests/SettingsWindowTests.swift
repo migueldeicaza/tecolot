@@ -5,7 +5,9 @@ import Testing
 @MainActor
 struct SettingsWindowTests {
     private final class FocusedView: NSView {
-        override var acceptsFirstResponder: Bool { true }
+        override var acceptsFirstResponder: Bool {
+            true
+        }
     }
 
     @Test func escapeClosesSettingsWithAControlAsFirstResponder() {

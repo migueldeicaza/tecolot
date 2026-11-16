@@ -22,7 +22,9 @@ nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Hashable, Se
     case paletteSpace3D
     case similaritySpace3D
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     /// The six tabs V1 exposes (spec §46); the other modes stay computed
     static let v1Tabs: [ThemePlotMode] = [
@@ -77,17 +79,28 @@ nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Hashable, Se
 
     var title: String {
         switch self {
-        case .backgroundSpectrum: return "Spectrum"
-        case .brightnessAndColorfulness: return "Brightness"
-        case .contrastAndColorfulness: return "Colorfulness"
-        case .contrastAndDistinctness: return "Clarity"
-        case .temperatureAndContrast: return "Warm ↔ Cool"
-        case .accentSpectrum: return "Accents"
-        case .similarityMap: return "Similarity"
-        case .interactionColors: return "Interaction"
-        case .colorSpace3D: return "Color Space"
-        case .paletteSpace3D: return "Palette Space"
-        case .similaritySpace3D: return "Similarity Space"
+        case .backgroundSpectrum:
+            return "Spectrum"
+        case .brightnessAndColorfulness:
+            return "Brightness"
+        case .contrastAndColorfulness:
+            return "Colorfulness"
+        case .contrastAndDistinctness:
+            return "Clarity"
+        case .temperatureAndContrast:
+            return "Warm ↔ Cool"
+        case .accentSpectrum:
+            return "Accents"
+        case .similarityMap:
+            return "Similarity"
+        case .interactionColors:
+            return "Interaction"
+        case .colorSpace3D:
+            return "Color Space"
+        case .paletteSpace3D:
+            return "Palette Space"
+        case .similaritySpace3D:
+            return "Similarity Space"
         }
     }
 
@@ -169,11 +182,18 @@ nonisolated enum ThemeProjection {
             var xs: [Double] = []
             var ys: [Double] = []
             for theme in themes {
-                guard let themeMetrics = metrics[theme.name],
-                      themeMetrics.featureVector.count == catalog.pcaMean.count else { continue }
+                guard
+                    let themeMetrics = metrics[theme.name],
+                    themeMetrics.featureVector.count == catalog.pcaMean.count else {
+                    continue
+                }
                 let centered = zip(themeMetrics.featureVector, catalog.pcaMean).map(-)
-                let x = zip(centered, catalog.pc1).reduce(0) { $0 + $1.0 * $1.1 }
-                let y = zip(centered, catalog.pc2).reduce(0) { $0 + $1.0 * $1.1 }
+                let x = zip(centered, catalog.pc1).reduce(0) {
+                    $0 + $1.0 * $1.1
+                }
+                let y = zip(centered, catalog.pc2).reduce(0) {
+                    $0 + $1.0 * $1.1
+                }
                 similarityCoordinates[theme.name] = (x, y)
                 xs.append(x)
                 ys.append(y)
@@ -184,7 +204,9 @@ nonisolated enum ThemeProjection {
         }
 
         return themes.compactMap { theme in
-            guard let themeMetrics = metrics[theme.name] else { return nil }
+            guard let themeMetrics = metrics[theme.name] else {
+                return nil
+            }
             let position: CGPoint
             switch mode {
             case .backgroundSpectrum:
@@ -223,8 +245,11 @@ nonisolated enum ThemeProjection {
                         * themeMetrics.accentCoherence
                 )
             case .similarityMap:
-                guard let coordinates = similarityCoordinates[theme.name],
-                      let bounds = similarityBounds else { return nil }
+                guard
+                    let coordinates = similarityCoordinates[theme.name],
+                    let bounds = similarityBounds else {
+                    return nil
+                }
                 // pc2 grows with lightness; screen y grows downward
                 position = CGPoint(
                     x: normalized(coordinates.x, in: bounds.x),
@@ -263,7 +288,9 @@ nonisolated enum ThemeProjection {
     }
 
     private static func radialPosition(hue: Double?, radius: Double) -> CGPoint {
-        guard let hue else { return CGPoint(x: 0.5, y: 0.5) }
+        guard let hue else {
+            return CGPoint(x: 0.5, y: 0.5)
+        }
         let clamped = min(max(radius, 0), 1)
         let radians = hue * .pi / 180
         return CGPoint(
@@ -281,7 +308,9 @@ nonisolated enum ThemeProjection {
 
     private static func normalized(_ value: Double, in bounds: ClosedRange<Double>) -> Double {
         let span = bounds.upperBound - bounds.lowerBound
-        guard span > 0 else { return 0.5 }
+        guard span > 0 else {
+            return 0.5
+        }
         return min(max((value - bounds.lowerBound) / span, 0), 1)
     }
 

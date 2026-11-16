@@ -26,22 +26,32 @@ final class NerdFontFallbackProvider: TerminalGlyphFallbackProvider, @unchecked 
 
     /// Policies are shared values: the placement classes carry no per-size
     /// state, so two constants cover the whole table.
-    private static let iconPolicy = TerminalGlyphPlacementPolicy(placement: .icon,
-                                                                 maximumCellWidth: 2)
-    private static let stretchPolicy = TerminalGlyphPlacementPolicy(placement: .stretch,
-                                                                    maximumCellWidth: 1)
+    private static let iconPolicy = TerminalGlyphPlacementPolicy(
+        placement: .icon,
+        maximumCellWidth: 2
+    )
+    private static let stretchPolicy = TerminalGlyphPlacementPolicy(
+        placement: .stretch,
+        maximumCellWidth: 1
+    )
 
     private init () {
         registered = Self.registerBundledFont()
     }
 
     private static func registerBundledFont () -> Bool {
-        guard let url = Bundle.main.url(forResource: "SymbolsNerdFont-Regular",
-                                        withExtension: "ttf",
-                                        subdirectory: "NerdFontResources")
-                ?? Bundle(for: NerdFontFallbackProvider.self)
-                    .url(forResource: "SymbolsNerdFont-Regular", withExtension: "ttf",
-                         subdirectory: "NerdFontResources") else {
+        guard
+            let url = Bundle.main.url(
+                forResource: "SymbolsNerdFont-Regular",
+                withExtension: "ttf",
+                subdirectory: "NerdFontResources"
+            )
+            ?? Bundle(for: NerdFontFallbackProvider.self)
+            .url(
+                forResource: "SymbolsNerdFont-Regular",
+                withExtension: "ttf",
+                subdirectory: "NerdFontResources"
+            ) else {
             Logger().error("NerdFont: bundled SymbolsNerdFont-Regular.ttf not found")
             return false
         }
@@ -52,7 +62,8 @@ final class NerdFontFallbackProvider: TerminalGlyphFallbackProvider, @unchecked 
         if let error = registrationError?.takeRetainedValue() {
             let code = CFErrorGetCode(error)
             // An already-registered or duplicate-name font serves our purpose.
-            if code == CTFontManagerError.alreadyRegistered.rawValue
+            if
+                code == CTFontManagerError.alreadyRegistered.rawValue
                 || code == CTFontManagerError.duplicatedName.rawValue {
                 return true
             }
@@ -65,14 +76,19 @@ final class NerdFontFallbackProvider: TerminalGlyphFallbackProvider, @unchecked 
 
     func placementPolicy (for scalar: Unicode.Scalar) -> TerminalGlyphPlacementPolicy? {
         switch NerdFontGlyphMetadata.policyClass(for: scalar.value) {
-        case .icon: return Self.iconPolicy
-        case .stretch: return Self.stretchPolicy
-        case nil: return nil
+        case .icon:
+            return Self.iconPolicy
+        case .stretch:
+            return Self.stretchPolicy
+        case nil:
+            return nil
         }
     }
 
     func fallbackFont (forPointSize size: CGFloat) -> CTFont? {
-        guard registered else { return nil }
+        guard registered else {
+            return nil
+        }
         return fontsBySize.withLock { fonts in
             if let cached = fonts[size] {
                 return cached

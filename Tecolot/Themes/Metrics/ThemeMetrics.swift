@@ -76,34 +76,48 @@ nonisolated struct ThemeMetrics: Sendable {
 extension ThemeMetrics {
     nonisolated var backgroundLightnessBucket: String {
         switch backgroundLightness {
-        case ..<0.30: return "Very Dark"
-        case ..<0.50: return "Dark"
-        case ..<0.70: return "Medium"
-        case ..<0.85: return "Light"
-        default: return "Very Light"
+        case ..<0.30:
+            return "Very Dark"
+        case ..<0.50:
+            return "Dark"
+        case ..<0.70:
+            return "Medium"
+        case ..<0.85:
+            return "Light"
+        default:
+            return "Very Light"
         }
     }
 
     nonisolated var contrastBucket: String {
         switch foregroundContrast {
-        case ..<3.0: return "soft contrast"
-        case ..<4.5: return "moderate contrast"
-        case ..<7.0: return "strong contrast"
-        default: return "very strong contrast"
+        case ..<3.0:
+            return "soft contrast"
+        case ..<4.5:
+            return "moderate contrast"
+        case ..<7.0:
+            return "strong contrast"
+        default:
+            return "very strong contrast"
         }
     }
 
     nonisolated var temperatureBucket: String {
         switch temperature {
-        case ..<(-0.15): return "cool"
-        case ..<0.15: return "balanced"
-        default: return "warm"
+        case ..<(-0.15):
+            return "cool"
+        case ..<0.15:
+            return "balanced"
+        default:
+            return "warm"
         }
     }
 
     /// Approximate color name for the background hue; nil when neutral
     nonisolated var backgroundHueName: String? {
-        guard backgroundChroma >= 0.015, let hue = backgroundHue else { return nil }
+        guard backgroundChroma >= 0.015, let hue = backgroundHue else {
+            return nil
+        }
         // Landmark OKLCH hues with everyday names; nearest wins
         let landmarks: [(hue: Double, name: String)] = [
             (25, "Red"), (55, "Orange"), (90, "Yellow"), (130, "Green"),

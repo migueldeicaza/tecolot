@@ -45,10 +45,14 @@ nonisolated enum ThemeProjection3D {
         mode: ThemePlotMode,
         colorSpaceChromaScale: ColorSpaceChromaScale = .expanded
     ) -> [ThemePlotPoint3D] {
-        guard mode.isThreeDimensional else { return [] }
+        guard mode.isThreeDimensional else {
+            return []
+        }
 
         return themes.compactMap { theme in
-            guard let themeMetrics = metrics[theme.name] else { return nil }
+            guard let themeMetrics = metrics[theme.name] else {
+                return nil
+            }
             let rawPosition: SIMD3<Double>
             let position: SIMD3<Double>
 
@@ -96,8 +100,9 @@ nonisolated enum ThemeProjection3D {
                 )
 
             case .similaritySpace3D:
-                guard let basis = catalog.similarity3D,
-                      themeMetrics.featureVector.count == catalog.pcaMean.count else {
+                guard
+                    let basis = catalog.similarity3D,
+                    themeMetrics.featureVector.count == catalog.pcaMean.count else {
                     return nil
                 }
                 let centered = zip(themeMetrics.featureVector, catalog.pcaMean).map(-)
@@ -127,7 +132,9 @@ nonisolated enum ThemeProjection3D {
     }
 
     private static func dot(_ left: [Double], _ right: [Double]) -> Double {
-        zip(left, right).reduce(0) { $0 + $1.0 * $1.1 }
+        zip(left, right).reduce(0) {
+            $0 + $1.0 * $1.1
+        }
     }
 
     private static func clamp(_ value: Double) -> Double {
