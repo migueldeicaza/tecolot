@@ -131,6 +131,15 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// A restored persistent pane whose session ended starts a new session
     /// from this.
     @ObservationIgnored var pendingSessionRestore: PaneRestoration?
+    /// The saved state that a pane of a restored tab came from. A pane that
+    /// never gets a view (a hidden pane of a tab that comes back zoomed)
+    /// saves this state again at quit.
+    @ObservationIgnored private(set) var presetRestoration: PaneRestoration?
+    /// The saved text file of a restored local pane, until its shell starts.
+    @ObservationIgnored var restoredTextFile: Data?
+    var hasStartedShell: Bool {
+        didStartProcess
+    }
     /// The session of a restored remote pane. When it ended, the bridge
     /// starts a new session from its saved state.
     @ObservationIgnored var remoteRestoreSessionID: String?
@@ -230,6 +239,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return
         }
         didResolveLaunch = true
+        presetRestoration = restoration
         let pane = restoration.pane
         profile =
             pane.profileID.flatMap {
@@ -1582,6 +1592,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return
         }
         didStartProcess = true
+        restoredTextFile = nil
 
         restoreBufferIfNeeded(on: terminal)
 

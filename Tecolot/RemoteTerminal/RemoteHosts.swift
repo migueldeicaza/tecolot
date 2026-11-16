@@ -214,6 +214,12 @@ final class RemoteHosts {
                 }
                 let key = resolved.hostKey + " " + resolved.destination
                 if let link = links[key] {
+                    // A new pane is a new try: a link that failed connects
+                    // again (as Retry does) before the pane opens on it.
+                    // The link queue runs the two in order.
+                    if case .failed = link.state {
+                        link.reconnectNow()
+                    }
                     completion(.success(link))
                     return
                 }
@@ -519,7 +525,8 @@ final class RemoteHosts {
         if
             let key = NSApp.keyWindow, key.isVisible, !key.isMiniaturized, windows.contains(where: {
                 $0 === key
-            }), key.attachedSheet == nil {
+            }),
+            key.attachedSheet == nil {
             return key
         }
         let matching = NSApp.orderedWindows.first { candidate in

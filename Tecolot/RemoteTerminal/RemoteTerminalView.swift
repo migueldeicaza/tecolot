@@ -14,12 +14,13 @@
 //
 
 import AppKit
+import os
 import SwiftTerm
 import TecolotSessionClient
 import TecolotWire
 
 final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuItemValidation, TerminalKeyboardHost,
-TerminalContextMenuActions {
+                                TerminalContextMenuActions {
     private(set) var session: RemoteSession
     let source: RemoteFrameSource
     weak var sessionController: TerminalSessionController?
@@ -148,13 +149,34 @@ TerminalContextMenuActions {
         sendGridSize(columns: grid.columns, rows: grid.rows)
     }
 
+    private struct ConnectionDisplay: Equatable {
+        var connected: Bool
+        var exited: Bool
+    }
+
     private func observe(_ session: RemoteSession) {
-        session.onChange = { [weak self] change in
+        // The banner reads the connection and the exit of the session.
+        // Refresh it only when they change, not at each frame.
+        let shownConnection = OSAllocatedUnfairLock<ConnectionDisplay?>(initialState: nil)
+        session.onChange = { [weak self, weak session] change in
             self?.requestRedraw()
-            DispatchQueue.main.async { [weak self] in
-                self?.sessionController?.refreshRemoteConnectionDisplay()
-                if change.contains(.output) {
-                    self?.sessionController?.noteOutputActivity()
+            var refreshBanner = false
+            if let session {
+                let state = session.state
+                let display = ConnectionDisplay(connected: state.connected, exited: state.exitStatus != nil)
+                refreshBanner = shownConnection.withLock { shown in
+                    defer { shown = display }
+                    return shown != display
+                }
+            }
+            if refreshBanner || change.contains(.output) {
+                DispatchQueue.main.async { [weak self] in
+                    if refreshBanner {
+                        self?.sessionController?.refreshRemoteConnectionDisplay()
+                    }
+                    if change.contains(.output) {
+                        self?.sessionController?.noteOutputActivity()
+                    }
                 }
             }
             if !change.isDisjoint(with: [.geometry, .viewport, .buffer]) {
@@ -445,9 +467,21 @@ TerminalContextMenuActions {
             searchOrigin = origin
             start = origin
         }
+        var from = start
+        if from.column < 0 {
+            // The wire has no column before 0, and the helper takes only a
+            // match after the start. Start at the end of the line above; at
+            // the first line, start at the end of the buffer: the search
+            // wraps to the first line.
+            let end = min(state.columns, 65535)
+            from =
+                from.line > state.firstLine
+                    ? (from.line - 1, end)
+                    : (max(state.firstLine, state.endLine - 1), end)
+        }
         searchGeneration += 1
         let generation = searchGeneration
-        session.search(text, options: options, from: (start.line, max(0, start.column))) { [weak self] result in
+        session.search(text, options: options, from: from) { [weak self] result in
             DispatchQueue.main.async { [weak self] in
                 guard let self, generation == self.searchGeneration else {
                     return

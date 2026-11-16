@@ -22,6 +22,10 @@ final class RemoteFrameSource: TerminalExternalFrameSource {
         didSet {
             converted.removeAll()
             paletteCache = nil
+            // Each helper numbers its images from 1: an ID of the new
+            // session can name another picture.
+            fullImages.removeAll()
+            slices.removeAll()
         }
     }
     /// The selection to draw, in absolute line numbers.

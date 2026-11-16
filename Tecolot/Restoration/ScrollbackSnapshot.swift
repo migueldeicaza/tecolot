@@ -18,23 +18,42 @@ nonisolated enum ScrollbackSnapshot {
     /// on a background queue.
     struct Pending: Sendable {
         let paneID: UUID
-        let snapshot: TerminalContentSnapshot
-        let alternateScreenProgram: String?
-        let limit: Int
+        private let source: Source
+
+        private enum Source: Sendable {
+            case snapshot(TerminalContentSnapshot, alternateScreenProgram: String?, limit: Int)
+            /// The file that a pane came from, for a pane whose shell did not start.
+            case savedFile(Data)
+        }
+
+        init(paneID: UUID, snapshot: TerminalContentSnapshot, alternateScreenProgram: String?, limit: Int) {
+            self.paneID = paneID
+            source = .snapshot(snapshot, alternateScreenProgram: alternateScreenProgram, limit: limit)
+        }
+
+        init(paneID: UUID, savedFile: Data) {
+            self.paneID = paneID
+            source = .savedFile(savedFile)
+        }
 
         /// The file, or nil when no row is left to restore.
         func encode(savedAt: Date) -> Data? {
-            let rows = ScrollbackCapture.rows(snapshot, limit: limit)
-            guard !rows.isEmpty || alternateScreenProgram != nil else {
-                return nil
+            switch source {
+            case .savedFile(let data):
+                return data
+            case .snapshot(let snapshot, let alternateScreenProgram, let limit):
+                let rows = ScrollbackCapture.rows(snapshot, limit: limit)
+                guard !rows.isEmpty || alternateScreenProgram != nil else {
+                    return nil
+                }
+                return ScrollbackCapture.encode(
+                    rows,
+                    of: snapshot,
+                    paneID: paneID.uuidString,
+                    savedAt: savedAt,
+                    alternateScreenProgram: alternateScreenProgram
+                )
             }
-            return ScrollbackCapture.encode(
-                rows,
-                of: snapshot,
-                paneID: paneID.uuidString,
-                savedAt: savedAt,
-                alternateScreenProgram: alternateScreenProgram
-            )
         }
     }
 }
