@@ -548,6 +548,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             options: options
         )
         terminal.sessionController = self
+        // The same find bar as persistent panes.
+        terminal.findBarProvider = {
+            FindBar()
+        }
         // Bundled Symbols Nerd Font supplies icons the profile font lacks.
         terminal.glyphFallbackProvider = NerdFontFallbackProvider.shared
         // SwiftTerm does not show notifications; the helper does the same

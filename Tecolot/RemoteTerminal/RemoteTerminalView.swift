@@ -319,7 +319,14 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     // MARK: Find
 
-    private var findBar: RemoteFindBar?
+    /// Kept while hidden, so that the options survive closing the bar.
+    private var findBar: FindBar?
+    private var visibleFindBar: FindBar? {
+        guard let findBar, !findBar.isHidden else {
+            return nil
+        }
+        return findBar
+    }
     /// The last match, as (start, end) positions; the next search starts after it.
     private var lastMatch: (start: Position, end: Position)?
     /// Where the find started. A changed query searches again from here, so
@@ -337,13 +344,13 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         case .showFindInterface:
             showFindBar()
         case .nextMatch:
-            if findBar == nil {
+            if visibleFindBar == nil {
                 showFindBar()
             } else {
                 search(backward: false)
             }
         case .previousMatch:
-            if findBar == nil {
+            if visibleFindBar == nil {
                 showFindBar()
             } else {
                 search(backward: true)
@@ -357,51 +364,50 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     private func showFindBar() {
         let bar = findBar ?? makeFindBar()
+        bar.isHidden = false
         searchOrigin = nil
-        bar.focus()
+        bar.focusSearchField()
         // Like local panes: start with the selection, else the find pasteboard.
         selectedText { [weak self, weak bar] selected in
-            guard let self, let bar, self.findBar === bar else {
+            guard let self, let bar, self.visibleFindBar === bar else {
                 return
             }
             let initial = selected.flatMap {
                 $0.isEmpty || $0.contains("\n") ? nil : $0
             }
                 ?? findPasteboard.string(forType: .string)
-            if let initial, !initial.isEmpty, bar.query != initial {
-                bar.query = initial
-                bar.focus()
+            if let initial, !initial.isEmpty {
+                bar.searchText = initial
+            }
+            // A bar that is shown again searches again, also when it kept
+            // its query.
+            if !bar.searchText.isEmpty {
+                bar.focusSearchField()
                 self.searchFromOrigin()
             }
         }
     }
 
-    private func makeFindBar() -> RemoteFindBar {
-        let bar = RemoteFindBar()
+    private func makeFindBar() -> FindBar {
+        let bar = FindBar()
         bar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(bar)
+        // In a pane narrower than the bar, the bar sticks out on the left
+        // instead of breaking its constraints, as in local panes.
+        let leading = bar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8)
+        leading.priority = NSLayoutConstraint.Priority(999)
         NSLayoutConstraint.activate([
             bar.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             bar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            bar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
-            bar.widthAnchor.constraint(lessThanOrEqualToConstant: 560),
+            leading,
         ])
-        bar.onQueryChange = { [weak self] in
-            self?.searchFromOrigin()
-        }
-        bar.onSearch = { [weak self] backward in
-            self?.search(backward: backward)
-        }
-        bar.onClose = { [weak self] in
-            self?.hideFindBar()
-        }
+        bar.findBarDelegate = self
         findBar = bar
         return bar
     }
 
     private func hideFindBar() {
-        findBar?.removeFromSuperview()
-        findBar = nil
+        findBar?.isHidden = true
         searchOrigin = nil
         searchGeneration += 1
         window?.makeFirstResponder(self)
@@ -409,13 +415,13 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
 
     /// Searches the bar's query again from where the find started.
     private func searchFromOrigin() {
-        guard let bar = findBar else {
+        guard let bar = visibleFindBar else {
             return
         }
-        guard !bar.query.isEmpty else {
+        guard !bar.searchText.isEmpty else {
             searchGeneration += 1
             clearSelection()
-            setFindStatus("")
+            setFindStatus(.none)
             return
         }
         search(backward: false, fromOrigin: true)
@@ -449,7 +455,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         wholeWord: Bool? = nil,
         fromOrigin: Bool
     ) {
-        let text = query ?? findBar?.query ?? findPasteboard.string(forType: .string) ?? ""
+        let text = query ?? visibleFindBar?.searchText ?? findPasteboard.string(forType: .string) ?? ""
         guard !text.isEmpty else {
             return
         }
@@ -462,13 +468,13 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
             }
         }
         var options: SessionSearchOptions = []
-        if caseSensitive ?? findBar?.caseSensitive ?? false {
+        if caseSensitive ?? visibleFindBar?.options.caseSensitive ?? false {
             options.insert(.caseSensitive)
         }
-        if regularExpression ?? findBar?.regularExpression ?? false {
+        if regularExpression ?? visibleFindBar?.options.regex ?? false {
             options.insert(.regularExpression)
         }
-        if wholeWord ?? findBar?.wholeWord ?? false {
+        if wholeWord ?? visibleFindBar?.options.wholeWord ?? false {
             options.insert(.wholeWord)
         }
         if backward {
@@ -508,21 +514,22 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         }
     }
 
-    private func setFindStatus(_ text: String) {
-        findStatus = text
-        findBar?.setStatus(text)
+    private func setFindStatus(_ status: TerminalFindStatus) {
+        findStatus = FindBar.text(for: status)
+        visibleFindBar?.setFindStatus(status)
     }
 
     private func showSearchResult(_ result: SearchResultMessage?) {
         guard let result, result.found else {
-            setFindStatus(result?.problem.isEmpty == false ? result!.problem : "Not found")
+            setFindStatus(result?.problem.isEmpty == false ? .message(result!.problem) : .notFound)
             // The highlight of an older match no longer applies.
             if lastMatch != nil {
                 clearSelection()
             }
             return
         }
-        setFindStatus("")
+        // The helper reports one match at a time, so there is no count to show.
+        setFindStatus(.found)
         let start = Position(col: result.column, row: Int(result.line))
         let end = Position(col: result.endColumn, row: Int(result.endLine))
         lastMatch = (start, end)
@@ -1494,5 +1501,36 @@ extension RemoteTerminalView: TerminalSurface {
 private final class RemoteInputShade: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
+    }
+}
+
+extension RemoteTerminalView: TerminalFindBarDelegate {
+    /// Typing searches again from where the find started.
+    func findBarSearchTextChanged(_ bar: TerminalFindBar) {
+        guard bar === visibleFindBar else {
+            return
+        }
+        searchFromOrigin()
+    }
+
+    func findBarOptionsChanged(_ bar: TerminalFindBar) {
+        guard bar === visibleFindBar else {
+            return
+        }
+        searchFromOrigin()
+    }
+
+    func findBar(_ bar: TerminalFindBar, findNext forward: Bool) {
+        guard bar === visibleFindBar else {
+            return
+        }
+        search(backward: !forward)
+    }
+
+    func findBarClose(_ bar: TerminalFindBar) {
+        guard bar === visibleFindBar else {
+            return
+        }
+        hideFindBar()
     }
 }
