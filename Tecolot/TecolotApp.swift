@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = true
         _ = SecureKeyboardEntry.shared
+        CrashReporting.finishLaunch()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -69,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         SecureKeyboardEntry.shared.disableForTermination()
+        CrashReporting.stop()
     }
 
     private func openStartupWindow() {
@@ -476,7 +478,13 @@ struct AppInfoCommands: Commands {
                     string: "A native terminal built with SwiftTerm.\n"
                         + "Copyright © 2026 Miguel de Icaza.\n\n"
                         + "Includes Symbols Nerd Font (Nerd Fonts 3.4.0),\n"
-                        + "© Nerd Fonts contributors, MIT License."
+                        + "© Nerd Fonts contributors, MIT License.\n\n"
+                        + "Includes Sentry Native 0.17.6, © Sentry and contributors,\n"
+                        + "MIT License, and Google Breakpad, © Google LLC,\n"
+                        + "BSD 3-Clause License and the other licenses in\n"
+                        + "its notice. Sentry-Native-LICENSE.txt and\n"
+                        + "Breakpad-LICENSE.txt in Tecolot.app/Contents/Resources\n"
+                        + "contain the complete texts."
                 )
                 NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
             }
@@ -485,13 +493,15 @@ struct AppInfoCommands: Commands {
 }
 
 private enum SettingsWindowID {
-    static let value = "settings"
+    static let value = SettingsNavigator.windowID
 }
 
 struct SettingsCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        // Lets the crash report notice open this window.
+        let _ = SettingsNavigator.shared.openWindow = openWindow
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") {
                 openWindow(id: SettingsWindowID.value)
@@ -504,14 +514,17 @@ struct SettingsCommands: Commands {
 @main
 struct TecolotApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    private let model = AppModel.shared
+    private let model: AppModel
 
     init() {
+        // Capture must start before the app model and terminal sessions.
+        CrashReporting.start()
         UserDefaults.standard.register(defaults: [
             "useCommandDigitsForTabs": true,
             "startupMode": "default",
             "useMetalRenderer": true
         ])
+        model = AppModel.shared
     }
 
     var body: some Scene {

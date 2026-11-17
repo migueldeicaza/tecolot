@@ -2,8 +2,11 @@ name: Release signed DMG
 
 on:
   push:
+    # Version tags only. Other tags, such as sentry-native-*, hold other
+    # release assets.
     tags:
-      - "*"
+      - "v[0-9]*"
+      - "[0-9]*"
 
 permissions:
   # contents: the release assets and the appcast commit.
@@ -27,6 +30,10 @@ jobs:
       DEVELOPMENT_TEAM: PJQC57N853
       SPARKLE_VERSION: 2.9.6
       SPARKLE_SHA256: 52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192
+      SENTRY_ORG: migueldeicaza
+      SENTRY_PROJECT: tecolot
+      SENTRY_CLI_VERSION: 3.8.2
+      SENTRY_CLI_SHA256: 2d1b118fa46960ba5e8e0cca9a6e197366905776a0ddc5a89c7d05a3908b77db
 
     steps:
       - name: Check out repository
@@ -145,6 +152,85 @@ jobs:
           scripts/check-signing.sh "$app_path"
           echo "APP_PATH=$app_path" >> "$GITHUB_ENV"
 
+      - name: Check crash reporter and collect dSYMs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          binary="$APP_PATH/Contents/MacOS/Tecolot"
+          # The Sentry Native SDK is linked statically. Its SDK name is a
+          # string constant in the binary.
+          if ! grep -q "sentry.native" "$binary"; then
+            echo "The app binary does not contain the crash reporter." >&2
+            exit 1
+          fi
+
+          dsym="$ARCHIVE_PATH/dSYMs/Tecolot.app.dSYM"
+          if [[ ! -d "$dsym" ]]; then
+            echo "The archive has no Tecolot.app.dSYM." >&2
+            exit 1
+          fi
+
+          # Crash reports are useful only with dSYMs whose UUIDs match the
+          # shipped binary for each architecture.
+          app_uuids="$(dwarfdump --uuid "$binary" | awk '{print $2, $3}' | sort)"
+          dsym_uuids="$(dwarfdump --uuid "$dsym" | awk '{print $2, $3}' | sort)"
+          echo "App:  $app_uuids"
+          echo "dSYM: $dsym_uuids"
+          if [[ -z "$app_uuids" || "$app_uuids" != "$dsym_uuids" ]]; then
+            echo "The dSYM UUIDs do not match the app binary." >&2
+            exit 1
+          fi
+          for arch in arm64 x86_64; do
+            if ! grep -q "($arch)" <<< "$app_uuids"; then
+              echo "The app binary has no $arch slice." >&2
+              exit 1
+            fi
+          done
+
+          dsym_zip="$RUNNER_TEMP/Tecolot-$RELEASE_VERSION-dSYMs.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$ARCHIVE_PATH/dSYMs" "$dsym_zip"
+          echo "DSYM_ZIP_PATH=$dsym_zip" >> "$GITHUB_ENV"
+
+      - name: Upload dSYMs to Sentry
+        shell: bash
+        env:
+          # sentry-cli reads its token from SENTRY_AUTH_TOKEN.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_KEY }}
+        run: |
+          set -euo pipefail
+
+          # Sentry uses these dSYMs to symbolicate crash reports that users
+          # submit from Settings > Crash Reports. The app itself never sends
+          # data without a user action.
+          if [[ -z "${SENTRY_AUTH_TOKEN:-}" ]]; then
+            echo "::warning::The SENTRY_KEY secret is not set. The dSYMs were not uploaded to Sentry."
+            exit 0
+          fi
+
+          sentry_cli="$RUNNER_TEMP/sentry-cli"
+          curl --fail --silent --show-error --location \
+            --output "$sentry_cli" \
+            "https://github.com/getsentry/sentry-cli/releases/download/$SENTRY_CLI_VERSION/sentry-cli-Darwin-universal"
+          echo "$SENTRY_CLI_SHA256  $sentry_cli" | shasum -a 256 -c -
+          chmod +x "$sentry_cli"
+
+          dsym="$ARCHIVE_PATH/dSYMs/Tecolot.app.dSYM"
+          id_arguments=()
+          while read -r uuid; do
+            id_arguments+=(--id "$uuid")
+          done < <(dwarfdump --uuid "$dsym" | awk '{print $2}')
+
+          # --require-all fails the step when an architecture is missing.
+          "$sentry_cli" debug-files upload \
+            --org "$SENTRY_ORG" \
+            --project "$SENTRY_PROJECT" \
+            --type dsym \
+            "${id_arguments[@]}" \
+            --require-all \
+            --wait \
+            "$ARCHIVE_PATH/dSYMs"
+
       - name: Notarize and staple app
         shell: bash
         env:
@@ -248,6 +334,7 @@ jobs:
           path: |
             ${{ env.DMG_PATH }}
             ${{ env.ZIP_PATH }}
+            ${{ env.DSYM_ZIP_PATH }}
           if-no-files-found: error
 
       - name: Create GitHub release
@@ -258,11 +345,12 @@ jobs:
           set -euo pipefail
 
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$DMG_PATH" "$ZIP_PATH" --clobber
+            gh release upload "$GITHUB_REF_NAME" "$DMG_PATH" "$ZIP_PATH" "$DSYM_ZIP_PATH" --clobber
           else
             gh release create "$GITHUB_REF_NAME" \
               "$DMG_PATH" \
               "$ZIP_PATH" \
+              "$DSYM_ZIP_PATH" \
               --verify-tag \
               --generate-notes \
               --title "Tecolot $RELEASE_VERSION"

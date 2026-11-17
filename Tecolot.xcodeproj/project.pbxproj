@@ -15,6 +15,7 @@
 		4A6A1F111234567800000022 /* NerdFontResources in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000020 /* NerdFontResources */; };
 		4A6A1F111234567800000032 /* terminfo in Resources */ = {isa = PBXBuildFile; fileRef = 4A6A1F111234567800000031 /* terminfo */; };
 		5A81CE0000000001AAAA0001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5A81CE0000000001AAAA0002 /* Sparkle */; };
+		6C2A5E0000000001BBBB0001 /* SentryNativeBreakpad in Frameworks */ = {isa = PBXBuildFile; productRef = 6C2A5E0000000001BBBB0002 /* SentryNativeBreakpad */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -73,6 +74,7 @@
 			files = (
 				490F324E303671B100A84BCF /* SwiftTerm in Frameworks */,
 				5A81CE0000000001AAAA0001 /* Sparkle in Frameworks */,
+				6C2A5E0000000001BBBB0001 /* SentryNativeBreakpad in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -148,6 +150,7 @@
 			packageProductDependencies = (
 				490F324D303671B100A84BCF /* SwiftTerm */,
 				5A81CE0000000001AAAA0002 /* Sparkle */,
+				6C2A5E0000000001BBBB0002 /* SentryNativeBreakpad */,
 			);
 			productName = Tecolot;
 			productReference = 497C9E172E426320008DBCC0 /* Tecolot.app */;
@@ -201,6 +204,7 @@
 			packageReferences = (
 				490F2F093036637800A84BCF /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				5A81CE0000000001AAAA0003 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				6C2A5E0000000001BBBB0003 /* XCLocalSwiftPackageReference "tools/SentryNativeBreakpad" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 497C9E182E426320008DBCC0 /* Products */;
@@ -447,6 +451,7 @@
 		497C9E242E426321008DBCC0 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				TECOLOT_CRASH_REPORT_DSN = "https://8785d54390ea6a6a3d37b6f3d4228346@o201469.ingest.us.sentry.io/4512438257713152";
 				ASSETCATALOG_COMPILER_APPICON_NAME = Tecolotl;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
@@ -543,6 +548,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		6C2A5E0000000001BBBB0003 /* XCLocalSwiftPackageReference "tools/SentryNativeBreakpad" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = tools/SentryNativeBreakpad;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		490F2F093036637800A84BCF /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -572,6 +584,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5A81CE0000000001AAAA0003 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		6C2A5E0000000001BBBB0002 /* SentryNativeBreakpad */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SentryNativeBreakpad;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

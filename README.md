@@ -222,6 +222,11 @@ xcodebuild build \
 open ./build/Build/Products/Debug/Tecolot.app
 ```
 
+Xcode downloads the prebuilt crash reporter library and verifies its checksum
+when it resolves packages. You do not need a Makefile step. To build that
+library from source, see the
+[package instructions](tools/SentryNativeBreakpad/README.md).
+
 Run the test suite with this command:
 
 ```sh
@@ -241,6 +246,36 @@ terminals. When the setting is off, Tecolot ignores OSC 8 links and can still
 detect web addresses in text. Capability reports and the shell environment
 use the setting from terminal creation. Open a new terminal to update these
 values. Exported profiles store this setting as `linkOsc8`.
+
+## Crash reports
+
+When Tecolot crashes, it saves a crash report on this Mac. It does not send
+reports automatically. A report leaves your Mac only when you submit or export
+it.
+
+1. Start Tecolot again after the crash. Tecolot completes the report during
+   this launch and shows a notice.
+2. Click **Show Crash Reports**, or open **Tecolot > Settings > Crash
+   Reports**.
+3. Find the report by its date. Click **Submit…** to send it to the Tecolot
+   project on sentry.io. Tecolot asks you to confirm, sends the file unchanged,
+   and shows the Sentry ID. Include that ID if you open a GitHub issue.
+4. You can also click **Export…** to save a copy of the file.
+
+Reports are in
+`~/Library/Application Support/com.tirania.Tecolot/CrashReports/` as
+`.tecolotcrash` files. Debug builds use their own bundle identifier and folder.
+Tecolot keeps the 20 newest reports, up to 100 MiB in total, and removes reports
+that it saved more than 30 days ago.
+
+Crash reports can contain private data from memory. Submit, export, or share a
+report only if you agree. Debug builds have no **Submit…** button. To share an
+exported report instead, attach the exported `.tecolotcrash` file to a
+[GitHub issue](https://github.com/migueldeicaza/tecolot/issues). GitHub issues
+are public. If you do not want the report to be public, ask a maintainer on
+[Discord](https://discord.com/invite/rgN3yzHg8G) for a private way to send it. A report is a Sentry envelope with a minidump. Maintainers
+can read it with the dSYMs from the matching release, for example with
+`sentry-cli` or a local Sentry instance.
 
 ## Help and contributions
 

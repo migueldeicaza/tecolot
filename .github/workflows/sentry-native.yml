@@ -1,0 +1,56 @@
+name: Sentry Native
+
+# Builds the crash reporter library from source. The app build uses the
+# published XCFramework, so this runs only when the package changes.
+on:
+  pull_request:
+    paths:
+      - "tools/SentryNativeBreakpad/**"
+      - "Tecolot/CrashReporting/Licenses/**"
+      - "Makefile"
+      - ".github/workflows/sentry-native.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "tools/SentryNativeBreakpad/**"
+      - "Tecolot/CrashReporting/Licenses/**"
+      - "Makefile"
+      - ".github/workflows/sentry-native.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sentry-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sentry-native:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build crash package from source
+        env:
+          # Use the XCFramework from this build, not the published one.
+          SENTRY_NATIVE_LOCAL: "1"
+        run: |
+          cmake --version
+          make sentry-native
+          swift build -c release --package-path tools/SentryNativeBreakpad
+          make sentry-native-archive
+
+      - name: Check the license notices in the app
+        run: |
+          # The app ships copies of the licenses that build.sh writes.
+          cmp tools/SentryNativeBreakpad/Licenses/Sentry-Native-LICENSE \
+            Tecolot/CrashReporting/Licenses/Sentry-Native-LICENSE.txt
+          cmp tools/SentryNativeBreakpad/Licenses/Breakpad-LICENSE \
+            Tecolot/CrashReporting/Licenses/Breakpad-LICENSE.txt
