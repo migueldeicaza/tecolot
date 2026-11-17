@@ -173,6 +173,11 @@ NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
             }
             return self.accessibilityMenuItems
         }
+        table.onHover = { [weak self] index in
+            // The highlight follows the pointer, as in a menu. No scroll:
+            // the row is under the pointer.
+            self?.table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+        }
         filterField.delegate = self
         filterField.sendsSearchStringImmediately = true
         filterField.setAccessibilityLabel("Filter or create a group")
@@ -573,6 +578,35 @@ private final class GroupSwitcherRowContent: NSView {
 /// Exposes menu actions directly instead of AppKit's synthetic table-row wrappers.
 final class GroupMenuTableView: NSTableView {
     var menuItems: (() -> [Any])?
+    /// The row under the pointer, when the pointer moves to another row.
+    var onHover: ((Int) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // The panel does not activate the app, and its filter field has
+        // the focus: the area must be active always. AppKit keeps an area
+        // for the visible rectangle current.
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .activeAlways, .inVisibleRect],
+            owner: self
+        ))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    /// Only a pointer that moves changes the row: a panel that opens under
+    /// a pointer at rest keeps the row that the keyboard selected.
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        let index = row(at: convert(event.locationInWindow, from: nil))
+        if index >= 0, index != selectedRow {
+            onHover?(index)
+        }
+    }
     override func accessibilityRole() -> NSAccessibility.Role? {
         .menu
     }
