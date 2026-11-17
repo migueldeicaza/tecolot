@@ -332,19 +332,19 @@ struct PersistentPaneTests {
         // Escape closes the bar.
         view.performFind(.showFindInterface)
         let bar = try #require(view.subviews.compactMap {
-            $0 as? RemoteFindBar
+            $0 as? FindBar
         }.first)
-        bar.query = "seq 1 4"
+        bar.searchText = "seq 1 4"
         bar.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: bar.field))
         try await waitForSelection("typed match", in: view) {
             $0 == "seq 1 4"
         }
-        bar.query = "no-such-word"
+        bar.searchText = "no-such-word"
         bar.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: bar.field))
         try await wait("typed miss") {
             view.findStatus == "Not found" && !view.selectionActive
         }
-        bar.query = "zebra-2"
+        bar.searchText = "zebra-2"
         bar.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: bar.field))
         try await waitForSelection("typed zebra", in: view) {
             $0 == "zebra-2"
@@ -354,7 +354,31 @@ struct PersistentPaneTests {
             $0 == "zebra-2"
         }
         #expect(bar.control(bar.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.cancelOperation(_:))))
-        #expect(bar.superview == nil)
+        #expect(bar.isHidden)
+        // The bar that comes back is the same one, so its options are kept,
+        // and a closed bar no longer drives the search.
+        bar.searchText = "no-such-word"
+        bar.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: bar.field))
+        view.performFind(.showFindInterface)
+        #expect(!bar.isHidden)
+        #expect(view.subviews.compactMap { $0 as? FindBar }.count == 1)
+        #expect(view.findStatus != "Not found")
+        try await wait("query from the selection") {
+            bar.searchText == "zebra-2"
+        }
+        view.performFind(.hideFindInterface)
+        #expect(bar.isHidden)
+        // A bar that comes back with the query it kept searches again.
+        view.search(query: "no-such-word", backward: false)
+        try await wait("selection dropped") {
+            view.findStatus == "Not found" && !view.selectionActive
+        }
+        view.performFind(.showFindInterface)
+        try await waitForSelection("search on reopening", in: view) {
+            $0 == "zebra-2"
+        }
+        #expect(bar.searchText == "zebra-2")
+        view.performFind(.hideFindInterface)
         workspace.terminateAll()
     }
 
