@@ -144,7 +144,16 @@ public struct RowCache: Sendable {
             var piece = ""
             // A cached row can be narrower than the grid (a row from a
             // narrower restore cache, or scrollback from before a resize).
-            let lower = max(0, from), upper = min(to, row.cells.count - 1)
+            let lower = max(0, from)
+            var upper = min(to, row.cells.count - 1)
+            if line == end.line {
+                // Empty cells at the end of the selection are not text, as
+                // in a local pane and in the helper (SwiftTerm trims them).
+                // A space that the program wrote stays.
+                while upper >= lower, case .null = row.cells[upper].content {
+                    upper -= 1
+                }
+            }
             if lower <= upper {
                 for index in lower ... upper {
                     switch row.cells[index].content {

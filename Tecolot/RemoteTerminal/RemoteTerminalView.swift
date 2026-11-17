@@ -58,6 +58,23 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     private var scrollerUpdatePending = false
     private var selectionAnchor: Position?
     private var selectionHead: Position?
+    /// The pasteboard for Copy and for copy on selection. Tests set a private one.
+    var selectionPasteboard: NSPasteboard = .general
+    /// Reads the "Copy on selection" setting at the end of each selection
+    /// gesture, thus a change of the setting applies to open panes at once.
+    var copyOnSelectEnabled: () -> Bool = {
+        TerminalSessionController.copyOnSelectEnabled()
+    }
+    /// The selection when the current mouse gesture started. A gesture that
+    /// leaves it unchanged does not copy.
+    private var gestureStartSelection: (anchor: Position?, head: Position?) = (nil, nil)
+    /// Where the button went down, for the drag threshold.
+    private var pressLocation: (point: CGPoint, column: Int, row: Int)?
+    /// The pointer moved sufficiently from `pressLocation` to start a drag.
+    private var selectionDragStarted = false
+    /// Increments with each selection change. An automatic copy that
+    /// completes after a newer change is discarded.
+    private var selectionRevision = 0
     private var pressedButton: TerminalMouseButton?
     /// The hyperlink under a Command-click, opened when the button goes up.
     private var pressedLink: (link: String, line: Int64, column: Int)?
@@ -983,7 +1000,10 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         pressedLink = nil
+        gestureStartSelection = (selectionAnchor, selectionHead)
+        selectionDragStarted = false
         let cell = mouseCell(event)
+        pressLocation = (convert(event.locationInWindow, from: nil), cell.column, cell.row)
         // Command-click opens a hyperlink, as in a local pane, also while
         // the program reads the mouse.
         if event.modifierFlags.contains(.command), event.clickCount == 1 {
@@ -1025,6 +1045,13 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
             return
         }
         let point = convert(event.locationInWindow, from: nil)
+        if !selectionDragStarted {
+            let cell = mouseCell(event)
+            guard isSelectionDrag(to: point, column: cell.column, row: cell.row) else {
+                return
+            }
+            selectionDragStarted = true
+        }
         if point.y > bounds.height {
             session.scroll(by: -1)
         }
@@ -1034,6 +1061,20 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         let cell = mouseCell(event)
         selectionHead = Position(col: cell.column, row: Int(session.state.displayTop) + cell.row)
         updateSelection()
+    }
+
+    /// A small pointer movement during a click is not a drag. The rule is
+    /// that of the local pane (SwiftTerm): the pointer is in a different
+    /// cell, or it moved at least 3 points or half a cell.
+    private func isSelectionDrag(to point: CGPoint, column: Int, row: Int) -> Bool {
+        guard let press = pressLocation else {
+            return true
+        }
+        if column != press.column || row != press.row {
+            return true
+        }
+        let threshold = max(3, min(cellSize.width, cellSize.height) / 2)
+        return hypot(point.x - press.point.x, point.y - press.point.y) >= threshold
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -1048,7 +1089,21 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         if pressedButton == .left {
             pressedButton = nil
             sendMouse(.release, .left, event)
+            return
         }
+        if gestureStartSelection.anchor != selectionAnchor || gestureStartSelection.head != selectionHead {
+            gestureStartSelection = (selectionAnchor, selectionHead)
+            userSelectionFinished()
+        }
+    }
+
+    /// Copies the selection at the end of a user gesture when the "Copy on
+    /// selection" setting is on. A selection of only white space is not copied.
+    private func userSelectionFinished() {
+        guard selectionActive, copyOnSelectEnabled() else {
+            return
+        }
+        copySelection(automatic: true)
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -1247,6 +1302,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     private func updateSelection() {
+        selectionRevision += 1
         if let range = orderedSelection {
             // The view keeps inclusive positions (copy reads them); the
             // renderer, like SelectionService, stops before `end`.
@@ -1304,10 +1360,28 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 
     @objc func copy(_ sender: Any?) {
-        selectedText { text in
-            if let text {
-                Self.setPasteboard(text)
+        copySelection(automatic: false)
+    }
+
+    /// Writes the selected text to `selectionPasteboard`. The text can come
+    /// from the helper at a later time. It is discarded if the pasteboard
+    /// changed during the wait. An automatic copy is also discarded if the
+    /// selection changed, or if the text is only white space.
+    private func copySelection(automatic: Bool) {
+        let pasteboard = selectionPasteboard
+        let changeCount = pasteboard.changeCount
+        let revision = selectionRevision
+        selectedText { [weak self] text in
+            guard let self, let text, !text.isEmpty, pasteboard.changeCount == changeCount else {
+                return
             }
+            if automatic {
+                guard revision == selectionRevision, !text.allSatisfy(\.isWhitespace) else {
+                    return
+                }
+            }
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
         }
     }
 
@@ -1343,11 +1417,6 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
                 completion((text ?? "") + "\n")
             }
         }
-    }
-
-    private static func setPasteboard(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
 
     @objc func paste(_ sender: Any?) {
@@ -1396,6 +1465,7 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
         selectionAnchor = Position(col: 0, row: Int(state.firstLine))
         selectionHead = Position(col: max(0, state.columns - 1), row: Int(max(state.firstLine, state.endLine - 1)))
         updateSelection()
+        userSelectionFinished()
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {

@@ -108,6 +108,116 @@ struct PersistentSessionTests {
         }
     }
 
+    /// Copy on selection in a remote pane: a click with a small pointer
+    /// movement and a gesture that changes nothing do not copy, and a
+    /// triple-click copies the row without the empty cells.
+    @Test func remotePaneCopiesOnSelection() async throws {
+        _ = Self.runtimeDirectory
+        let record = try PersistentSessions.create(
+            profile: profile(),
+            workingDirectory: "/tmp",
+            columns: 60,
+            rows: 12,
+            cellWidth: 0,
+            cellHeight: 0
+        )
+        let directory = try PersistentSessions.directory()
+        defer { try? directory.terminate(record.id, signal: SIGKILL) }
+        let session = RemoteSession(socket: try directory.connect(record.id), clientName: "test", build: "test")
+        defer { session.close() }
+        let view = RemoteTerminalView(session: session, font: .monospacedSystemFont(ofSize: 12, weight: .regular))
+        session.start(size: WireGridSize(columns: 60, rows: 12), focused: true)
+        try await wait("attached") {
+            session.state.connected
+        }
+        session.send(text: "echo copy-$((40+2))\r")
+        func outputRow() -> Int? {
+            session.withState { state, cache in
+                (0 ..< state.rows).first {
+                    let line = state.displayTop + Int64($0)
+                    return cache.text(from: (line, 0), to: (line, 59)) == "copy-42"
+                }
+            }
+        }
+        try await wait("output") {
+            outputRow() != nil
+        }
+        let row = try #require(outputRow())
+
+        let size = NSSize(width: view.cellSize.width * 60, height: view.cellSize.height * 12)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless, backing: .buffered, defer: true)
+        window.contentView = view
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        var enabled = true
+        view.selectionPasteboard = pasteboard
+        view.copyOnSelectEnabled = {
+            enabled
+        }
+
+        func point(column: Int, row: Int, dx: CGFloat = 0) -> NSPoint {
+            let local = NSPoint(
+                x: (CGFloat(column) + 0.5) * view.cellSize.width + dx,
+                y: view.bounds.height - (CGFloat(row) + 0.5) * view.cellSize.height
+            )
+            return view.convert(local, to: nil)
+        }
+        func event(_ type: NSEvent.EventType, _ location: NSPoint, clicks: Int = 1) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(
+                with: type, location: location, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                clickCount: clicks, pressure: 1
+            ))
+        }
+        func click(column: Int, row: Int, clicks: Int) throws {
+            let location = point(column: column, row: row)
+            view.mouseDown(with: try event(.leftMouseDown, location, clicks: clicks))
+            view.mouseUp(with: try event(.leftMouseUp, location, clicks: clicks))
+        }
+
+        // A click with a 1 point movement is not a selection.
+        view.mouseDown(with: try event(.leftMouseDown, point(column: 2, row: row)))
+        view.mouseDragged(with: try event(.leftMouseDragged, point(column: 2, row: row, dx: 1)))
+        view.mouseUp(with: try event(.leftMouseUp, point(column: 2, row: row, dx: 1)))
+        #expect(!view.selectionActive)
+        #expect(pasteboard.string(forType: .string) == nil)
+
+        // A drag to a different cell copies the range.
+        view.mouseDown(with: try event(.leftMouseDown, point(column: 0, row: row)))
+        view.mouseDragged(with: try event(.leftMouseDragged, point(column: 3, row: row)))
+        view.mouseUp(with: try event(.leftMouseUp, point(column: 3, row: row)))
+        #expect(pasteboard.string(forType: .string) == "copy")
+
+        // A double-click copies the word.
+        try click(column: 2, row: row, clicks: 1)
+        try click(column: 2, row: row, clicks: 2)
+        #expect(pasteboard.string(forType: .string) == "copy-42")
+
+        // A double-click on an empty cell changes nothing, thus the old
+        // selection is not copied again.
+        pasteboard.clearContents()
+        pasteboard.setString("other", forType: .string)
+        try click(column: 40, row: row, clicks: 2)
+        #expect(pasteboard.string(forType: .string) == "other")
+
+        // A triple-click copies the row without the empty cells.
+        try click(column: 2, row: row, clicks: 3)
+        #expect(pasteboard.string(forType: .string) == "copy-42")
+
+        // The setting is read at the end of each gesture.
+        enabled = false
+        pasteboard.clearContents()
+        try click(column: 2, row: row, clicks: 1)
+        try click(column: 2, row: row, clicks: 2)
+        #expect(view.selectionActive)
+        #expect(pasteboard.string(forType: .string) == nil)
+
+        // Copy uses the same pasteboard.
+        view.copy(nil)
+        #expect(pasteboard.string(forType: .string) == "copy-42")
+        session.terminate(signal: SIGHUP)
+    }
+
     @Test func sessionRunsInTheHelperAndSurvivesDetach() async throws {
         _ = Self.runtimeDirectory
         let record = try PersistentSessions.create(

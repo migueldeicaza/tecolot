@@ -646,6 +646,28 @@ struct RemoteSessionTests {
         session.close()
     }
 
+    /// A selection to the last column (a triple-click) does not copy the
+    /// empty cells after the text. A space that the program wrote stays.
+    @Test func textDropsEmptyCellsAtTheEndOfTheSelection() async throws {
+        let host = makeHost(rows: 5, columns: 20)
+        host.inject("ls -la\r\nword  \r\nnext")
+        let session = try connect(host, rows: 5, columns: 20)
+        try await eventually("screen") {
+            screen(session).contains("next")
+        }
+        let top = session.state.displayTop
+        let texts = session.withState { _, cache in
+            [
+                cache.text(from: (top, 0), to: (top, 19)),
+                cache.text(from: (top + 1, 0), to: (top + 1, 19)),
+                cache.text(from: (top + 1, 0), to: (top + 1, 4)),
+                cache.text(from: (top + 3, 0), to: (top + 3, 19))
+            ]
+        }
+        #expect(texts == ["ls -la", "word  ", "word ", ""])
+        session.close()
+    }
+
     @Test func floodEndsWithTheLatestScreen() async throws {
         let host = makeHost(rows: 10)
         let session = try connect(host)

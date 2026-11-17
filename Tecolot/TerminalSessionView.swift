@@ -48,6 +48,15 @@ struct PanePresentation: Equatable {
 final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegate {
     nonisolated static let useMetalRendererKey = "useMetalRenderer"
     nonisolated static let useMetalRendererDefault = true
+    nonisolated static let copyOnSelectKey = "copyOnSelect"
+    nonisolated static let copyOnSelectDefault = false
+
+    /// The "Copy on selection" setting. Panes read it at the end of each
+    /// selection gesture, thus each writer of the key (Settings, Reset
+    /// Preferences, Restore Backup) applies to open panes at once.
+    nonisolated static func copyOnSelectEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: copyOnSelectKey) as? Bool ?? copyOnSelectDefault
+    }
     nonisolated static let logHostOutputKey = "LogHostOutput"
     nonisolated static let logHostOutputDefault = false
 
@@ -1037,6 +1046,20 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             UserDefaults.standard.set(newValue, forKey: TerminalSessionController.useMetalRendererKey)
             TerminalSessionRegistry.shared.setUseMetalRenderer(newValue)
         }
+    }
+
+    /// The user completed a selection in a local pane. SwiftTerm's
+    /// `copyOnSelect` stays `.off`; the setting is read here. A selection of
+    /// only white space is not copied. `RemoteTerminalView` applies the same
+    /// policy to a remote pane.
+    func selectionFinished(source: TerminalView) {
+        guard
+            Self.copyOnSelectEnabled(), let text = source.getSelection(),
+            !text.allSatisfy(\.isWhitespace) else {
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     func setUseMetalRenderer(_ enabled: Bool) {
@@ -2323,7 +2346,7 @@ extension TerminalSessionController {
             // The same renderer settings as local panes (configureTerminal).
             persistentView.metalBufferingMode = .perFrameAggregated
             setUseMetalRenderer(UserDefaults.standard.object(forKey: TerminalSessionController.useMetalRendererKey) as? Bool ?? TerminalSessionController.useMetalRendererDefault)
-            applyAppearance()
+                applyAppearance()
             persistentView.shouldSendCommandKeyToTerminal = { [weak persistentView] event in
                 let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
                 guard

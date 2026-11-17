@@ -51,6 +51,7 @@ final class PreferenceMigrator {
         SecureKeyboardEntry.enabledKey,
         TerminalSessionController.logHostOutputKey,
         TerminalSessionController.useMetalRendererKey,
+        TerminalSessionController.copyOnSelectKey,
         TerminalNotificationPreferences.bellStyleKey,
         TerminalNotificationPreferences.allowsProgramNotificationsKey
     ]

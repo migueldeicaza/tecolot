@@ -13,6 +13,7 @@ struct GeneralSettingsView: View {
     @AppStorage(StartupGroups.startupProfileIDKey) private var startupProfileID = StartupGroups.startupProfileIDDefault
     @State private var startupSelectionRevision = 0
     @AppStorage(TerminalSessionController.useMetalRendererKey) private var useMetalRenderer = TerminalSessionController.useMetalRendererDefault
+    @AppStorage(TerminalSessionController.copyOnSelectKey) private var copyOnSelect = TerminalSessionController.copyOnSelectDefault
     @State private var errorMessage: String?
 
     @MainActor
@@ -89,6 +90,12 @@ struct GeneralSettingsView: View {
             Section("Input") {
                 Toggle("Secure keyboard entry", isOn: $secureKeyboardEntry.isEnabled)
                 Text("Prevents other apps from reading what you type.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Selection") {
+                Toggle("Copy on selection", isOn: $copyOnSelect)
+                Text("Copies the selected text to the clipboard when you complete a selection.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
