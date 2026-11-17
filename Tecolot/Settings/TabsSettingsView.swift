@@ -40,51 +40,61 @@ struct TabsSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Layout") {
-                Picker("Tab style", selection: style) {
+            Section(SettingID.tabsSectionLayout.title) {
+                Picker(SettingID.tabsStyle.title, selection: style) {
                     Text("Above").tag("above")
                     Text("Left side").tag("left")
                     Text("Right side").tag("right")
                 }
+                .settingsAnchor(.tabsStyle)
                 if tabStyle == "horizontal" {
-                    Toggle("Fill available space", isOn: $fill)
+                    Toggle(SettingID.tabsFillAvailableSpace.title, isOn: $fill)
+                        .settingsAnchor(.tabsFillAvailableSpace)
                 }
-                Picker("Show tab icons", selection: iconSelection) {
+                Picker(SettingID.tabsShowIcons.title, selection: iconSelection) {
                     Text("None").tag(0)
                     ForEach(1...(tabStyle == "vertical" ? 3 : 5), id: \.self) {
                         Text("\($0)").tag($0)
                     }
                 }
-                Toggle("Use Command-1 through Command-9 to select tabs", isOn: $useCommandDigitsForTabs)
+                .settingsAnchor(.tabsShowIcons)
+                Toggle(SettingID.tabsCommandDigits.title, isOn: $useCommandDigitsForTabs)
+                    .settingsAnchor(.tabsCommandDigits)
             }
-            Section("Look") {
-                Picker("Use color for tab icons", selection: $color) {
+            Section(SettingID.tabsSectionLook.title) {
+                Picker(SettingID.tabsIconColor.title, selection: $color) {
                     Text("Always").tag("always")
                     Text("Active tabs").tag("activeTabs")
                     Text("Active panes").tag("activePanes")
                     Text("Never").tag("never")
                 }
-                Toggle("Prefer generated tab titles", isOn: $generatedTitles)
-                Picker("Animation style", selection: $animation) {
+                .settingsAnchor(.tabsIconColor)
+                Toggle(SettingID.tabsGeneratedTitles.title, isOn: $generatedTitles)
+                    .settingsAnchor(.tabsGeneratedTitles)
+                Picker(SettingID.tabsAnimationStyle.title, selection: $animation) {
                     Text("Natural").tag("natural")
                     Text("Snappy").tag("snappy")
                     Text("Off").tag("off")
                 }
+                .settingsAnchor(.tabsAnimationStyle)
             }
             if tabStyle == "vertical" {
-                Section("Sidebar") {
-                    Picker("Sidebar text size", selection: $sidebarTextSize) {
+                Section(SettingID.tabsSectionSidebar.title) {
+                    Picker(SettingID.tabsSidebarTextSize.title, selection: $sidebarTextSize) {
                         Text("System sidebar size").tag(0.0)
                         Text("Small (11 pt)").tag(11.0)
                         Text("Medium (13 pt)").tag(13.0)
                         Text("Large (15 pt)").tag(15.0)
                     }
-                    Toggle("Preserve width when resizing sidebar", isOn: $preserveWidth)
-                    Picker("Use a gesture to toggle the sidebar", selection: $sidebarGesture) {
+                    .settingsAnchor(.tabsSidebarTextSize)
+                    Toggle(SettingID.tabsSidebarPreserveWidth.title, isOn: $preserveWidth)
+                        .settingsAnchor(.tabsSidebarPreserveWidth)
+                    Picker(SettingID.tabsSidebarGesture.title, selection: $sidebarGesture) {
                         Text("Swipe").tag("swipe")
                         Text("Option-swipe").tag("optionSwipe")
                         Text("Off").tag("off")
                     }
+                    .settingsAnchor(.tabsSidebarGesture)
                 }
             }
         }

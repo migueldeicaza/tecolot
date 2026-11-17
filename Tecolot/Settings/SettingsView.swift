@@ -23,6 +23,15 @@ struct SettingsView: View {
     @State private var profileErrorMessage: String?
     @State private var navigator = SettingsNavigator.shared
 
+    @State private var query = ""
+    /// The page that limits the search results, or nil for all pages.
+    @State private var searchScope: SettingsDestination?
+    /// False after the user opens a result, while the query stays typed.
+    @State private var showsSearchResults = false
+    @State private var revealRequest: SettingsRevealRequest?
+    @State private var revealSerial = 0
+    @FocusState private var searchIsFocused: Bool
+
     @MainActor
     init(
         issueCenter: PersistenceIssueCenter,
@@ -35,49 +44,67 @@ struct SettingsView: View {
     }
 
     var body: some View {
+        // Search once for the sidebar and the results list.
+        let results = isSearching ? searchResults : []
         NavigationSplitView {
-            List(selection: $destination) {
-                Section("App") {
-                    ForEach(SettingsDestination.appPages) { destination in
-                        Label(sidebarTitle(for: destination), systemImage: destination.systemImage)
-                            .tag(destination)
-                    }
-                }
-                Section("Profile") {
-                    ProfilePickerRow(
-                        profiles: profiles.profiles,
-                        defaultProfileID: profiles.defaultProfileID,
-                        selection: activeProfileSelection,
-                        createProfile: createProfile,
-                        duplicateProfile: duplicateProfile,
-                        makeProfileDefault: makeProfileDefault,
-                        manageProfiles: {
-                            destination = .manageProfiles
-                        }
-                    )
-                    .selectionDisabled()
-                    ForEach(SettingsDestination.visibleProfileEditingPages(profilesAreEmpty: profiles.profiles.isEmpty)) { destination in
-                        Label(destination.title, systemImage: destination.systemImage)
-                            .tag(destination)
-                    }
-                    Divider()
-                    Label(SettingsDestination.manageProfiles.title, systemImage: SettingsDestination.manageProfiles.systemImage)
-                        .tag(SettingsDestination.manageProfiles)
+            Group {
+                if isSearching {
+                    searchSidebar(pages: SettingsSearchEngine.pages(in: results))
+                } else {
+                    pageSidebar
                 }
             }
             .navigationTitle("Settings")
             // Wide enough for "Keyboard and Mouse" without truncation.
             .navigationSplitViewColumnWidth(min: 205, ideal: 215)
         } detail: {
-            detail
+            if isSearching && showsSearchResults {
+                SettingsSearchResultsView(
+                    query: query.trimmingCharacters(in: .whitespaces),
+                    scope: searchScope,
+                    results: scoped(results),
+                    open: reveal
+                )
+            } else {
+                detail
+            }
         }
+        // The search field reads this action from inside the searchable view.
+        .onSubmit(of: .search, openFirstSearchResult)
+        .searchable(text: $query, placement: .sidebar, prompt: "Search Settings")
+        .searchFocused($searchIsFocused)
         .frame(minWidth: 800, minHeight: 560)
-        .background(SettingsEscapeKeyHandler())
+        .background(SettingsKeyHandler(focusSearch: {
+            searchIsFocused = true
+        }))
+        .background(SettingsWindowCloseObserver(windowWillClose: resetSearch))
+        .background(SettingsSpotlightHost(request: revealRequest))
         .onAppear(perform: repairActiveProfileSelection)
         .onChange(of: navigator.pendingDestination, initial: true) {
             if let pending = navigator.pendingDestination {
+                // A search would hide the page that the caller asked for.
+                resetSearch()
                 destination = pending
                 navigator.pendingDestination = nil
+            }
+        }
+        .onChange(of: navigator.pendingSetting, initial: true) {
+            if let pending = navigator.pendingSetting {
+                navigator.pendingSetting = nil
+                resetSearch()
+                reveal(pending)
+            }
+        }
+        .onChange(of: query) {
+            showsSearchResults = isSearching
+            if let searchScope, !SettingsSearchEngine.pages(in: searchResults).contains(searchScope) {
+                self.searchScope = nil
+            }
+        }
+        .onChange(of: destination) {
+            // The spotlight is for a row of the page that search opened.
+            if let revealRequest, revealRequest.id.entry.destination != destination {
+                self.revealRequest = nil
             }
         }
         .onChange(of: profiles.profiles.map(\.id)) {
@@ -92,6 +119,131 @@ struct SettingsView: View {
             }
         } message: {
             Text(profileErrorMessage ?? "An unknown error occurred.")
+        }
+    }
+
+    // MARK: - Search
+
+    private enum SearchSidebarItem: Hashable {
+        case allSettings
+        case page(SettingsDestination)
+    }
+
+    private var isSearching: Bool {
+        !query.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    private var searchResults: [SettingsSearchResult] {
+        SettingsSearchEngine.search(
+            query,
+            context: SettingsSearchContext(
+                profilesAreEmpty: profiles.profiles.isEmpty,
+                updatesEnabled: UpdaterModel.shared.updatesEnabled
+            )
+        )
+    }
+
+    /// The results of the page chosen in the sidebar, or all of them.
+    private func scoped(_ results: [SettingsSearchResult]) -> [SettingsSearchResult] {
+        guard let searchScope else {
+            return results
+        }
+        return results.filter { $0.entry.destination == searchScope }
+    }
+
+    private var searchSidebarSelection: Binding<SearchSidebarItem?> {
+        Binding(get: {
+            guard showsSearchResults else {
+                return nil
+            }
+            return searchScope.map(SearchSidebarItem.page) ?? .allSettings
+        }, set: { item in
+            switch item {
+            case .allSettings:
+                searchScope = nil
+            case .page(let page):
+                searchScope = page
+            case nil:
+                return
+            }
+            showsSearchResults = true
+        })
+    }
+
+    /// Replaces the page list while a query is typed: all results, then
+    /// each page that has results.
+    private func searchSidebar(pages: [SettingsDestination]) -> some View {
+        List(selection: searchSidebarSelection) {
+            Label("All Settings", systemImage: "magnifyingglass")
+                .tag(SearchSidebarItem.allSettings)
+            Section {
+                ForEach(pages) { page in
+                    Label(page.title, systemImage: page.systemImage)
+                        .tag(SearchSidebarItem.page(page))
+                }
+            }
+        }
+    }
+
+    private func openFirstSearchResult() {
+        if let first = scoped(searchResults).first {
+            reveal(first.id)
+        }
+    }
+
+    /// A closed Settings window opens again without the last search.
+    private func resetSearch() {
+        query = ""
+        searchScope = nil
+        showsSearchResults = false
+        revealRequest = nil
+    }
+
+    /// Opens the page of a setting and puts the spotlight on its row.
+    private func reveal(_ id: SettingID) {
+        let entry = id.entry
+        destination = SettingsDestination.repairedDestination(
+            entry.destination,
+            profilesAreEmpty: profiles.profiles.isEmpty
+        )
+        showsSearchResults = false
+        revealSerial += 1
+        revealRequest = destination == entry.destination && entry.kind != .page
+            ? SettingsRevealRequest(id: id, serial: revealSerial)
+            : nil
+    }
+
+    // MARK: - Pages
+
+    private var pageSidebar: some View {
+        List(selection: $destination) {
+            Section("App") {
+                ForEach(SettingsDestination.appPages) { destination in
+                    Label(sidebarTitle(for: destination), systemImage: destination.systemImage)
+                        .tag(destination)
+                }
+            }
+            Section("Profile") {
+                ProfilePickerRow(
+                    profiles: profiles.profiles,
+                    defaultProfileID: profiles.defaultProfileID,
+                    selection: activeProfileSelection,
+                    createProfile: createProfile,
+                    duplicateProfile: duplicateProfile,
+                    makeProfileDefault: makeProfileDefault,
+                    manageProfiles: {
+                        destination = .manageProfiles
+                    }
+                )
+                .selectionDisabled()
+                ForEach(SettingsDestination.visibleProfileEditingPages(profilesAreEmpty: profiles.profiles.isEmpty)) { destination in
+                    Label(destination.title, systemImage: destination.systemImage)
+                        .tag(destination)
+                }
+                Divider()
+                Label(SettingsDestination.manageProfiles.title, systemImage: SettingsDestination.manageProfiles.systemImage)
+                    .tag(SettingsDestination.manageProfiles)
+            }
         }
     }
 
@@ -257,7 +409,12 @@ struct SettingsView: View {
     }
 }
 
-struct SettingsEscapeKeyHandler: NSViewRepresentable {
+/// Handles the keys of the Settings window that must not depend on which
+/// view has focus: Escape closes the window and Command-F starts a search.
+struct SettingsKeyHandler: NSViewRepresentable {
+    /// Moves the keyboard focus to the search field.
+    var focusSearch: () -> Void = {}
+
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
@@ -270,6 +427,7 @@ struct SettingsEscapeKeyHandler: NSViewRepresentable {
 
     func updateNSView(_ nsView: WindowReaderView, context: Context) {
         context.coordinator.window = nsView.window
+        context.coordinator.focusSearch = focusSearch
     }
 
     static func dismantleNSView(_ nsView: WindowReaderView, coordinator: Coordinator) {
@@ -301,6 +459,7 @@ struct SettingsEscapeKeyHandler: NSViewRepresentable {
         var closeWindow: (NSWindow) -> Void = { window in
             window.performClose(nil)
         }
+        var focusSearch: () -> Void = {}
         private var monitor: Any?
 
         func startMonitoring() {
@@ -311,18 +470,38 @@ struct SettingsEscapeKeyHandler: NSViewRepresentable {
                 guard
                     let self,
                     let window,
-                    event.keyCode == 53,
                     event.window === window,
                     window.attachedSheet == nil else {
                     return event
                 }
-                
-                if window.firstResponder is NSTextView {
-                    // Some text is being edited. Do not close the window, let
-                    // the text view handle the escape button.
+                // The monitor runs before the main menu, so Command-F does
+                // not reach the Find command of the terminal.
+                // Caps Lock changes the letter and adds a flag of its own.
+                let modifiers = event.modifierFlags
+                    .intersection(.deviceIndependentFlagsMask)
+                    .subtracting(.capsLock)
+                if modifiers == .command, event.charactersIgnoringModifiers?.lowercased() == "f" {
+                    focusSearch()
+                    return nil
+                }
+                guard event.keyCode == 53 else {
                     return event
                 }
-                
+
+                if let editor = window.firstResponder as? NSTextView {
+                    // Some text is being edited. Do not close the window, let
+                    // the text view handle the escape button. This includes
+                    // a search field with a query or with text that an
+                    // input method has not finished. An empty search field
+                    // has nothing to cancel, so Escape closes from it.
+                    let isEmptySearch = editor.delegate is NSSearchField
+                        && editor.string.isEmpty
+                        && !editor.hasMarkedText()
+                    if !isEmptySearch {
+                        return event
+                    }
+                }
+
                 closeWindow(window)
                 return nil
             }

@@ -6,12 +6,16 @@ extension ProfileSettingsPage {
     var keyboardAndMouseSettings: some View {
         Form {
             Section {
-                Toggle("Use Option as Meta key", isOn: binding(\.optionAsMetaKey))
-                Toggle("Delete sends Control-H", isOn: binding(\.backspaceSendsControlH))
-                Toggle("Hide pointer while typing", isOn: binding(\.hidePointerWhileTyping))
+                Toggle(SettingID.keyboardOptionAsMeta.title, isOn: binding(\.optionAsMetaKey))
+                    .settingsAnchor(.keyboardOptionAsMeta)
+                Toggle(SettingID.keyboardDeleteSendsControlH.title, isOn: binding(\.backspaceSendsControlH))
+                    .settingsAnchor(.keyboardDeleteSendsControlH)
+                Toggle(SettingID.keyboardHidePointer.title, isOn: binding(\.hidePointerWhileTyping))
+                    .settingsAnchor(.keyboardHidePointer)
             }
-            Section("Key mappings"){
+            Section(SettingID.keyboardKeyMappings.title) {
                 TerminalKeyBindingsEditor(profile: profile, update: updateIgnoringResult)
+                    .settingsAnchor(.keyboardKeyMappings)
             }
         }
     }

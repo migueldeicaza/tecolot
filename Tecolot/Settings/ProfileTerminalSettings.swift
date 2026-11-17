@@ -6,21 +6,26 @@ extension ProfileSettingsPage {
     var terminalSettings: some View {
         Form {
             Section {
-                LabeledContent("Declare terminal as") {
+                LabeledContent(SettingID.terminalDeclareAs.title) {
                     TerminalNameComboBox(text: binding(\.termName))
                 }
+                .settingsAnchor(.terminalDeclareAs)
                 if profile.termName == "xterm-ghostty" {
-                    TextField("TERM_PROGRAM", text: binding(\.termProgram))
-                    TextField("TERM_VERSION", text: binding(\.termVersion))
+                    TextField(SettingID.terminalTermProgram.title, text: binding(\.termProgram))
+                        .settingsAnchor(.terminalTermProgram)
+                    TextField(SettingID.terminalTermVersion.title, text: binding(\.termVersion))
+                        .settingsAnchor(.terminalTermVersion)
                 }
-                Toggle("Enable OSC 8 links", isOn: binding(\.linkOsc8))
+                Toggle(SettingID.terminalOSC8Links.title, isOn: binding(\.linkOsc8))
                     .help("Allow terminal programs to set links on text. Turn this off to ignore these links. Tecolot can still detect web addresses in text.")
+                    .settingsAnchor(.terminalOSC8Links)
                 Toggle(isOn: binding(\.screenChecksumReports)) {
-                    Text("Allow programs to read screen contents")
+                    Text(SettingID.terminalScreenChecksum.title)
                     Text("DECRQCRA (Request Checksum of Rectangular Area)")
                 }
                 .help("Answer screen checksum requests. Test tools such as vttest and esctest use them. A program can also use them to read text on the screen, including text from other programs. Keep this off unless you need it.")
-                Toggle("Limit scrollback", isOn: Binding(
+                .settingsAnchor(.terminalScreenChecksum)
+                Toggle(SettingID.terminalLimitScrollback.title, isOn: Binding(
                     get: {
                         profile.scrollbackLines != nil
                     },
@@ -30,8 +35,9 @@ extension ProfileSettingsPage {
                         }
                     }
                 ))
+                .settingsAnchor(.terminalLimitScrollback)
                 if profile.scrollbackLines != nil {
-                    TextField("Scrollback lines", value: Binding(
+                    TextField(SettingID.terminalScrollbackLines.title, value: Binding(
                         get: {
                             profile.scrollbackLines ?? 10_000
                         },
@@ -41,6 +47,7 @@ extension ProfileSettingsPage {
                             }
                         }
                     ), format: .number)
+                    .settingsAnchor(.terminalScrollbackLines)
                 }
             }
         }

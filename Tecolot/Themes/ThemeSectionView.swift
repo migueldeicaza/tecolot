@@ -102,6 +102,7 @@ struct ThemeModeSection: View {
     var body: some View {
         Section {
             strip
+                .settingsAnchor(isDark ? .appearanceDarkTheme : .appearanceLightTheme)
                 .sheet(item: $editorRequest) { request in
                     ThemeEditorView(
                         theme: request.theme,
@@ -166,7 +167,7 @@ struct ThemeModeSection: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(isDark ? "Dark mode" : "Light mode")
+            Text(isDark ? SettingID.appearanceDarkTheme.title : SettingID.appearanceLightTheme.title)
                 .font(.headline)
             if systemAppearance.isDark == isDark {
                 Text("\u{2014} active")

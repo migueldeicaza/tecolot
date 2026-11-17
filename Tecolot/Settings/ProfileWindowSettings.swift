@@ -6,11 +6,13 @@ extension ProfileSettingsPage {
     var windowSettings: some View {
         Form {
             Section {
-                TextField("Columns", value: binding(\.columns), format: .number)
-                TextField("Rows", value: binding(\.rows), format: .number)
+                TextField(SettingID.windowColumns.title, value: binding(\.columns), format: .number)
+                    .settingsAnchor(.windowColumns)
+                TextField(SettingID.windowRows.title, value: binding(\.rows), format: .number)
+                    .settingsAnchor(.windowRows)
             }
-            Section("Title") {
-                TextField("Custom title", text: Binding(
+            Section(SettingID.windowSectionTitle.title) {
+                TextField(SettingID.windowCustomTitle.title, text: Binding(
                     get: {
                         profile.titleOverride ?? ""
                     },
@@ -20,8 +22,9 @@ extension ProfileSettingsPage {
                         }
                     }
                 ), prompt: Text("Default"))
+                .settingsAnchor(.windowCustomTitle)
                 ForEach(TerminalTitleComponent.allCases, id: \.self) { component in
-                    Toggle(titleComponentLabel(component), isOn: Binding(
+                    Toggle(titleComponentSetting(component).title, isOn: Binding(
                         get: {
                             profile.titleComponents.contains(component)
                         },
@@ -35,24 +38,25 @@ extension ProfileSettingsPage {
                             }
                         }
                     ))
+                    .settingsAnchor(titleComponentSetting(component))
                 }
             }
         }
     }
 
 
-    private func titleComponentLabel(_ component: TerminalTitleComponent) -> String {
+    private func titleComponentSetting(_ component: TerminalTitleComponent) -> SettingID {
         switch component {
         case .activeTitle:
-            return "Active title"
+            return .windowTitleActiveTitle
         case .workingDirectory:
-            return "Working directory"
+            return .windowTitleWorkingDirectory
         case .fullPath:
-            return "Full path"
+            return .windowTitleFullPath
         case .profileName:
-            return "Profile name"
+            return .windowTitleProfileName
         case .dimensions:
-            return "Dimensions"
+            return .windowTitleDimensions
         }
     }
 }
