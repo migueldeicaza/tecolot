@@ -2,7 +2,7 @@
 //  SettingsView.swift
 //  Tecolot
 //
-//  Settings window: General and Data are app-wide. The remaining pages edit
+//  Settings window: General, Data, and Crash Reports are app-wide. The remaining pages edit
 //  the profile selected in the Settings toolbar.
 //
 import Combine
@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var destination: SettingsDestination? = .general
     @State private var activeProfileID: TerminalProfile.ID?
     @State private var profileErrorMessage: String?
+    @State private var navigator = SettingsNavigator.shared
 
     var body: some View {
         NavigationSplitView {
@@ -42,6 +43,12 @@ struct SettingsView: View {
         .frame(minWidth: 800, minHeight: 560)
         .background(SettingsEscapeKeyHandler())
         .onAppear(perform: repairActiveProfileSelection)
+        .onChange(of: navigator.pendingDestination, initial: true) {
+            if let pending = navigator.pendingDestination {
+                destination = pending
+                navigator.pendingDestination = nil
+            }
+        }
         .onChange(of: profiles.profiles.map(\.id)) {
             repairActiveProfileSelection()
         }
@@ -84,6 +91,8 @@ struct SettingsView: View {
             profileSettingsDetail(for: currentDestination)
         case .data:
             DataRecoveryView(issueCenter: issueCenter, recovery: recovery)
+        case .crashReports:
+            CrashReportsView()
         }
     }
 
@@ -271,6 +280,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
 
     case profiles
     case data
+    case crashReports
 
     var id: Self { self }
 
@@ -284,6 +294,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
         case .keyboard: return "Keyboard"
         case .advanced: return "Advanced"
         case .data: return "Data"
+        case .crashReports: return "Crash Reports"
         }
     }
 
@@ -297,6 +308,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
         case .keyboard: return "keyboard"
         case .advanced: return "slider.horizontal.3"
         case .data: return "externaldrive.badge.checkmark"
+        case .crashReports: return "exclamationmark.triangle"
         }
     }
 
@@ -304,7 +316,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
         switch self {
         case .text, .window, .shell, .keyboard, .advanced:
             return true
-        case .general, .profiles, .data:
+        case .general, .profiles, .data, .crashReports:
             return false
         }
     }
@@ -318,12 +330,15 @@ struct GeneralSettingsView: View {
     private var paneCardsBackdrop = GlobalAppearanceSettings().paneCardsBackdrop
     @AppStorage(GlobalAppearanceSettings.terminalPaddingKey)
     private var terminalPadding = GlobalAppearanceSettings().terminalPadding
+    @AppStorage(GlobalAppearanceSettings.paneStyleKey)
+    private var paneStyle = GlobalAppearanceSettings().paneStyle
     @EnvironmentObject private var profiles: ProfileStore
     @ObservedObject private var windowGroups: WindowGroupStore
     @AppStorage("newTabsUseCurrentDirectory") private var newTabsUseCurrentDirectory = true
     @AppStorage("newTabsUseCurrentProfile") private var newTabsUseCurrentProfile = true
     @AppStorage("useCommandDigitsForTabs") private var useCommandDigitsForTabs = true
     @AppStorage("restoredRowsLimit") private var restoredRowsLimit = 1_000
+    @AppStorage(WindowRestorationPolicy.key) private var windowRestoration = WindowRestorationPolicy.system.rawValue
     @AppStorage("startupMode") private var startupMode = "default"
     @AppStorage("startupProfileID") private var startupProfileID = ""
     @AppStorage("startupWindowGroupID") private var startupWindowGroupID = ""
@@ -385,12 +400,19 @@ struct GeneralSettingsView: View {
             }
             Section("Appearance") {
                 Toggle("Show terminal cards", isOn: $paneCardsEnabled)
+                Picker("Pane style:", selection: $paneStyle) {
+                    ForEach(GlobalAppearanceSettings.PaneStyle.allCases, id: \.self) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                .disabled(!paneCardsEnabled)
+                .help("Compact keeps the title bar of each pane, but removes the space and the rounded corners around the panes")
                 Picker("Background:", selection: $paneCardsBackdrop) {
                     ForEach(GlobalAppearanceSettings.Backdrop.allCases, id: \.self) { backdrop in
                         Text(backdrop.title).tag(backdrop)
                     }
                 }
-                .disabled(!paneCardsEnabled)
+                .disabled(!paneCardsEnabled || paneStyle == .compact)
                 Picker("Padding:", selection: $terminalPadding) {
                     ForEach(GlobalAppearanceSettings.TerminalPadding.allCases, id: \.self) { padding in
                         Text(padding.title).tag(padding)
@@ -408,6 +430,14 @@ struct GeneralSettingsView: View {
                 }
             }
             Section("Resume") {
+                Picker("Restore windows:", selection: $windowRestoration) {
+                    Text("As in System Settings").tag(WindowRestorationPolicy.system.rawValue)
+                    Text("Always").tag(WindowRestorationPolicy.always.rawValue)
+                    Text("Never").tag(WindowRestorationPolicy.never.rawValue)
+                }
+                Text("“As in System Settings” follows “Close windows when quitting an application” in Desktop & Dock. Hold Option when you quit to do the opposite. A log out or restart restores the windows.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Stepper(
                     "Restore up to \(restoredRowsLimit) rows when a saved session opens",
                     value: $restoredRowsLimit,

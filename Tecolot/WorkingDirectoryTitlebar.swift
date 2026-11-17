@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import TecolotSessionDirectory
 
 enum TitlebarAccessoryAlignment {
     /// AppKit's accessory center can include a toolbar row. Align content to
@@ -73,12 +74,9 @@ final class LocalHostNames {
     }
 
     nonisolated private static func lookUp() -> [String] {
-        var buffer = [CChar](repeating: 0, count: Int(MAXHOSTNAMELEN) + 1)
-        let systemName = gethostname(&buffer, buffer.count) == 0
-            ? String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-            : ""
-        var names = ["localhost"]
-        for name in [systemName, ProcessInfo.processInfo.hostName] where !name.isEmpty {
+        var names = HostNames.current()
+        let name = ProcessInfo.processInfo.hostName
+        if !name.isEmpty {
             let shortName = name.split(separator: ".").first.map(String.init) ?? name
             names += [name, shortName, "\(shortName).local"]
         }

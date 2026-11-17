@@ -1,0 +1,289 @@
+//
+// SessionServer.swift
+// TecolotSessionDaemon
+//
+// Runs one session in a helper process: reads the launch file, starts the
+// session host, listens on the session socket and keeps the session record
+// up to date.
+//
+
+import Foundation
+import TecolotSessionDirectory
+import TecolotSessionHost
+import TecolotTransport
+import TecolotWire
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+
+public final class SessionServer: @unchecked Sendable {
+    public let directory: SessionDirectory
+    public let id: String
+    public let host: SessionHost
+    private var listener: SocketListener?
+    private var record: SessionRecord
+    private var recordWritePending = false
+    private var attachedCount = 0
+    private var exitSeen = false
+    private var lingerTimer: DispatchSourceTimer?
+    private var signalSources: [DispatchSourceSignal] = []
+    private var upkeepTimer: DispatchSourceTimer?
+    private var restoringListener = false
+    private var finished = false
+    private var savedDurableState = false
+
+    /// How long a session whose exit no client saw stays available.
+    public var unseenExitLinger: TimeInterval = 24 * 60 * 60
+
+    /// Reads (and deletes) the launch file for `id`.
+    public init(directory: SessionDirectory, id: String, build: String) throws {
+        self.directory = directory
+        self.id = id
+        let launchURL = directory.launchURL(for: id)
+        let data = try Data(contentsOf: launchURL)
+        unlink(launchURL.path)
+        let launch = try JSONDecoder().decode(SessionLaunch.self, from: data)
+        host = SessionHost(id: id, launch: launch, build: build)
+        record = SessionRecord(id: id, pid: getpid(), shellPID: 0, protocolVersion: SessionProtocol.version,
+                               build: build, createdAt: SessionDirectory.processStartTime(getpid()) ?? Date(),
+                               executable: launch.executable,
+                               workingDirectory: launch.workingDirectory, labels: launch.labels,
+                               columns: launch.columns, rows: launch.rows)
+        if let linger = ProcessInfo.processInfo.environment["TECOLOT_EXITED_LINGER"].flatMap(TimeInterval.init) {
+            unseenExitLinger = linger
+        }
+    }
+
+    /// Starts the child, listens and publishes the record. Reports the
+    /// outcome on `readyFD` ("ready <pid>" or "error <message>").
+    public func start(readyFD: Int32?) throws {
+        // Set the callbacks before the child starts: a child that exits at
+        // once must still mark the record as exited.
+        installHostCallbacks()
+        // The host queue reads and writes `record` from the callbacks. Do
+        // the start on that queue so that the two never overlap.
+        let started: Result<Void, Error> = host.queue.sync {
+            do {
+                try host.start()
+                let listener = try SocketListener(path: directory.socketPath(for: id), queue: host.queue) { [host] fd in
+                    host.accept(socket: fd)
+                }
+                self.listener = listener
+                record.shellPID = host.shellPID
+                try directory.writeRecord(record)
+                listener.start()
+                installSignalHandlers()
+                let upkeep = DispatchSource.makeTimerSource(queue: host.queue)
+                upkeep.schedule(deadline: .now() + .seconds(3600), repeating: .seconds(3600))
+                upkeep.setEventHandler { [weak self] in self?.touchFiles() }
+                upkeepTimer = upkeep
+                upkeep.resume()
+                return .success(())
+            } catch {
+                return .failure(error)
+            }
+        }
+        if case .failure(let error) = started {
+            Self.report(readyFD, "error \(error)")
+            throw error
+        }
+        if !Self.report(readyFD, "ready \(getpid())") {
+            // The process that started us stopped waiting (it timed out or
+            // ended). No pane will show this session: end it.
+            host.queue.async { [weak self] in self?.shutdown() }
+        }
+    }
+
+    private func installHostCallbacks() {
+        host.onMetadataChange = { [weak self] title, directory in
+            guard let self else { return }
+            record.title = title
+            record.directory = directory
+            scheduleRecordWrite()
+        }
+        host.onAttachmentChange = { [weak self] count in
+            guard let self else { return }
+            if count > attachedCount { record.lastAttachedAt = Date() }
+            attachedCount = count
+            record.attachedClients = count
+            let size = host.gridSize
+            record.columns = size.columns
+            record.rows = size.rows
+            scheduleRecordWrite()
+            if count == 0 && record.exited { exitWhenAppropriate() }
+        }
+        host.onGridChange = { [weak self] columns, rows in
+            guard let self else { return }
+            record.columns = columns
+            record.rows = rows
+            scheduleRecordWrite()
+        }
+        host.onSessionInfo = { [weak self] info in
+            guard let self else { return }
+            let name = info.foreground?.name
+            guard name != record.foreground else { return }
+            record.foreground = name
+            scheduleRecordWrite()
+        }
+        host.onDetachedNotification = { [weak self] message in
+            guard let self else { return }
+            // The app watches the records: it shows the notification.
+            record.notification = SessionNotification(serial: (record.notification?.serial ?? 0) + 1,
+                                                      title: message.title, body: message.body)
+            scheduleRecordWrite()
+        }
+        host.onExit = { [weak self] code in
+            guard let self else { return }
+            record.exited = true
+            record.exitCode = code
+            // Nobody needs the final screen of a session that a user ended on purpose.
+            exitSeen = attachedCount > 0 || host.wasTerminationRequested
+            writeRecordNow()
+            exitWhenAppropriate()
+        }
+    }
+
+    /// Runs the dispatch main loop forever.
+    public func run() -> Never {
+        dispatchMain()
+    }
+
+    private func exitWhenAppropriate() {
+        guard record.exited, attachedCount == 0 else { return }
+        if exitSeen {
+            finish()
+        } else if lingerTimer == nil {
+            let timer = DispatchSource.makeTimerSource(queue: host.queue)
+            timer.schedule(deadline: .now() + unseenExitLinger)
+            timer.setEventHandler { [weak self] in self?.finish() }
+            lingerTimer = timer
+            timer.resume()
+        }
+    }
+
+    private func scheduleRecordWrite() {
+        guard !recordWritePending else { return }
+        recordWritePending = true
+        host.queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self else { return }
+            recordWritePending = false
+            writeRecordNow()
+        }
+    }
+
+    private func writeRecordNow() {
+        guard !finished else { return }
+        record.updatedAt = Date()
+        try? directory.writeRecord(record)
+    }
+
+    private func installSignalHandlers() {
+        signal(SIGPIPE, SIG_IGN)
+        for number in [SIGTERM, SIGINT, SIGHUP] {
+            signal(number, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: number, queue: host.queue)
+            // The system sends SIGTERM (or SIGHUP) at log out, restart and
+            // shut down: keep the session for the next launch.
+            let saves = number != SIGINT
+            source.setEventHandler { [weak self] in
+                if saves { self?.saveDurableState() }
+                self?.shutdown()
+            }
+            source.resume()
+            signalSources.append(source)
+        }
+        signal(SIGUSR1, SIG_IGN)
+        let restore = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: host.queue)
+        restore.setEventHandler { [weak self] in self?.restoreListenerIfMissing() }
+        signalSources.append(restore)
+        restore.resume()
+    }
+
+    /// Updates file times so that temporary-file cleaners keep the session.
+    func touchFiles() {
+        guard !finished else { return }
+        for path in [directory.socketPath(for: id), directory.recordURL(for: id).path,
+                     directory.logURL(for: id).path] {
+            _ = utimensat(AT_FDCWD, path, nil, AT_SYMLINK_NOFOLLOW)
+        }
+    }
+
+    /// Restores the socket after a temporary-file cleaner removes it.
+    private func restoreListenerIfMissing() {
+        guard !finished, !restoringListener,
+              access(directory.socketPath(for: id), F_OK) != 0 else { return }
+        restoringListener = true
+        // SocketListener.stop queues its unlink. Create the replacement after it.
+        listener?.stop()
+        host.queue.async { [weak self] in
+            guard let self else { return }
+            defer { restoringListener = false }
+            guard !finished else { return }
+            do {
+                let replacement = try SocketListener(path: directory.socketPath(for: id), queue: host.queue) { [host] fd in
+                    host.accept(socket: fd)
+                }
+                listener = replacement
+                replacement.start()
+            } catch {
+                fputs("cannot restore session socket: \(error)\n", stderr)
+            }
+        }
+    }
+
+    /// Writes the durable state and the scrollback of the session, once.
+    /// Only a termination signal saves; a session that the user terminated,
+    /// or whose shell exited, saves nothing.
+    func saveDurableState() {
+        guard !finished, !savedDurableState, !record.exited, !host.wasTerminationRequested,
+              let path = host.launch.stateDirectory else { return }
+        savedDurableState = true
+        let (state, scrollback) = host.durableState(title: record.title)
+        do {
+            try DurableStateDirectory(url: URL(fileURLWithPath: path, isDirectory: true))
+                .write(state, scrollback: scrollback)
+        } catch {
+            fputs("cannot save the session state: \(error)\n", stderr)
+        }
+    }
+
+    /// Ends the child and then the helper.
+    private func shutdown() {
+        if record.exited {
+            finish()
+            return
+        }
+        host.terminate(signal: SIGHUP)
+        host.queue.asyncAfter(deadline: .now() + 5) { [weak self] in self?.finish() }
+    }
+
+    private func finish() {
+        guard !finished else { return }
+        finished = true
+        upkeepTimer?.cancel()
+        upkeepTimer = nil
+        lingerTimer?.cancel()
+        lingerTimer = nil
+        for source in signalSources { source.cancel() }
+        signalSources.removeAll()
+        listener?.stop()
+        directory.removeFiles(for: id)
+        // A normal end needs no log; a crash leaves it for diagnosis.
+        unlink(directory.logURL(for: id).path)
+        host.queue.async { exit(0) }
+    }
+
+    /// Writes `message` to `fd` and closes it. Returns false when the
+    /// reader is gone (the write fails).
+    @discardableResult
+    static func report(_ fd: Int32?, _ message: String) -> Bool {
+        guard let fd, fd >= 0 else { return true }
+        UnixSocket.setNoSignalOnBrokenPipe(fd)
+        let line = Array((message + "\n").utf8)
+        let written = line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+        close(fd)
+        return written == line.count
+    }
+}

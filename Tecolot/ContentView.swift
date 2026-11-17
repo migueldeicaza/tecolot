@@ -15,6 +15,8 @@ struct ContentView: View {
     private var paneCardsBackdrop = GlobalAppearanceSettings().paneCardsBackdrop
     @AppStorage(GlobalAppearanceSettings.terminalPaddingKey)
     private var terminalPadding = GlobalAppearanceSettings().terminalPadding
+    @AppStorage(GlobalAppearanceSettings.paneStyleKey)
+    private var paneStyle = GlobalAppearanceSettings().paneStyle
     @Binding var document: TerminalDocument
     /// nil for untitled windows; document metadata is only persisted for
     /// file-backed sessions so that closing an untitled window never
@@ -62,7 +64,8 @@ struct ContentView: View {
             appearanceSettings: GlobalAppearanceSettings(
                 paneCardsEnabled: paneCardsEnabled,
                 paneCardsBackdrop: paneCardsBackdrop,
-                terminalPadding: terminalPadding
+                terminalPadding: terminalPadding,
+                paneStyle: paneStyle
             )
         )
             .background(WindowTabbingConfigurator(
@@ -84,13 +87,6 @@ struct ContentView: View {
             .preferredColorScheme(
                 usesThemeWindowChrome ? (windowTheme.isDark ? .dark : .light) : nil
             )
-            .onAppear(perform: configureBufferPersistence)
-            .onChange(of: fileURL) {
-                configureBufferPersistence()
-            }
-            .onChange(of: rootController?.id) {
-                configureBufferPersistence()
-            }
             .onChange(of: rootController?.themeOverride) { _, newValue in
                 if fileURL != nil && document.themeOverride != newValue {
                     document.themeOverride = newValue
@@ -124,19 +120,6 @@ struct ContentView: View {
                     controller.applyThemeColors()
                 }
             }
-    }
-
-    private func configureBufferPersistence() {
-        guard let controller = rootController else { return }
-        guard fileURL != nil else {
-            controller.bufferSnapshotHandler = nil
-            return
-        }
-        controller.bufferSnapshotHandler = { content in
-            if document.content != content {
-                document.content = content
-            }
-        }
     }
 }
 
@@ -256,9 +239,7 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
 
 #Preview("Terminal Window") {
     ContentView(
-        document: .constant(TerminalDocument(
-            content: "miguel@mac tecolot % swift test\n\rAll tests passed.\r\n"
-        ))
+        document: .constant(TerminalDocument())
     )
     .environmentObject(SettingsPreviewData.profiles)
     .environmentObject(SettingsPreviewData.themes)

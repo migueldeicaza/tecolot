@@ -34,6 +34,23 @@ public enum ShellExitBehavior: String, Codable, CaseIterable, Sendable, CustomSt
     }
 }
 
+/// Whether a profile's shells keep running when their pane closes
+public enum SessionPersistence: String, Codable, CaseIterable, Sendable, CustomStringConvertible {
+    /// The shell runs in the app and ends when its pane closes
+    case standard
+    /// The shell runs in a persistent session (tecolot-sessiond): closing the
+    /// pane or quitting the app detaches, and File > Attach to Session shows
+    /// it again
+    case persistent
+
+    public var description: String {
+        switch self {
+        case .standard: return "End when the pane closes"
+        case .persistent: return "Keep running (persistent session)"
+        }
+    }
+}
+
 /// Whether closing a window with a live process asks for confirmation
 public enum AskBeforeClosing: String, Codable, CaseIterable, Sendable, CustomStringConvertible {
     case always
@@ -166,6 +183,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var shell: ShellCommand
     public var whenShellExits: ShellExitBehavior
     public var askBeforeClosing: AskBeforeClosing
+    /// New panes with this profile start persistent sessions
+    public var sessionPersistence: SessionPersistence
 
     // MARK: Keyboard
     public var optionAsMetaKey: Bool
@@ -189,6 +208,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var environmentVariables: [TerminalEnvironmentVariable]
     /// How the terminal responds to the bell character
     public var bellStyle: BellStyle
+    /// Programs can show desktop notifications (OSC 9, OSC 777)
+    public var allowsNotifications: Bool
 
     public init (id: UUID = UUID (), name: String) {
         let defaults = TerminalProfile.standardValues
@@ -211,6 +232,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.shell = defaults.shell
         self.whenShellExits = defaults.whenShellExits
         self.askBeforeClosing = defaults.askBeforeClosing
+        self.sessionPersistence = defaults.sessionPersistence
         self.optionAsMetaKey = defaults.optionAsMetaKey
         self.backspaceSendsControlH = defaults.backspaceSendsControlH
         self.hidePointerWhileTyping = defaults.hidePointerWhileTyping
@@ -222,6 +244,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.termVersion = defaults.termVersion
         self.environmentVariables = defaults.environmentVariables
         self.bellStyle = defaults.bellStyle
+        self.allowsNotifications = defaults.allowsNotifications
     }
 
     /// The theme that the "Default" group shows for each mode, and the
@@ -268,12 +291,13 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
                                 columns: Int, rows: Int, scrollbackLines: Int?,
                                 titleOverride: String?, titleComponents: Set<TerminalTitleComponent>, shell: ShellCommand,
                                 whenShellExits: ShellExitBehavior, askBeforeClosing: AskBeforeClosing,
+                                sessionPersistence: SessionPersistence,
                                 optionAsMetaKey: Bool, backspaceSendsControlH: Bool,
                                 hidePointerWhileTyping: Bool, linkOsc8: Bool,
                                 screenChecksumReports: Bool, termName: String,
                                 termProgram: String, termVersion: String,
                                 environmentVariables: [TerminalEnvironmentVariable], bellStyle: BellStyle,
-                                keyBindings: [TerminalKeyBinding]) {
+                                allowsNotifications: Bool, keyBindings: [TerminalKeyBinding]) {
         (fontFamily: nil, fontSize: 12,
          fontSmoothing: true, useBrightColorsForBold: true,
          cursorStyle: .blinkBlock, backgroundOpacity: 1.0,
@@ -281,10 +305,10 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
          columns: 80, rows: 25, scrollbackLines: 10_000,
          titleOverride: nil, titleComponents: [.activeTitle, .workingDirectory], shell: .loginShell,
          whenShellExits: .closeIfExitedCleanly, askBeforeClosing: .onlyIfProcessesRunning,
-         optionAsMetaKey: true, backspaceSendsControlH: false, hidePointerWhileTyping: true,
+         sessionPersistence: .standard, optionAsMetaKey: true, backspaceSendsControlH: false, hidePointerWhileTyping: true,
          linkOsc8: true, screenChecksumReports: false, termName: "xterm-256color",
          termProgram: "ghostty", termVersion: "1.3.1",
-         environmentVariables: [], bellStyle: .sound, keyBindings: [])
+         environmentVariables: [], bellStyle: .sound, allowsNotifications: true, keyBindings: [])
     }
 
     enum CodingKeys: String, CodingKey {
@@ -293,10 +317,10 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         case useBrightColorsForBold, cursorStyle, backgroundOpacity
         case useThemeColorsForWindowChrome
         case columns, rows, scrollbackLines, titleOverride, titleComponents
-        case shell, whenShellExits, askBeforeClosing
+        case shell, whenShellExits, askBeforeClosing, sessionPersistence
         case optionAsMetaKey, backspaceSendsControlH, hidePointerWhileTyping, keyBindings
         case linkOsc8, screenChecksumReports, termName, termProgram, termVersion
-        case environmentVariables, bellStyle
+        case environmentVariables, bellStyle, allowsNotifications
     }
 
     // Hand-written decoding: every field except id/name falls back to the
@@ -344,6 +368,9 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.shell = try c.decodeIfPresent (ShellCommand.self, forKey: .shell) ?? defaults.shell
         self.whenShellExits = try c.decodeIfPresent (ShellExitBehavior.self, forKey: .whenShellExits) ?? defaults.whenShellExits
         self.askBeforeClosing = try c.decodeIfPresent (AskBeforeClosing.self, forKey: .askBeforeClosing) ?? defaults.askBeforeClosing
+        // An unknown value (from a newer version) falls back to the default.
+        self.sessionPersistence = (try? c.decodeIfPresent (SessionPersistence.self, forKey: .sessionPersistence))
+            .flatMap { $0 } ?? defaults.sessionPersistence
         self.optionAsMetaKey = try c.decodeIfPresent (Bool.self, forKey: .optionAsMetaKey) ?? defaults.optionAsMetaKey
         self.backspaceSendsControlH = try c.decodeIfPresent (Bool.self, forKey: .backspaceSendsControlH) ?? defaults.backspaceSendsControlH
         self.hidePointerWhileTyping = try c.decodeIfPresent(
@@ -367,6 +394,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         } else {
             self.bellStyle = defaults.bellStyle
         }
+        self.allowsNotifications = try c.decodeIfPresent (Bool.self, forKey: .allowsNotifications)
+            ?? defaults.allowsNotifications
     }
 
     public func encode (to encoder: Encoder) throws {
@@ -391,6 +420,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode (shell, forKey: .shell)
         try c.encode (whenShellExits, forKey: .whenShellExits)
         try c.encode (askBeforeClosing, forKey: .askBeforeClosing)
+        try c.encode (sessionPersistence, forKey: .sessionPersistence)
         try c.encode (optionAsMetaKey, forKey: .optionAsMetaKey)
         try c.encode (backspaceSendsControlH, forKey: .backspaceSendsControlH)
         try c.encode(hidePointerWhileTyping, forKey: .hidePointerWhileTyping)
@@ -402,6 +432,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode(termVersion, forKey: .termVersion)
         try c.encode (environmentVariables, forKey: .environmentVariables)
         try c.encode (bellStyle.tagName, forKey: .bellStyle)
+        try c.encode (allowsNotifications, forKey: .allowsNotifications)
     }
 }
 

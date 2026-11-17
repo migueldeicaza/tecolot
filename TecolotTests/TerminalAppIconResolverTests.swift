@@ -16,6 +16,21 @@ struct TerminalAppIconResolverTests {
         #expect(TerminalAppIconResolver.identity(forExecutablePath: versions.appendingPathComponent("unrelated").path) == "unrelated")
     }
 
+    @Test func claudeVersionsMatchWhetherOrNotTheDirectoryExists() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("icon-resolver-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let versions = home.appendingPathComponent(".local/share/claude/versions")
+        let executable = URL(fileURLWithPath: versions.path + "/2.1.294")
+        let other = URL(fileURLWithPath: home.path + "/.local/share/claude/other")
+        #expect(TerminalAppIconResolver.isClaudeVersionsDirectory(executable.deletingLastPathComponent(), home: home))
+        #expect(!TerminalAppIconResolver.isClaudeVersionsDirectory(other, home: home))
+        try FileManager.default.createDirectory(at: versions, withIntermediateDirectories: true)
+        #expect(TerminalAppIconResolver.isClaudeVersionsDirectory(executable.deletingLastPathComponent(), home: home))
+        #expect(TerminalAppIconResolver.isClaudeVersionsDirectory(URL(fileURLWithPath: versions.path + "/"), home: home))
+        #expect(!TerminalAppIconResolver.isClaudeVersionsDirectory(other, home: home))
+    }
+
     @Test func identityUsesExecutableBasename() {
         #expect(TerminalAppIconResolver.identity(forExecutablePath: nil) == nil)
         #expect(TerminalAppIconResolver.identity(forExecutablePath: "") == nil)

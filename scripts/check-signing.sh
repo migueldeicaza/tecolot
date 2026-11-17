@@ -1,6 +1,7 @@
 #!/bin/bash
 #
-# Refuse an app that carries ad-hoc signed code.
+# Refuse an app that carries ad-hoc signed code, an executable without the
+# hardened runtime, or no session helper.
 #
 # Xcode signs an embedded Sparkle.framework but leaves the helper tools inside
 # it (Updater.app, Autoupdate and the XPC services) ad-hoc signed. Exporting the
@@ -21,6 +22,14 @@ fi
 
 app_path="$1"
 found_adhoc=0
+found_unhardened=0
+
+# Persistent sessions run in this helper; an app without it cannot start them.
+helper="$app_path/Contents/MacOS/tecolot-sessiond"
+if [[ ! -x "$helper" ]]; then
+    echo "error: the session helper is missing: $helper" >&2
+    exit 1
+fi
 
 while IFS= read -r executable; do
     description="$(codesign --display --verbose=2 "$executable" 2>&1 || true)"
@@ -28,10 +37,21 @@ while IFS= read -r executable; do
         echo "error: ad-hoc signed code in the bundle: $executable" >&2
         found_adhoc=1
     fi
+    # The notary service rejects executables (not libraries) without the
+    # hardened runtime.
+    kind="$(file -b "$executable")"
+    if [[ "$kind" == *executable* && "$description" != *"(runtime)"* ]]; then
+        echo "error: executable without the hardened runtime: $executable" >&2
+        found_unhardened=1
+    fi
 done < <(find "$app_path" -type f -perm -111)
 
 if [[ "$found_adhoc" -ne 0 ]]; then
     echo "error: notarization would reject this app. Did the export step run?" >&2
+    exit 1
+fi
+if [[ "$found_unhardened" -ne 0 ]]; then
+    echo "error: notarization would reject this app. Set ENABLE_HARDENED_RUNTIME on the target." >&2
     exit 1
 fi
 

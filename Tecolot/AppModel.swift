@@ -15,7 +15,16 @@ import Foundation
 struct LaunchSpec {
     var profileID: TerminalProfile.ID?
     var workingDirectory: String?
+    /// The SSH destination for a remote persistent session.
+    var remoteDestination: String?
     var themeOverride: String?
+    /// Run the shell in a persistent session (tecolot-sessiond) that keeps
+    /// running when the pane closes or the app quits.
+    var persistent = false
+    /// Attach to this running persistent session instead of starting a shell.
+    var attachSessionID: String?
+    /// A saved tab to rebuild, with its splits (restore on relaunch).
+    var restoredTab: RestoredTab?
 }
 
 @MainActor
@@ -199,6 +208,11 @@ final class AppModel {
 
     func discardPendingLaunch() {
         pendingLaunch = nil
+    }
+
+    /// The restored tab of the pending launch, without consuming it.
+    func pendingRestoredTab() -> RestoredTab? {
+        pendingLaunch?.restoredTab
     }
 
     /// Returns and clears the pending launch parameters

@@ -14,13 +14,23 @@ final class TerminalAppIconResolver {
         if name.range(of: #"^python3(?:\.[0-9]+)+$"#, options: .regularExpression) != nil {
             return "python3"
         }
-        let claudeVersions = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/share/claude/versions").standardizedFileURL
-        if url.deletingLastPathComponent() == claudeVersions,
+        if isClaudeVersionsDirectory(url.deletingLastPathComponent()),
            name.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil {
             return "claude"
         }
         return name
+    }
+
+    /// Whether `directory` is ~/.local/share/claude/versions. The check
+    /// does not depend on the disk: it compares path components, because
+    /// appendingPathComponent adds a trailing slash only when the directory
+    /// exists, and it standardizes both paths in the same form, because
+    /// standardizing removes /private only from paths that exist.
+    nonisolated static func isClaudeVersionsDirectory(_ directory: URL,
+                                                      home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Bool {
+        let versions = URL(fileURLWithPath: home.path).appendingPathComponent(".local/share/claude/versions")
+        return URL(fileURLWithPath: directory.path).standardizedFileURL.pathComponents
+            == URL(fileURLWithPath: versions.path).standardizedFileURL.pathComponents
     }
 
     nonisolated static func isRecognizedCommand(_ identity: String) -> Bool {

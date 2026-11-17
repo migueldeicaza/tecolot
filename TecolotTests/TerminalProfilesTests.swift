@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import SwiftTerm
+import TecolotSessionDirectory
 @testable import Tecolot
 
 final class ProfileColorTests {
@@ -454,6 +455,43 @@ final class ProfileStoreTests {
         #expect(!reloaded.defaultProfile.hidePointerWhileTyping)
     }
 
+    @Test func sessionPersistenceSurvivesRoundTrip() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var profile = store.defaultProfile
+        #expect(profile.sessionPersistence == .standard)
+        profile.sessionPersistence = .persistent
+        try store.update(profile)
+
+        let reloaded = try ProfileStore(directory: dir)
+        #expect(reloaded.defaultProfile.sessionPersistence == .persistent)
+    }
+
+    @Test func unknownSessionPersistenceFallsBackToStandard() throws {
+        let json = #"{"name": "Newer", "sessionPersistence": "remoteHost"}"#
+        let profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(json.utf8))
+        #expect(profile.sessionPersistence == .standard)
+    }
+
+    @MainActor
+    @Test func persistentProfilesStartPersistentSessions() {
+        var standard = TerminalProfile(name: "Standard")
+        standard.sessionPersistence = .standard
+        var persistent = TerminalProfile(name: "Persistent")
+        persistent.sessionPersistence = .persistent
+        var forced = LaunchSpec()
+        forced.persistent = true
+        var attach = LaunchSpec()
+        attach.attachSessionID = "abc"
+
+        #expect(!TerminalSessionController.startsPersistentSession(spec: nil, profile: standard))
+        #expect(!TerminalSessionController.startsPersistentSession(spec: LaunchSpec(), profile: standard))
+        #expect(TerminalSessionController.startsPersistentSession(spec: forced, profile: standard))
+        #expect(TerminalSessionController.startsPersistentSession(spec: attach, profile: standard))
+        #expect(TerminalSessionController.startsPersistentSession(spec: nil, profile: persistent))
+        #expect(TerminalSessionController.startsPersistentSession(spec: LaunchSpec(), profile: persistent))
+    }
+
     @Test func repairsDuplicateNamesWithoutDeletingProfiles () throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("profile-store-duplicate-tests-\(UUID().uuidString)")
@@ -515,6 +553,7 @@ final class ProfileStoreTests {
         #expect(profile.termVersion == "1.3.1")
         #expect(profile.useThemeColorsForWindowChrome)
         #expect(profile.hidePointerWhileTyping)
+        #expect(profile.sessionPersistence == .standard)
     }
 
     @Test func futureProfileRemainsUntouchedAndIsReported() throws {
@@ -636,15 +675,17 @@ final class ProfileStoreTests {
 }
 
 final class TerminalSessionDocumentCodecTests {
+    /// The text of a file from before the versioned format stays: the pane
+    /// shows it, and a save keeps it.
     @Test func plainTextMigratesInMemoryAndSavesAsV1() throws {
         let original = Data("prompt output\n".utf8)
         let value = try TerminalSessionDocumentCodec.decode(original)
-        #expect(value.content == "prompt output\n")
-        #expect(value.profileID == nil)
+        #expect(value == TerminalSessionDocumentValue(legacyContent: "prompt output\n"))
 
         let saved = try TerminalSessionDocumentCodec.encode(value)
         let object = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
         #expect((object["version"] as? NSNumber)?.intValue == 1)
+        #expect(object["content"] as? String == "prompt output\n")
         #expect(try TerminalSessionDocumentCodec.decode(saved) == value)
     }
 
@@ -656,8 +697,45 @@ final class TerminalSessionDocumentCodecTests {
     }
 
     @Test func jsonWithoutVersionRemainsLegacyTerminalText() throws {
-        let data = Data("{\"ordinary\":\"terminal output\"}".utf8)
-        #expect(try TerminalSessionDocumentCodec.decode(data).content == String(data: data, encoding: .utf8))
+        let text = "{\"ordinary\":\"terminal output\"}"
+        #expect(try TerminalSessionDocumentCodec.decode(Data(text.utf8))
+                == TerminalSessionDocumentValue(legacyContent: text))
+    }
+
+    @Test func savedTextOfAnOlderFileIsKept() throws {
+        let profileID = UUID()
+        let data = Data("{\"version\":1,\"profileID\":\"\(profileID.uuidString)\",\"content\":\"old text\"}".utf8)
+        let value = try TerminalSessionDocumentCodec.decode(data)
+        #expect(value == TerminalSessionDocumentValue(profileID: profileID, legacyContent: "old text"))
+        let saved = try TerminalSessionDocumentCodec.encode(value)
+        let object = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
+        #expect(object["content"] as? String == "old text")
+        #expect(try TerminalSessionDocumentCodec.decode(saved) == value)
+    }
+
+    /// Files of this version have no text, and a save adds none.
+    @Test func newFilesHaveNoText() throws {
+        let empty = Data("{\"version\":1,\"content\":\"\"}".utf8)
+        #expect(try TerminalSessionDocumentCodec.decode(empty) == TerminalSessionDocumentValue())
+        let saved = try TerminalSessionDocumentCodec.encode(TerminalSessionDocumentValue(themeOverride: "Basic"))
+        let object = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
+        #expect(object["content"] == nil)
+    }
+
+    @Test func replayTextKeepsTheLastLinesAndRemovesControls() {
+        #expect(TerminalSessionDocumentCodec.replayText(for: "one\ntwo\nthree\n", limit: 2) == "two\nthree\n")
+        #expect(TerminalSessionDocumentCodec.replayText(for: "a\u{1B}]52;c;x\u{7}\tb\r\n", limit: 10)
+                == "a\u{FFFD}]52;c;x\u{FFFD}      b\n")
+        #expect(TerminalSessionDocumentCodec.replayText(for: "\ta\tbc\t\nabcdefgh\tx\n", limit: 10)
+                == "        a       bc      \nabcdefgh        x\n")
+        #expect(TerminalSessionDocumentCodec.replayText(for: "text", limit: 0) == nil)
+        #expect(TerminalSessionDocumentCodec.replayText(for: "\n", limit: 10) == "\n")
+    }
+
+    /// Persistent panes validate the replay before the helper shows it.
+    @Test func replayTextWithTabsPassesTheScrollbackValidator() throws {
+        let text = try #require(TerminalSessionDocumentCodec.replayText(for: "a\tb\r\n\u{1B}[1mc\n", limit: 10))
+        try ScrollbackFile.validate(text)
     }
 }
 

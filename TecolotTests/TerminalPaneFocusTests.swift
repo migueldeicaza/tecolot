@@ -7,7 +7,7 @@ struct TerminalPaneFocusTests {
     @Test func backgroundOutputRemainsMarkedDuringWindowUpdates() throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let controller = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let hostView = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
@@ -34,7 +34,7 @@ struct TerminalPaneFocusTests {
         let firstController = try #require(workspace.focusedController)
         workspace.split(firstController, orientation: .vertical)
         let secondController = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let hostView = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),

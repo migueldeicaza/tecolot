@@ -114,9 +114,18 @@ enum WindowOpener {
         return window
     }
 
+    /// The window that a new tab joins: the key or main window when it
+    /// holds terminals, else the frontmost window that does. Other windows
+    /// (Settings, Sessions) cannot hold a terminal tab.
+    static func frontTerminalWindow(
+        in candidates: [NSWindow] = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 } + NSApp.orderedWindows
+    ) -> NSWindow? {
+        candidates.first { TerminalSessionRegistry.shared.controller(for: $0) != nil }
+    }
+
     @discardableResult
     static func openTab(spec: LaunchSpec, targetWindow: NSWindow? = nil) -> NSWindow? {
-        let targetWindow = targetWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let targetWindow = targetWindow ?? frontTerminalWindow()
         guard let (document, _, newWindow) = makeDocumentWindow(spec: spec) else {
             return nil
         }
@@ -147,7 +156,8 @@ enum WindowOpener {
         spec: LaunchSpec
     ) -> (NSDocument, NSWindowController, NSWindow)? {
         AppModel.shared.setPendingLaunch(spec)
-        guard let document = try? NSDocumentController.shared.openUntitledDocumentAndDisplay(false) else {
+        guard let document = openRestoredDocument(spec.restoredTab?.tab.fileURL)
+                ?? (try? NSDocumentController.shared.openUntitledDocumentAndDisplay(false)) else {
             AppModel.shared.discardPendingLaunch()
             logger.error("Could not create an untitled terminal document")
             return nil
@@ -161,6 +171,25 @@ enum WindowOpener {
             return nil
         }
         return (document, windowController, window)
+    }
+
+    /// The document of a restored tab's file, read at once so that the tabs
+    /// open in their order. Nil when the file cannot be read, or when a
+    /// window shows it already: the tab then comes back untitled.
+    private static func openRestoredDocument(_ url: URL?) -> NSDocument? {
+        guard let url else { return nil }
+        let controller = NSDocumentController.shared
+        guard controller.document(for: url) == nil else { return nil }
+        do {
+            let type = try controller.typeForContents(of: url)
+            let document = try controller.makeDocument(withContentsOf: url, ofType: type)
+            controller.addDocument(document)
+            controller.noteNewRecentDocument(document)
+            return document
+        } catch {
+            logger.error("Could not open the restored file \(url.path, privacy: .private): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     private static func logFrame(_ window: NSWindow, stage: String, policy: String) {
@@ -186,23 +215,61 @@ enum WindowOpener {
     /// The LaunchSpec a plain New Tab should use, honoring the General
     /// settings for working-directory and profile inheritance
     static func inheritedTabSpec() -> LaunchSpec {
-        let defaults = UserDefaults.standard
+        let front = TerminalSessionRegistry.shared.controller(for: frontTerminalWindow())
+        return inheritedTabSpec(profileID: front?.profile.id,
+                                workingDirectory: front?.currentWorkingDirectory,
+                                remoteDestination: front?.remoteDestination)
+    }
+
+    static func inheritedTabSpec(profileID: TerminalProfile.ID?, workingDirectory: String?,
+                                 remoteDestination: String?, defaults: UserDefaults = .standard) -> LaunchSpec {
         let inheritDirectory = defaults.object(forKey: "newTabsUseCurrentDirectory") as? Bool ?? true
         let inheritProfile = defaults.object(forKey: "newTabsUseCurrentProfile") as? Bool ?? true
-        let front = TerminalSessionRegistry.shared.controller(for: NSApp.keyWindow ?? NSApp.mainWindow)
-        return LaunchSpec(
-            profileID: inheritProfile ? front?.profile.id : nil,
-            workingDirectory: inheritDirectory ? front?.currentWorkingDirectory : nil
+        var spec = LaunchSpec(
+            profileID: inheritProfile ? profileID : nil,
+            workingDirectory: remoteDestination == nil && inheritDirectory ? workingDirectory : nil
         )
+        spec.remoteDestination = remoteDestination
+        if spec.remoteDestination != nil { spec.persistent = true }
+        return spec
     }
 }
 
 struct ProfileCommands: Commands {
     @ObservedObject var profiles: ProfileStore
+    @Environment(\.openWindow) private var openWindow
     @State private var commandState = TerminalCommandState()
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
+            Button("New Persistent Tab") {
+                var spec = WindowOpener.inheritedTabSpec()
+                spec.persistent = true
+                WindowOpener.openTab(spec: spec)
+            }
+            .keyboardShortcut("t", modifiers: [.command, .option])
+            Button("New Persistent Window") {
+                var spec = LaunchSpec()
+                spec.persistent = true
+                WindowOpener.openWindow(spec: spec)
+            }
+            Button("Attach to Session…") {
+                openWindow(id: SessionBrowserWindowID.value)
+            }
+            Button("Attach to Remote Session…") {
+                openWindow(id: SessionBrowserWindowID.value)
+                // The window opens first, so that the host section shows in it.
+                DispatchQueue.main.async { SessionBrowserModel.shared.connectToHost() }
+            }
+            Button("New Remote Session…") {
+                guard let destination = RemoteDestinationPanel.run() else { return }
+                var spec = LaunchSpec()
+                spec.remoteDestination = destination
+                spec.persistent = true
+                WindowOpener.openTab(spec: spec)
+            }
+            .keyboardShortcut("t", modifiers: [.command, .option, .shift])
+            Divider()
             Menu("New Window with Profile") {
                 ForEach(profiles.profiles) { profile in
                     Button(profile.name) {

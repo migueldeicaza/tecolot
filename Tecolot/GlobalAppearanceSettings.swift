@@ -55,12 +55,41 @@ nonisolated struct GlobalAppearanceSettings: Equatable {
         }
     }
 
+    /// The look of the cards when more than one pane shows.
+    /// UserDefaults keeps the raw values. Do not change them.
+    nonisolated enum PaneStyle: String, CaseIterable {
+        /// Space around the cards, rounded corners and a shadow.
+        case comfortable
+        /// The cards keep their title bar, but have no space between them,
+        /// no rounded corners, no shadow and no backdrop.
+        case compact
+
+        var title: String {
+            switch self {
+            case .comfortable: "Comfortable"
+            case .compact: "Compact"
+            }
+        }
+
+        /// True when the cards have space between them, rounded corners, a
+        /// shadow and a backdrop.
+        var showsDecorations: Bool { self == .comfortable }
+
+        /// The space around the cards and between them.
+        var spacing: CGFloat { showsDecorations ? GlobalAppearanceSettings.cardSpacing : 0 }
+
+        /// The corner radius of a card.
+        var cornerRadius: CGFloat { showsDecorations ? 14 : 0 }
+    }
+
     static let paneCardsEnabledKey = "paneCardsEnabled"
     static let paneCardsBackdropKey = "paneCardsBackdrop"
     static let terminalPaddingKey = "terminalPadding"
+    static let paneStyleKey = "paneStyle"
     var paneCardsEnabled = true
     var paneCardsBackdrop = Backdrop.gradient
     var terminalPadding = TerminalPadding.minimal
+    var paneStyle = PaneStyle.comfortable
 
     /// The padding in UserDefaults, for code that has no workspace.
     static var storedTerminalPadding: TerminalPadding {
@@ -70,7 +99,8 @@ nonisolated struct GlobalAppearanceSettings: Equatable {
 
     /// The height of the title bar of a card.
     static let cardTitlebarHeight: CGFloat = 32
-    /// The space around the cards and between them.
+    /// The space around the cards and between them, in the comfortable
+    /// style. See PaneStyle.spacing.
     static let cardSpacing: CGFloat = 12
 }
 
@@ -162,13 +192,19 @@ final class TerminalWorkspaceSplitView: NSSplitView {
     var cardsEnabled = true {
         didSet { if oldValue != cardsEnabled { needsDisplay = true } }
     }
-
-    static func dividerThickness(cardsEnabled: Bool) -> CGFloat {
-        cardsEnabled ? GlobalAppearanceSettings.cardSpacing : 1
+    var paneStyle = GlobalAppearanceSettings.PaneStyle.comfortable {
+        didSet { if oldValue != paneStyle { needsDisplay = true } }
     }
 
-    override var dividerThickness: CGFloat { Self.dividerThickness(cardsEnabled: cardsEnabled) }
+    /// True when the divider is a space between cards, not a line.
+    private var showsSpacing: Bool { cardsEnabled && paneStyle.showsDecorations }
+
+    static func dividerThickness(cardsEnabled: Bool, style: GlobalAppearanceSettings.PaneStyle) -> CGFloat {
+        cardsEnabled && style.showsDecorations ? style.spacing : 1
+    }
+
+    override var dividerThickness: CGFloat { Self.dividerThickness(cardsEnabled: cardsEnabled, style: paneStyle) }
     override func drawDivider(in rect: NSRect) {
-        if !cardsEnabled { super.drawDivider(in: rect) }
+        if !showsSpacing { super.drawDivider(in: rect) }
     }
 }

@@ -9,7 +9,7 @@ struct TerminalPaneZoomTests {
         let first = try #require(workspace.focusedController)
         workspace.split(first, orientation: .vertical)
         let second = try #require(workspace.focusedController)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
@@ -97,7 +97,7 @@ struct TerminalPaneZoomTests {
         workspace.split(first, orientation: .vertical)
         let second = try #require(workspace.focusedController)
         workspace.split(second, orientation: .horizontal)
-        let document = TerminalDocument(content: "")
+        let document = TerminalDocument()
         let host = TerminalPaneHostView(workspace: workspace, document: document)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
