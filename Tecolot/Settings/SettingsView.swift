@@ -21,6 +21,7 @@ struct SettingsView: View {
 
     @AppStorage(selectedProfileIDKey) private var selectedProfileID = SettingsView.selectedProfileIDDefault
     @State private var profileErrorMessage: String?
+    @State private var navigator = SettingsNavigator.shared
 
     @MainActor
     init(
@@ -73,6 +74,12 @@ struct SettingsView: View {
         .frame(minWidth: 800, minHeight: 560)
         .background(SettingsEscapeKeyHandler())
         .onAppear(perform: repairActiveProfileSelection)
+        .onChange(of: navigator.pendingDestination, initial: true) {
+            if let pending = navigator.pendingDestination {
+                destination = pending
+                navigator.pendingDestination = nil
+            }
+        }
         .onChange(of: profiles.profiles.map(\.id)) {
             repairActiveProfileSelection()
         }
@@ -126,6 +133,9 @@ struct SettingsView: View {
         case .data:
             DataRecoveryView(issueCenter: issueCenter, recovery: recovery)
                 .navigationTitle(SettingsDestination.data.title)
+        case .crashReports:
+            CrashReportsView()
+                .navigationTitle(SettingsDestination.crashReports.title)
         }
     }
 
@@ -339,6 +349,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
     case panes
     case notifications
     case data
+    case crashReports
 
     case appearance
     case window
@@ -347,7 +358,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
     case terminal
     case manageProfiles
 
-    static let appPages: [Self] = [.general, .tabs, .panes, .notifications, .data]
+    static let appPages: [Self] = [.general, .tabs, .panes, .notifications, .data, .crashReports]
     static let profilePages: [Self] = [.appearance, .window, .shell, .keyboardAndMouse, .terminal, .manageProfiles]
 
     static func destinationAfterCreatingProfile(from destination: Self) -> Self {
@@ -390,6 +401,8 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
             return "Terminal"
         case .data:
             return "Data"
+        case .crashReports:
+            return "Crash Reports"
         }
     }
 
@@ -417,6 +430,8 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
             return "slider.horizontal.3"
         case .data:
             return "externaldrive.badge.checkmark"
+        case .crashReports:
+            return "exclamationmark.triangle"
         }
     }
 
@@ -424,7 +439,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
         switch self {
         case .appearance, .window, .shell, .keyboardAndMouse, .terminal:
             return true
-        case .general, .tabs, .panes, .notifications, .manageProfiles, .data:
+        case .general, .tabs, .panes, .notifications, .manageProfiles, .data, .crashReports:
             return false
         }
     }

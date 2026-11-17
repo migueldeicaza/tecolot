@@ -80,6 +80,11 @@ extension TerminalSessionController {
         presetRestoration != nil && terminal == nil && persistentView == nil
     }
 
+    /// The session that a hidden pane of a restored tab will use when it shows.
+    var unshownRestoreSessionID: String? {
+        isUnshownRestoredPane ? presetRestoration?.pane.sessionID : nil
+    }
+
     /// The directory to restore. Reads the shell's directory only when no
     /// report came, or the last one came from another host.
     @MainActor

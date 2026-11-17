@@ -253,6 +253,44 @@ detect web addresses in text. Capability reports and the shell environment
 use the setting from terminal creation. Open a new terminal to update these
 values. Exported profiles store this setting as `linkOsc8`.
 
+## Crash reports
+
+When Tecolot crashes, macOS saves a crash report on your Mac. Tecolot does not
+capture crashes itself, and it does not send reports automatically. A report
+leaves your Mac only when you submit or export it.
+
+1. Start Tecolot again after the crash. Tecolot shows a notice when macOS has a
+   new report.
+2. Click **Show Crash Reports**, or open **Tecolot > Settings > Crash
+   Reports**.
+3. Find the report by its date. Click **Submit…** to send it to the Tecolot
+   project on sentry.io. Tecolot asks you to confirm and shows the Sentry ID.
+   Include that ID if you open a GitHub issue.
+4. You can also click **Export…** to save a copy of the report, or open it in
+   Console from the **More actions** menu.
+
+macOS saves reports in `~/Library/Logs/DiagnosticReports/` as
+`Tecolot-<date>.ips` files, moves older reports to the `Retired` subfolder,
+and removes old reports. Tecolot shows the reports from both folders. Debug
+builds have their own bundle identifier and show only their own reports.
+
+**Submit…** does not send the `.ips` file. Tecolot converts the report to a
+Sentry event. The event has the exception, the stack of each thread, the thread
+names, and the error messages from the crash. It also has the loaded libraries
+and the versions of Tecolot and macOS. It does not have register values,
+memory, or identifiers of your Mac. Tecolot replaces your home folder path with
+`~` in all text. Sentry symbolicates the stacks with the dSYMs that the release
+workflow uploads.
+
+**Export…** saves the full macOS report. It also contains register values and
+identifiers of your Mac, so share it only if you agree. Debug builds have no
+**Submit…** button. To share an exported report instead, attach it to a
+[GitHub issue](https://github.com/migueldeicaza/tecolot/issues). GitHub issues
+are public. If you do not want the report to be public, ask a maintainer on
+[Discord](https://discord.com/invite/rgN3yzHg8G) for a private way to send it.
+Each release on GitHub has a `Tecolot-<version>-dSYMs.zip` asset to
+symbolicate a report.
+
 ## Help and contributions
 
 - Use [GitHub Issues](https://github.com/migueldeicaza/tecolot/issues) for bugs,
