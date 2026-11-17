@@ -362,7 +362,7 @@ enum ProfileSettingsSection {
         case .shell: self = .shell
         case .keyboard: self = .keyboard
         case .advanced: self = .advanced
-        case .general, .profiles, .data: return nil
+        case .general, .profiles, .data, .crashReports: return nil
         }
     }
 

@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = true
         _ = SecureKeyboardEntry.shared
+        CrashReporting.finishLaunch()
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
             DetachedSessionNotifications.shared.start()
         }
@@ -518,13 +519,15 @@ struct AppInfoCommands: Commands {
 }
 
 private enum SettingsWindowID {
-    static let value = "settings"
+    static let value = SettingsNavigator.windowID
 }
 
 struct SettingsCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        // Lets the crash report notice open this window.
+        let _ = SettingsNavigator.shared.openWindow = openWindow
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") {
                 openWindow(id: SettingsWindowID.value)
