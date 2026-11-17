@@ -6,12 +6,13 @@ extension ProfileSettingsPage {
     var shellSettings: some View {
         Form {
             Section {
-                Picker("Run", selection: shellKindBinding) {
+                Picker(SettingID.shellRun.title, selection: shellKindBinding) {
                     Text("Default login shell").tag(ShellKind.loginShell)
                     Text("Command").tag(ShellKind.command)
                 }
+                .settingsAnchor(.shellRun)
                 if case .command(let commandLine, let runInShell) = profile.shell {
-                    TextField("Command", text: Binding(
+                    TextField(SettingID.shellCommand.title, text: Binding(
                         get: {
                             commandLine
                         },
@@ -21,7 +22,8 @@ extension ProfileSettingsPage {
                             }
                         }
                     ))
-                    Toggle("Run inside shell", isOn: Binding(
+                    .settingsAnchor(.shellCommand)
+                    Toggle(SettingID.shellRunInsideShell.title, isOn: Binding(
                         get: {
                             runInShell
                         },
@@ -31,24 +33,28 @@ extension ProfileSettingsPage {
                             }
                         }
                     ))
+                    .settingsAnchor(.shellRunInsideShell)
                 }
-                Picker("When the shell exits", selection: binding(\.whenShellExits)) {
+                Picker(SettingID.shellWhenExits.title, selection: binding(\.whenShellExits)) {
                     ForEach(ShellExitBehavior.allCases, id: \.self) { behavior in
                         Text(behavior.description).tag(behavior)
                     }
                 }
-                Picker("Ask before closing", selection: binding(\.askBeforeClosing)) {
+                .settingsAnchor(.shellWhenExits)
+                Picker(SettingID.shellAskBeforeClosing.title, selection: binding(\.askBeforeClosing)) {
                     ForEach(AskBeforeClosing.allCases, id: \.self) { policy in
                         Text(policy.description).tag(policy)
                     }
                 }
+                .settingsAnchor(.shellAskBeforeClosing)
             }
             Section {
-                Picker("Shell session", selection: binding(\.sessionPersistence)) {
+                Picker(SettingID.shellSession.title, selection: binding(\.sessionPersistence)) {
                     ForEach(SessionPersistence.allCases, id: \.self) { persistence in
                         Text(persistence.description).tag(persistence)
                     }
                 }
+                .settingsAnchor(.shellSession)
             } footer: {
                 Text("A persistent session keeps the shell running when you close its pane or quit Tecolot. " +
                     "Use File > Attach to Session to show it again. Applies to new tabs and windows.")
@@ -57,6 +63,7 @@ extension ProfileSettingsPage {
                 Text("Tecolot inherits the app environment, then applies these changes.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .settingsAnchor(.shellEnvironment)
                 ForEach(profile.environmentVariables) { variable in
                     EnvironmentVariableRow(variable: variable) { replacement in
                         update { profile in
@@ -75,14 +82,16 @@ extension ProfileSettingsPage {
                             }
                         }
                     }
+                    .settingsAnchor(.shellEnvironment)
                 }
                 Button("Add Environment Variable") {
                     update {
                         $0.environmentVariables.append(TerminalEnvironmentVariable(name: "", value: ""))
                     }
                 }
+                .settingsAnchor(.shellEnvironment)
             } header: {
-                Text("Environment")
+                Text(SettingID.shellEnvironment.title)
             } footer: {
                 Text("Unset removes an inherited value. An empty value is passed as an empty string. Later entries with the same name win.")
             }

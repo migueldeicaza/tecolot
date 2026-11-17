@@ -13,9 +13,10 @@ extension ProfileSettingsPage {
             ThemeModeSection(isDark: true, profile: profile, themes: themes, update: update)
             Section {
                 Toggle(
-                    "Match window chrome to theme",
+                    SettingID.appearanceWindowChrome.title,
                     isOn: binding(\.useThemeColorsForWindowChrome)
                 )
+                .settingsAnchor(.appearanceWindowChrome)
             } header: {
                 Text("Window chrome")
             } footer: {

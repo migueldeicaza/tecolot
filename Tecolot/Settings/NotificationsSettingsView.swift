@@ -17,13 +17,16 @@ struct NotificationsSettingsView: View {
     @AppStorage(ProgramActivityPreferences.tickerSpeedKey) private var speed = ProgramActivityPreferences.tickerSpeedDefault
     var body: some View {
         Form {
-            Section("Program activity") {
-                Toggle("Notify when a program finishes or needs attention", isOn: $notifications)
+            Section(SettingID.notificationsSectionProgramActivity.title) {
+                Toggle(SettingID.notificationsNotify.title, isOn: $notifications)
+                    .settingsAnchor(.notificationsNotify)
                 Text(
                     "System notifications appear while Tecolot is inactive. Clicking one reveals its group, tab and pane."
                 )
                 .font(.caption).foregroundStyle(.secondary)
-                Toggle("Badge Dock icon", isOn: $dock)
+                .settingsAnchor(.notificationsNotify)
+                Toggle(SettingID.notificationsDockBadge.title, isOn: $dock)
+                    .settingsAnchor(.notificationsDockBadge)
                 if dock {
                     Text("Enable Badge application icon in System Settings → Notifications → Tecolot. Earlier notification permissions may leave badges off.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -32,23 +35,33 @@ struct NotificationsSettingsView: View {
                         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
                     }
                 }
-                Toggle("Play sounds", isOn: $sounds)
+                Toggle(SettingID.notificationsSounds.title, isOn: $sounds)
+                    .settingsAnchor(.notificationsSounds)
             }
-            Section("In tabs") {
-                Toggle("Show activity in tabs", isOn: $tabs)
-                Toggle("Bounce tab icons", isOn: $bounce)
-                Toggle("Announce messages in tabs", isOn: $announce)
+            Section(SettingID.notificationsSectionInTabs.title) {
+                Toggle(SettingID.notificationsShowInTabs.title, isOn: $tabs)
+                    .settingsAnchor(.notificationsShowInTabs)
+                Toggle(SettingID.notificationsBounceIcons.title, isOn: $bounce)
+                    .settingsAnchor(.notificationsBounceIcons)
+                Toggle(SettingID.notificationsAnnounce.title, isOn: $announce)
+                    .settingsAnchor(.notificationsAnnounce)
                 Slider(value: $speed, in: 10...100) {
-                    Text("Message scroll speed")
+                    Text(SettingID.notificationsScrollSpeed.title)
                 }
                 .disabled(!announce)
-                Toggle("Use color for status badges", isOn: $statusColor)
+                .settingsAnchor(.notificationsScrollSpeed)
+                Toggle(SettingID.notificationsStatusColor.title, isOn: $statusColor)
+                    .settingsAnchor(.notificationsStatusColor)
             }
-            Section("States") {
-                Toggle("Working", isOn: $working)
-                Toggle("Blocked", isOn: $blocked)
-                Toggle("Error", isOn: $error)
-                Toggle("Done", isOn: $done)
+            Section(SettingID.notificationsSectionStates.title) {
+                Toggle(SettingID.notificationsStateWorking.title, isOn: $working)
+                    .settingsAnchor(.notificationsStateWorking)
+                Toggle(SettingID.notificationsStateBlocked.title, isOn: $blocked)
+                    .settingsAnchor(.notificationsStateBlocked)
+                Toggle(SettingID.notificationsStateError.title, isOn: $error)
+                    .settingsAnchor(.notificationsStateError)
+                Toggle(SettingID.notificationsStateDone.title, isOn: $done)
+                    .settingsAnchor(.notificationsStateDone)
                 Text("Each state controls its tab indicator. Blocked, Error and Done also control system notifications, Dock badges and sounds.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -84,14 +97,16 @@ private struct FromProgramsSettingsSection: View {
                     .accessibilityLabel("Dismiss")
                 }
             }
-            Picker("Bell", selection: $bellStyle) {
+            Picker(SettingID.notificationsBell.title, selection: $bellStyle) {
                 ForEach(BellStyle.allCases, id: \.tagName) { style in
                     Text(style.displayName).tag(style.tagName)
                 }
             }
-            Toggle("Allow programs to send notifications", isOn: $allowsNotifications)
+            .settingsAnchor(.notificationsBell)
+            Toggle(SettingID.notificationsAllowPrograms.title, isOn: $allowsNotifications)
+                .settingsAnchor(.notificationsAllowPrograms)
         } header: {
-            Text("From programs")
+            Text(SettingID.notificationsSectionFromPrograms.title)
         } footer: {
             Text("Programs send notifications with OSC 9 or OSC 777. Tecolot shows them when the pane is not in front.")
                 .font(.caption)

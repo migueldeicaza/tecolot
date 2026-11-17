@@ -39,21 +39,24 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Startup") {
-                Picker("Open", selection: $startupMode) {
+            Section(SettingID.generalSectionStartup.title) {
+                Picker(SettingID.generalStartupOpen.title, selection: $startupMode) {
                     Text("A new group with the default profile").tag("default")
                     Text("A new group with this profile").tag("profile")
                     Text("These groups").tag("groups")
                 }
+                .settingsAnchor(.generalStartupOpen)
                 if startupMode == "profile" {
-                    Picker("Profile", selection: $startupProfileID) {
+                    Picker(SettingID.generalStartupProfile.title, selection: $startupProfileID) {
                         ForEach(profiles.profiles) { profile in
                             Text(profile.name).tag(profile.id.uuidString)
                         }
                     }
+                    .settingsAnchor(.generalStartupProfile)
                 } else if startupMode == "groups" {
                     ForEach(groups.groups) { group in
                         Toggle(group.name, isOn: startupBinding(for: group))
+                            .settingsAnchor(.generalStartupGroups)
                     }
                 }
                 Text("Used only when there is no group to show.")
@@ -65,48 +68,61 @@ struct GeneralSettingsView: View {
                     in: 0...100_000,
                     step: 100
                 )
+                .settingsAnchor(.generalRestoreRows)
                 Text("Set the value to 0 to restore no terminal text.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .settingsAnchor(.generalRestoreRows)
             }
 
-            Section("New windows and tabs") {
+            Section(SettingID.generalSectionNewWindows.title) {
                 if profiles.profiles.isEmpty {
-                    LabeledContent("Default profile") {
+                    LabeledContent(SettingID.generalDefaultProfile.title) {
                         Text("Built-in defaults")
                     }
+                    .settingsAnchor(.generalDefaultProfile)
                 } else {
-                    Picker("Default profile", selection: defaultProfileBinding) {
+                    Picker(SettingID.generalDefaultProfile.title, selection: defaultProfileBinding) {
                         ForEach(profiles.profiles) { profile in
                             Text(profile.name).tag(profile.id)
                         }
                     }
                     .help("Used for new windows, and wherever no explicit profile is chosen")
+                    .settingsAnchor(.generalDefaultProfile)
                 }
 
-                Toggle("Open with the working directory of the current tab", isOn: $newTabsUseCurrentDirectory)
-                Toggle("Use the profile of the current window", isOn: $newTabsUseCurrentProfile)
+                Toggle(SettingID.generalNewTabsCurrentDirectory.title, isOn: $newTabsUseCurrentDirectory)
+                    .settingsAnchor(.generalNewTabsCurrentDirectory)
+                Toggle(SettingID.generalNewTabsCurrentProfile.title, isOn: $newTabsUseCurrentProfile)
+                    .settingsAnchor(.generalNewTabsCurrentProfile)
             }
             Section("Input") {
-                Toggle("Secure keyboard entry", isOn: $secureKeyboardEntry.isEnabled)
+                Toggle(SettingID.generalSecureKeyboardEntry.title, isOn: $secureKeyboardEntry.isEnabled)
+                    .settingsAnchor(.generalSecureKeyboardEntry)
                 Text("Prevents other apps from reading what you type.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .settingsAnchor(.generalSecureKeyboardEntry)
             }
             Section("Selection") {
-                Toggle("Copy on selection", isOn: $copyOnSelect)
+                Toggle(SettingID.generalCopyOnSelection.title, isOn: $copyOnSelect)
+                    .settingsAnchor(.generalCopyOnSelection)
                 Text("Copies the selected text to the clipboard when you complete a selection.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .settingsAnchor(.generalCopyOnSelection)
             }
             Section("Rendering") {
-                Toggle("Use Metal", isOn: metalRendererBinding)
+                Toggle(SettingID.generalUseMetal.title, isOn: metalRendererBinding)
+                    .settingsAnchor(.generalUseMetal)
             }
             if UpdaterModel.shared.updatesEnabled {
-                Section("Updates") {
-                    Toggle("Check for updates automatically", isOn: automaticUpdateChecksBinding)
-                    Toggle("Download updates automatically", isOn: automaticUpdateDownloadsBinding)
+                Section(SettingID.generalSectionUpdates.title) {
+                    Toggle(SettingID.generalCheckForUpdates.title, isOn: automaticUpdateChecksBinding)
+                        .settingsAnchor(.generalCheckForUpdates)
+                    Toggle(SettingID.generalDownloadUpdates.title, isOn: automaticUpdateDownloadsBinding)
                         .disabled(!updater.automaticallyChecksForUpdates)
+                        .settingsAnchor(.generalDownloadUpdates)
                 }
             }
         }

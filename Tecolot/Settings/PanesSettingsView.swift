@@ -32,41 +32,48 @@ struct PanesSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Panes") {
-                Picker("Padding", selection: $padding) {
+            Section(SettingID.panesSectionPanes.title) {
+                Picker(SettingID.panesPadding.title, selection: $padding) {
                     ForEach(GlobalAppearanceSettings.TerminalPadding.allCases, id: \.self) {
                         Text($0.title).tag($0)
                     }
                 }
-                Picker("Pane style", selection: $style) {
+                .settingsAnchor(.panesPadding)
+                Picker(SettingID.panesStyle.title, selection: $style) {
                     ForEach(GlobalAppearanceSettings.PaneStyle.allCases, id: \.self) {
                         Text($0.title).tag($0)
                     }
                 }
                 .help("Compact removes the spacing, rounded corners and shadows around panes.")
-                Toggle("Show pane headers", isOn: $headers)
+                .settingsAnchor(.panesStyle)
+                Toggle(SettingID.panesShowHeaders.title, isOn: $headers)
                     .help("Comfortable panes keep headers when the window controls need them on the right or with the sidebar hidden.")
-                Picker("Background", selection: $backdrop) {
+                    .settingsAnchor(.panesShowHeaders)
+                Picker(SettingID.panesBackground.title, selection: $backdrop) {
                     ForEach(GlobalAppearanceSettings.Backdrop.allCases, id: \.self) {
                         Text($0.title).tag($0)
                     }
                 }
                 .disabled(style == .compact)
+                .settingsAnchor(.panesBackground)
             }
-            Section("Active pane") {
-                Toggle("Highlight active pane", isOn: $highlight)
+            Section(SettingID.panesSectionActivePane.title) {
+                Toggle(SettingID.panesHighlightActivePane.title, isOn: $highlight)
+                    .settingsAnchor(.panesHighlightActivePane)
                 HStack {
-                    ColorPicker("Highlight color", selection: color, supportsOpacity: true)
-                        .accessibilityLabel("Highlight color")
+                    ColorPicker(SettingID.panesHighlightColor.title, selection: color, supportsOpacity: true)
+                        .accessibilityLabel(SettingID.panesHighlightColor.title)
                     Button("Use Accent Color") {
                         colorOverride = GlobalAppearanceSettings.paneHighlightColorDefault
                     }
                     .disabled(settings.paneHighlightColor == nil)
                 }
                 .disabled(!highlight)
+                .settingsAnchor(.panesHighlightColor)
                 Text(settings.paneHighlightColor == nil ? "Follows the system accent color." : "Custom color, including opacity.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .settingsAnchor(.panesHighlightColor)
             }
             Section("Preview") {
                 PaneAppearancePreview(settings: settings)

@@ -98,12 +98,24 @@ final class SettingsNavigator {
 
     /// The page that the Settings window shows next.
     var pendingDestination: SettingsDestination?
+    /// The setting that the Settings window shows next.
+    var pendingSetting: SettingID?
     @ObservationIgnored var openWindow: OpenWindowAction?
 
     private init() {}
 
     func show(_ destination: SettingsDestination) {
         pendingDestination = destination
+        openSettings()
+    }
+
+    /// Opens Settings at one setting and puts the spotlight on its row.
+    func show(setting: SettingID) {
+        pendingSetting = setting
+        openSettings()
+    }
+
+    private func openSettings() {
         if let openWindow {
             openWindow(id: Self.windowID)
         } else if let (menu, index) = Self.settingsMenuItem() {
@@ -113,7 +125,8 @@ final class SettingsNavigator {
         } else {
             // No window opens. Do not leave the page for the next ⌘,.
             pendingDestination = nil
-            CrashReporting.logger.error("Could not open Settings for crash reports.")
+            pendingSetting = nil
+            CrashReporting.logger.error("Could not open Settings.")
             return
         }
         NSApp.activate(ignoringOtherApps: true)

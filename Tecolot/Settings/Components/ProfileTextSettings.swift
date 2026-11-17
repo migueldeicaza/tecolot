@@ -31,7 +31,7 @@ struct ProfileTextSettingsFields: View {
     var body: some View {
         HStack {
             Button(action: showFontPanel) {
-                LabeledContent("Font") {
+                LabeledContent(SettingID.appearanceFont.title) {
                     Text(fontDescription)
                         .foregroundStyle(.secondary)
                 }
@@ -48,11 +48,12 @@ struct ProfileTextSettingsFields: View {
                 .accessibilityLabel("Use system monospaced font")
             }
         }
+        .settingsAnchor(.appearanceFont)
         .onAppear(perform: configureFontPanel)
         .onChange(of: profile) {
             configureFontPanel()
         }
-        Picker("Cursor", selection: Binding(
+        Picker(SettingID.appearanceCursor.title, selection: Binding(
             get: {
                 profile.cursorStyle
             },
@@ -66,7 +67,8 @@ struct ProfileTextSettingsFields: View {
                 Text(style.displayName).tag(style)
             }
         }
-        Toggle("Use bright colors for bold text", isOn: Binding(
+        .settingsAnchor(.appearanceCursor)
+        Toggle(SettingID.appearanceBrightBold.title, isOn: Binding(
             get: {
                 profile.useBrightColorsForBold
             },
@@ -76,7 +78,8 @@ struct ProfileTextSettingsFields: View {
                 }
             }
         ))
-        LabeledContent("Background opacity") {
+        .settingsAnchor(.appearanceBrightBold)
+        LabeledContent(SettingID.appearanceBackgroundOpacity.title) {
             Slider(
                 value: $backgroundOpacityPreview,
                 in: 0.3...1.0,
@@ -84,6 +87,7 @@ struct ProfileTextSettingsFields: View {
             )
             .frame(maxWidth: 200)
         }
+        .settingsAnchor(.appearanceBackgroundOpacity)
         .onChange(of: backgroundOpacityPreview) { _, newValue in
             TerminalSessionRegistry.shared.previewBackgroundOpacity(
                 newValue,
