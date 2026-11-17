@@ -6,7 +6,9 @@ import TecolotWire
 @testable import TecolotSessionHost
 
 private func row(_ text: String, wrapped: Bool = false, attribute: WireAttribute = .plain) -> ScrollbackRow {
-    ScrollbackRow(isWrapped: wrapped, cells: text.utf8.map { WireCell(.ascii($0), style: WireCellStyle(attribute: attribute)) })
+    ScrollbackRow(isWrapped: wrapped, cells: text.utf8.map {
+        WireCell(.ascii($0), style: WireCellStyle(attribute: attribute))
+    })
 }
 
 struct ScrollbackFileTests {
@@ -17,8 +19,10 @@ struct ScrollbackFileTests {
 
     @Test func attributesBecomeSGRAndResetAtLineEnd() {
         let red = WireAttribute(foreground: .ansi(1), style: 1)
-        let rows = [ScrollbackRow(isWrapped: false, cells: [WireCell(.ascii(0x41), style: WireCellStyle(attribute: red)),
-                                                            WireCell(.ascii(0x42))])]
+        let rows = [ScrollbackRow(isWrapped: false, cells: [
+            WireCell(.ascii(0x41), style: WireCellStyle(attribute: red)),
+            WireCell(.ascii(0x42))
+        ])]
         #expect(ScrollbackFile.text(rows) == "\u{1B}[0;1;31mA\u{1B}[0mB\n")
         let rgb = WireAttribute(foreground: .rgb(1, 2, 3), background: .ansi(200), underlineStyle: 3)
         #expect(ScrollbackFile.sgr(rgb) == "\u{1B}[0;4:3;38;2;1;2;3;48;5;200m")
@@ -26,14 +30,19 @@ struct ScrollbackFileTests {
     }
 
     @Test func wideCellsSkipTheirSpacer() {
-        let rows = [ScrollbackRow(isWrapped: false, cells: [WireCell(.grapheme("界", width: 2)), WireCell(.spacer),
-                                                            WireCell(.ascii(0x78))])]
+        let rows = [ScrollbackRow(isWrapped: false, cells: [
+            WireCell(.grapheme("界", width: 2)),
+            WireCell(.spacer),
+            WireCell(.ascii(0x78))
+        ])]
         #expect(ScrollbackFile.text(rows) == "界x\n")
     }
 
     @Test func prepareDropsThePromptAndBlankRows() {
         let rows = [row("one"), row("two"), row("$ "), row(""), row("")]
-        #expect(ScrollbackFile.prepare(rows, cursorRow: 2, limit: 100).map { ScrollbackFile.text([$0]) } == ["one\n", "two\n"])
+        #expect(ScrollbackFile.prepare(rows, cursorRow: 2, limit: 100).map {
+            ScrollbackFile.text([$0])
+        } == ["one\n", "two\n"])
         // A prompt that wraps goes with its first row.
         let wrapped = [row("out"), row("$ long"), row("command", wrapped: true)]
         #expect(ScrollbackFile.prepare(wrapped, cursorRow: 2, limit: 100).count == 1)
@@ -45,7 +54,9 @@ struct ScrollbackFileTests {
     }
 
     @Test func prepareKeepsTheLastRowsWithinTheLimit() {
-        let rows = (0 ..< 10).map { row("r\($0)") }
+        let rows = (0 ..< 10).map {
+            row("r\($0)")
+        }
         let kept = ScrollbackFile.prepare(rows, cursorRow: nil, limit: 3)
         #expect(ScrollbackFile.text(kept) == "r7\nr8\nr9\n")
         #expect(ScrollbackFile.prepare(rows, cursorRow: nil, limit: 0).isEmpty)
@@ -55,8 +66,13 @@ struct ScrollbackFileTests {
     }
 
     @Test func fileRoundTrips() throws {
-        let header = ScrollbackHeader(paneID: "pane", savedAt: Date(timeIntervalSince1970: 1_000_000), columns: 80,
-                                      rows: 0, alternateScreenProgram: "vim")
+        let header = ScrollbackHeader(
+            paneID: "pane",
+            savedAt: Date(timeIntervalSince1970: 1_000_000),
+            columns: 80,
+            rows: 0,
+            alternateScreenProgram: "vim"
+        )
         let data = try ScrollbackFile.encode([row("hello", attribute: WireAttribute(foreground: .ansi(2)))], header: header)
         let decoded = try ScrollbackFile.decode(data)
         #expect(decoded.header.paneID == "pane")
@@ -82,8 +98,12 @@ struct ScrollbackFileTests {
 
     @Test func validationAcceptsSGRAndText() throws {
         try ScrollbackFile.validate("plain\n\u{1B}[0;1;38;2;1;2;3;4:3mbold\u{1B}[0m 界 é\n")
-        try ScrollbackFile.validate(RestoreSeparator.line(savedAt: Date(), reason: .macRestarted,
-                                                          directoryNotFound: true, program: "vim"))
+        try ScrollbackFile.validate(RestoreSeparator.line(
+            savedAt: Date(),
+            reason: .macRestarted,
+            directoryNotFound: true,
+            program: "vim"
+        ))
     }
 
     @Test func fileWithAControlSequenceDoesNotDecode() throws {
@@ -102,13 +122,21 @@ struct ScrollbackFileTests {
 
 struct PaneDirectoryTests {
     @Test func osc7ChecksTheHost() {
-        let local = PaneDirectory.osc7("file://mac/Users/me/src", isPaneHost: { $0 == "mac" })
+        let local = PaneDirectory.osc7("file://mac/Users/me/src", isPaneHost: {
+            $0 == "mac"
+        })
         #expect(local == PaneDirectory(path: "/Users/me/src", source: .osc7))
-        let noHost = PaneDirectory.osc7("kitty-shell-cwd:///tmp", isPaneHost: { _ in false })
+        let noHost = PaneDirectory.osc7("kitty-shell-cwd:///tmp", isPaneHost: { _ in
+            false
+        })
         #expect(noHost?.isOnPaneHost == true)
-        let other = PaneDirectory.osc7("file://server/home/me", isPaneHost: { $0 == "mac" })
+        let other = PaneDirectory.osc7("file://server/home/me", isPaneHost: {
+            $0 == "mac"
+        })
         #expect(other?.host == .other("server"))
-        #expect(PaneDirectory.osc7("http://mac/tmp", isPaneHost: { _ in true }) == nil)
+        #expect(PaneDirectory.osc7("http://mac/tmp", isPaneHost: { _ in
+            true
+        }) == nil)
     }
 
     @Test func otherReportsHaveNoHost() {
@@ -120,23 +148,37 @@ struct PaneDirectoryTests {
     @Test func trackerKeepsThePaneHostDirectory() {
         var tracker = PaneDirectoryTracker(launch: "/start")
         #expect(tracker.needsProcessInspection)
-        #expect(tracker.resolved { nil } == PaneDirectory(path: "/start", source: .launch))
-        #expect(tracker.resolved { "/proc" } == PaneDirectory(path: "/proc", source: .process))
+        #expect(tracker.resolved {
+            nil
+        } == PaneDirectory(path: "/start", source: .launch))
+        #expect(tracker.resolved {
+            "/proc"
+        } == PaneDirectory(path: "/proc", source: .process))
         tracker.report(PaneDirectory(path: "/local", source: .osc7))
         #expect(!tracker.needsProcessInspection)
-        #expect(tracker.resolved { "/proc" }?.path == "/local")
+        #expect(tracker.resolved {
+            "/proc"
+        }?.path == "/local")
         // ssh to another host: the shell's directory is still local.
         tracker.report(PaneDirectory(path: "/remote", host: .other("server"), source: .osc7))
         #expect(tracker.latest?.path == "/remote")
-        #expect(tracker.resolved { "/shell" }?.path == "/shell")
-        #expect(tracker.resolved { nil }?.path == "/local")
+        #expect(tracker.resolved {
+            "/shell"
+        }?.path == "/shell")
+        #expect(tracker.resolved {
+            nil
+        }?.path == "/local")
     }
 
     @Test func nearestExistingDirectory() {
         let existing: Set<String> = ["/", "/a"]
         #expect(ProcessDirectory.nearestExisting("/a/b/c", isDirectory: existing.contains) == "/a")
-        #expect(ProcessDirectory.nearestExisting("relative", isDirectory: { _ in true }) == nil)
-        #expect(ProcessDirectory.nearestExisting("/x", isDirectory: { _ in false }) == nil)
+        #expect(ProcessDirectory.nearestExisting("relative", isDirectory: { _ in
+            true
+        }) == nil)
+        #expect(ProcessDirectory.nearestExisting("/x", isDirectory: { _ in
+            false
+        }) == nil)
     }
 
     @Test func restoreTargetTellsWhenTheDirectoryWasNotFound() {
@@ -145,7 +187,9 @@ struct PaneDirectoryTests {
             == .init(path: "/a", notFound: false))
         #expect(ProcessDirectory.restoreTarget("/a/b", isDirectory: existing.contains)
             == .init(path: "/a", notFound: true))
-        #expect(ProcessDirectory.restoreTarget("/x", isDirectory: { _ in false }) == .init(path: nil, notFound: true))
+        #expect(ProcessDirectory.restoreTarget("/x", isDirectory: { _ in
+            false
+        }) == .init(path: nil, notFound: true))
         #expect(ProcessDirectory.restoreTarget(nil) == .init(path: nil, notFound: false))
     }
 
@@ -173,8 +217,13 @@ struct DurableStateTests {
         let states = temporaryStates()
         defer { try? FileManager.default.removeItem(at: states.url) }
         let launch = SessionLaunch(executable: "/bin/sh", environment: [], workingDirectory: "/tmp")
-        let state = DurableSessionState(id: "abc123", launch: launch, directory: PaneDirectory(path: "/tmp", source: .osc7),
-                                        title: "title", bootID: "boot-1")
+        let state = DurableSessionState(
+            id: "abc123",
+            launch: launch,
+            directory: PaneDirectory(path: "/tmp", source: .osc7),
+            title: "title",
+            bootID: "boot-1"
+        )
         let header = ScrollbackHeader(paneID: "abc123", savedAt: Date(), columns: 80, rows: 1)
         try states.write(state, scrollback: try ScrollbackFile.encode([row("saved text")], header: header))
         #expect(states.read("abc123")?.title == "title")
@@ -193,8 +242,10 @@ struct DurableStateTests {
         let states = temporaryStates()
         defer { try? FileManager.default.removeItem(at: states.url) }
         let launch = SessionLaunch(executable: "/bin/sh", environment: [])
-        try states.write(DurableSessionState(id: "01d", launch: launch, savedAt: Date().addingTimeInterval(-8 * 86_400)),
-                         scrollback: nil)
+        try states.write(
+            DurableSessionState(id: "01d", launch: launch, savedAt: Date().addingTimeInterval(-8 * 86_400)),
+            scrollback: nil
+        )
         try states.write(DurableSessionState(id: "0e1", launch: launch), scrollback: nil)
         #expect(states.list().map(\.id) == ["0e1"])
         #expect(states.read("01d") == nil)
@@ -204,14 +255,26 @@ struct DurableStateTests {
         let states = temporaryStates()
         defer { try? FileManager.default.removeItem(at: states.url) }
         let saved = SessionLaunch(executable: "/bin/sh", environment: [], workingDirectory: "/home/me")
-        let state = DurableSessionState(id: "5e1", launch: saved, directory: PaneDirectory(path: "/home/me/gone", source: .osc7),
-                                        bootID: "previous-boot", alternateScreenProgram: "vim")
+        let state = DurableSessionState(
+            id: "5e1",
+            launch: saved,
+            directory: PaneDirectory(path: "/home/me/gone", source: .osc7),
+            bootID: "previous-boot",
+            alternateScreenProgram: "vim"
+        )
         let header = ScrollbackHeader(paneID: "5e1", savedAt: Date(), columns: 80, rows: 2)
         try states.write(state, scrollback: try ScrollbackFile.encode([row("one"), row("two")], header: header))
 
         var launch = SessionLaunch(executable: "/bin/sh", environment: [], workingDirectory: "/")
-        let used = states.prepareRestore(&launch, sessionID: "5e1", rowLimit: 1, remote: true,
-                                         isDirectory: { ["/", "/home", "/home/me"].contains($0) })
+        let used = states.prepareRestore(
+            &launch,
+            sessionID: "5e1",
+            rowLimit: 1,
+            remote: true,
+            isDirectory: {
+                ["/", "/home", "/home/me"].contains($0)
+            }
+        )
         #expect(used?.id == "5e1")
         #expect(launch.workingDirectory == "/home/me")
         let replay = try #require(launch.replay)
@@ -231,11 +294,18 @@ struct DurableStateTests {
         let states = temporaryStates()
         defer { try? FileManager.default.removeItem(at: states.url) }
         let launch = SessionLaunch(executable: "/bin/sh", environment: [])
-        try states.write(DurableSessionState(id: "01d", launch: launch, savedAt: Date().addingTimeInterval(-8 * 86_400)),
-                         scrollback: nil)
+        try states.write(
+            DurableSessionState(id: "01d", launch: launch, savedAt: Date().addingTimeInterval(-8 * 86_400)),
+            scrollback: nil
+        )
         var restored = SessionLaunch(executable: "/bin/sh", environment: [])
-        #expect(states.prepareRestore(&restored, sessionID: "01d", rowLimit: 10, remote: true,
-                                      directoryNotFound: true) == nil)
+        #expect(states.prepareRestore(
+            &restored,
+            sessionID: "01d",
+            rowLimit: 10,
+            remote: true,
+            directoryNotFound: true
+        ) == nil)
         #expect(restored.replay?.contains("the directory was not found") == true)
         states.prune(now: Date().addingTimeInterval(DurableStateDirectory.lifetime - 60))
         #expect(states.read("01d") != nil)
@@ -253,9 +323,15 @@ struct DurableStateTests {
 
 struct SessionHostRestorationTests {
     @Test func replayShowsBeforeTheShellAndCannotSetTheTitle() async throws {
-        let launch = SessionLaunch(executable: "/bin/sh", arguments: ["-c", "exec sleep 30"],
-                                   environment: ["PATH=/usr/bin:/bin"], workingDirectory: "/", columns: 40, rows: 10,
-                                   replay: "old text\n" + RestoreSeparator.line(savedAt: nil, reason: .appQuit))
+        let launch = SessionLaunch(
+            executable: "/bin/sh",
+            arguments: ["-c", "exec sleep 30"],
+            environment: ["PATH=/usr/bin:/bin"],
+            workingDirectory: "/",
+            columns: 40,
+            rows: 10,
+            replay: "old text\n" + RestoreSeparator.line(savedAt: nil, reason: .appQuit)
+        )
         let host = SessionHost(id: "replay\(UInt32.random(in: 0 ... .max))", launch: launch, build: "test")
         try host.start()
         defer { host.terminate(signal: SIGKILL) }
@@ -263,13 +339,20 @@ struct SessionHostRestorationTests {
         #expect(text[0] == "old text")
         #expect(text[1].contains("Restored · Tecolot quit"))
 
-        let unsafe = SessionLaunch(executable: "/bin/sh", arguments: ["-c", "exec sleep 30"],
-                                   environment: ["PATH=/usr/bin:/bin"], columns: 40, rows: 10,
-                                   replay: "\u{1B}]0;evil\u{07}text\n")
+        let unsafe = SessionLaunch(
+            executable: "/bin/sh",
+            arguments: ["-c", "exec sleep 30"],
+            environment: ["PATH=/usr/bin:/bin"],
+            columns: 40,
+            rows: 10,
+            replay: "\u{1B}]0;evil\u{07}text\n"
+        )
         let rejected = SessionHost(id: "reject\(UInt32.random(in: 0 ... .max))", launch: unsafe, build: "test")
         try rejected.start()
         defer { rejected.terminate(signal: SIGKILL) }
-        #expect(rejected.terminal.contentSnapshot(region: .viewport).rows.allSatisfy { $0.text.isEmpty })
+        #expect(rejected.terminal.contentSnapshot(region: .viewport).rows.allSatisfy {
+            $0.text.isEmpty
+        })
     }
 
     @Test func durableStateCopiesTheNormalBuffer() throws {

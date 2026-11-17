@@ -18,17 +18,27 @@ struct NerdFontTests {
     private func fontFromBundledFile() throws -> CTFont {
         let url = try #require(
             Bundle(for: NerdFontFallbackProvider.self)
-                .url(forResource: "SymbolsNerdFont-Regular", withExtension: "ttf",
-                     subdirectory: "NerdFontResources")
-            ?? Bundle.main.url(forResource: "SymbolsNerdFont-Regular", withExtension: "ttf",
-                               subdirectory: "NerdFontResources"))
+                .url(
+                    forResource: "SymbolsNerdFont-Regular",
+                    withExtension: "ttf",
+                    subdirectory: "NerdFontResources"
+                )
+                ?? Bundle.main.url(
+                    forResource: "SymbolsNerdFont-Regular",
+                    withExtension: "ttf",
+                    subdirectory: "NerdFontResources"
+                )
+        )
         let descriptors = try #require(
-            CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor])
+            CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor]
+        )
         return CTFontCreateWithFontDescriptor(try #require(descriptors.first), 12, nil)
     }
 
     private func hasGlyph(_ font: CTFont, _ scalar: UInt32) -> Bool {
-        guard let unicode = Unicode.Scalar(scalar) else { return false }
+        guard let unicode = Unicode.Scalar(scalar) else {
+            return false
+        }
         var units = Array(String(unicode).utf16)
         var glyphs = [CGGlyph](repeating: 0, count: units.count)
         return CTFontGetGlyphsForCharacters(font, &units, &glyphs, units.count)
@@ -39,7 +49,9 @@ struct NerdFontTests {
         let font = try #require(provider.fallbackFont(forPointSize: 13))
         #expect(CTFontCopyPostScriptName(font) as String == NerdFontFallbackProvider.postScriptName)
         // The contract requires the identical instance per size.
-        #expect(provider.fallbackFont(forPointSize: 13).map { $0 === font } == true)
+        #expect(provider.fallbackFont(forPointSize: 13).map {
+            $0 === font
+        } == true)
         // A known Nerd Font icon resolves in the served font.
         var units: [UniChar] = [0xEA61]
         var glyphs: [CGGlyph] = [0]

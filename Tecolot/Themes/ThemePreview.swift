@@ -10,9 +10,11 @@ import SwiftUI
 
 extension ProfileColor {
     var swiftUIColor: Color {
-        Color(red: Double(red) / 65535.0,
-              green: Double(green) / 65535.0,
-              blue: Double(blue) / 65535.0)
+        Color(
+            red: Double(red) / 65535.0,
+            green: Double(green) / 65535.0,
+            blue: Double(blue) / 65535.0
+        )
     }
 
     init? (swiftUIColor: Color) {
@@ -28,9 +30,11 @@ extension ProfileColor {
         func channel (_ value: CGFloat) -> UInt16 {
             UInt16 ((min (max (value, 0), 1) * 65535).rounded ())
         }
-        self.init (red: channel (color.redComponent),
-                   green: channel (color.greenComponent),
-                   blue: channel (color.blueComponent))
+        self.init (
+            red: channel (color.redComponent),
+            green: channel (color.greenComponent),
+            blue: channel (color.blueComponent)
+        )
     }
 
     /// The nearest color at 8 bits for each channel, so that it shows as
@@ -47,11 +51,15 @@ extension ProfileColor {
 /// The terminal, the editor and all previews use these rules.
 extension TerminalTheme {
     /// The cursor block; the text color when the theme has none.
-    var effectiveCursor: ProfileColor { cursor ?? foreground }
+    var effectiveCursor: ProfileColor {
+        cursor ?? foreground
+    }
 
     /// The text under a block cursor; the background color when the theme
     /// has none.
-    var effectiveCursorText: ProfileColor { cursorText ?? background }
+    var effectiveCursorText: ProfileColor {
+        cursorText ?? background
+    }
 
     /// The selection; the system selection color when the theme has none.
     var effectiveSelectionBackground: ProfileColor {
@@ -61,7 +69,9 @@ extension TerminalTheme {
     }
 
     /// The selected text; the text color when the theme has none.
-    var effectiveSelectionText: ProfileColor { selectionText ?? foreground }
+    var effectiveSelectionText: ProfileColor {
+        selectionText ?? foreground
+    }
 }
 
 struct ThemePreview: View {
@@ -142,14 +152,20 @@ enum ThemePreviewPage: Int, CaseIterable, Identifiable {
     case claudeCode
     case icon
 
-    var id: Self { self }
+    var id: Self {
+        self
+    }
 
     var title: LocalizedStringResource {
         switch self {
-        case .shell: "Shell"
-        case .midnightCommander: "mc"
-        case .claudeCode: "Claude"
-        case .icon: "Icon"
+        case .shell:
+            "Shell"
+        case .midnightCommander:
+            "mc"
+        case .claudeCode:
+            "Claude"
+        case .icon:
+            "Icon"
         }
     }
 }
@@ -228,8 +244,10 @@ private struct ThemeIconPreview: View {
     var body: some View {
         GeometryReader { geometry in
             let size = ThemeModeCard.size
-            let scale = max(0.5, min(geometry.size.height / size.height,
-                                     geometry.size.width / size.width))
+            let scale = max(0.5, min(
+                geometry.size.height / size.height,
+                geometry.size.width / size.width
+            ))
             // In a very wide sample, do not spread the design further than
             // the proportions of a browser card; center it instead.
             let width = min(geometry.size.width, geometry.size.height * 2.4)
@@ -238,8 +256,8 @@ private struct ThemeIconPreview: View {
                 .frame(maxWidth: .infinity)
         }
         .background(theme.background.swiftUIColor)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Theme icon for \(theme.name)")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Theme icon for \(theme.name)")
     }
 }
 
@@ -464,8 +482,10 @@ private struct ThemeCardContent: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.15),
-                                      lineWidth: isSelected ? 2 : 1)
+                        .strokeBorder(
+                            isSelected ? Color.accentColor : Color.primary.opacity(0.15),
+                            lineWidth: isSelected ? 2 : 1
+                        )
                 )
                 .overlay(alignment: .topLeading) {
                     if !theme.isBuiltIn {

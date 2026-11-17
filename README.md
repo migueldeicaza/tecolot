@@ -30,7 +30,7 @@ Mac application.
 
 ## Why Tecolot
 
-- **Native macOS workflow.** Use native tabs, split panes, Quick Look, Find,
+- **Native macOS workflow.** Use tab groups, Above or side tabs, split panes, Quick Look, Find,
   Print, the system font panel, Secure Keyboard Entry, AppleScript, and App
   Shortcuts.
 - **High-throughput terminal core.** In local `vtebench` tests, Tecolot needed
@@ -45,17 +45,27 @@ Mac application.
 - **Modern terminal support.** Use TrueColor, bidirectional text, the Kitty
   keyboard protocol, mouse reporting, semantic prompts, hyperlinks, and Sixel,
   iTerm2, or Kitty graphics.
-- **Restorable workspaces.** Save terminal sessions as documents. Save named
-  window groups with their positions, tabs, profiles, working directories, and
-  theme overrides.
-- **Pane cards.** Tabs with multiple panes have title bars with app icons and split, zoom,
-  and close controls. Rounded panes sit above a theme gradient or a desktop
-  blur. In Settings → General, turn off **Show terminal cards** to use the
-  compact layout. This setting applies to all windows. When a window is too
+- **Restorable groups.** Keep named groups of tabs and splits across launches,
+  with window positions, profiles, working directories, and theme overrides.
+  Close a window to keep its group in the background, or duplicate a group
+  to start fresh shells with the same layout. **Close Group** keeps persistent
+  and remote sessions running; **Close Group and End Sessions** ends them too,
+  with a warning for busy panes or persistent sessions.
+- **Pane cards.** Each pane has a title bar with app icons and split, zoom,
+  and close controls. Rounded panes share the window chrome by default; an optional theme gradient or
+  desktop blur also extends across the chrome. Use View → **Show Pane Headers** or Settings → Panes
+  to hide headers; Right Side and hidden sidebars retain them for window controls. **Pane style**
+  independently selects Comfortable or Compact. These settings apply to all windows. When a window is too
   small for the title bars, its panes also use the compact layout.
-- **Tab icons.** App icons appear before the native tab title in tilted rectangular
-  cards. Tabs with multiple panes show up to three overlapping cards, with the
-  focused pane in front.
+  Settings → **Panes** groups padding, style, headers and backdrop with an active-pane
+  highlight toggle and a color well with opacity. The highlight follows the system
+  accent unless overridden, and appears immediately when switching tabs.
+- **Tab styles.** Choose Above, Left Side or Right Side, and switch with ⇧⌘S.
+  Sidebars list every group, including background and saved groups. Filter,
+  collapse, reorder, and move tabs between groups or windows. ⌘/ hides the sidebar.
+- **Tab icons.** Program tiles follow pane focus order: up to five in the Above
+  fan or three in the sidebar deck. Live activity appears as dots, progress,
+  badges and messages, including for background groups.
 
 ## Performance
 
@@ -180,7 +190,8 @@ Useful default shortcuts:
 | Select the previous or next pane | Command+[ or Command+] |
 | Select a pane by direction | Command+Option+Arrow |
 | Zoom or restore the selected pane | Command+Shift+Return |
-| Clear scrollback | Command+K |
+| Go to Group… | Command+K |
+| Clear to Start | Control+Command+K |
 | Find terminal text | Command+F |
 | Open the theme browser | Command+Control+T |
 

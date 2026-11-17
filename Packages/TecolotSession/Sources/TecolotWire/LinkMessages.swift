@@ -9,9 +9,13 @@ public struct LinkHelloMessage: WireMessage, Hashable {
     public var clientName: String
     public var receiveWindow: UInt64
 
-    public init(minimumVersion: UInt32 = LinkProtocol.minimumVersion,
-                maximumVersion: UInt32 = LinkProtocol.version, build: String, clientName: String,
-                receiveWindow: UInt64) {
+    public init(
+        minimumVersion: UInt32 = LinkProtocol.minimumVersion,
+        maximumVersion: UInt32 = LinkProtocol.version,
+        build: String,
+        clientName: String,
+        receiveWindow: UInt64
+    ) {
         self.minimumVersion = minimumVersion
         self.maximumVersion = maximumVersion
         self.build = build
@@ -79,7 +83,9 @@ public struct TerminateSessionMessage: WireMessage, Hashable {
     public init(from reader: inout WireReader) throws(WireError) {
         id = try reader.string()
         let rawSignal = try reader.svarint()
-        guard let value = Int32(exactly: rawSignal) else { throw .invalidValue("signal \(rawSignal)") }
+        guard let value = Int32(exactly: rawSignal) else {
+            throw .invalidValue("signal \(rawSignal)")
+        }
         signal = value
     }
 
@@ -182,9 +188,18 @@ public struct HelperInfoMessage: WireMessage, Hashable {
     public var shell: String
     public var receiveWindow: UInt64
 
-    public init(version: UInt32 = LinkProtocol.version, build: String, os: String, arch: String,
-                machineID: String, hostName: String, runtimeDirectory: String, home: String,
-                shell: String, receiveWindow: UInt64) {
+    public init(
+        version: UInt32 = LinkProtocol.version,
+        build: String,
+        os: String,
+        arch: String,
+        machineID: String,
+        hostName: String,
+        runtimeDirectory: String,
+        home: String,
+        shell: String,
+        receiveWindow: UInt64
+    ) {
         self.version = version
         self.build = build
         self.os = os

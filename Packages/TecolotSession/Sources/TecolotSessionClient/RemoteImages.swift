@@ -33,10 +33,14 @@ struct RemoteImageStore {
     /// Images that the helper no longer has.
     private(set) var unavailable = Set<UInt64>()
 
-    func contains(_ id: UInt64) -> Bool { images[id] != nil || unavailable.contains(id) }
+    func contains(_ id: UInt64) -> Bool {
+        images[id] != nil || unavailable.contains(id)
+    }
 
     mutating func image(_ id: UInt64) -> RemoteImage? {
-        guard var entry = images[id] else { return nil }
+        guard var entry = images[id] else {
+            return nil
+        }
         clock += 1
         entry.lastUse = clock
         images[id] = entry
@@ -45,20 +49,30 @@ struct RemoteImageStore {
 
     mutating func insert(_ image: RemoteImage) {
         clock += 1
-        if let old = images[image.id] { bytes -= old.image.rgba.count }
+        if let old = images[image.id] {
+            bytes -= old.image.rgba.count
+        }
         images[image.id] = (image, clock)
         bytes += image.rgba.count
-        guard bytes > budget else { return }
+        guard bytes > budget else {
+            return
+        }
         // Drop the least recently used images, never the one just added.
-        for (id, entry) in images.sorted(by: { $0.value.lastUse < $1.value.lastUse }) where id != image.id {
+        for (id, entry) in images.sorted(by: {
+            $0.value.lastUse < $1.value.lastUse
+        }) where id != image.id {
             images[id] = nil
             bytes -= entry.image.rgba.count
-            if bytes <= budget { break }
+            if bytes <= budget {
+                break
+            }
         }
     }
 
     mutating func markUnavailable(_ id: UInt64) {
-        if unavailable.count > 4096 { unavailable.removeAll() }
+        if unavailable.count > 4096 {
+            unavailable.removeAll()
+        }
         unavailable.insert(id)
     }
 

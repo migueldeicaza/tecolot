@@ -20,11 +20,105 @@ final class TerminalWindowSizeStore {
     private var observers: [ObjectIdentifier: WindowObserver] = [:]
     private var suppressedWindowIDs: Set<ObjectIdentifier> = []
 
-    private init() {}
+    private var pendingFrame: NSRect?
+    private var pendingSave: DispatchWorkItem?
+    private var terminationObserver: NSObjectProtocol?
+    private let saveInterval: TimeInterval
+    private let didSave: () -> Void
+    private let defaults: UserDefaults
+    private let profileContentSize: (TerminalProfile) -> NSSize
+    init(defaults: UserDefaults = .standard, saveInterval: TimeInterval = 0.1, didSave: @escaping () -> Void = {}, profileContentSize: @escaping (TerminalProfile) -> NSSize = TerminalProfileWindowSizer.contentSize) {
+        self.defaults = defaults
+        self.saveInterval = saveInterval
+        self.didSave = didSave
+        self.profileContentSize = profileContentSize
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.flush()
+            }
+        }
+    }
+
+    deinit {
+        pendingSave?.cancel()
+        if let terminationObserver {
+            NotificationCenter.default.removeObserver(terminationObserver)
+        }
+    }
+
+    /// Saves the latest normal frame synchronously at lifecycle boundaries.
+    func flush() {
+        pendingSave?.cancel()
+        pendingSave = nil
+        guard let frame = pendingFrame else {
+            return
+        }
+        pendingFrame = nil
+        save(frame)
+    }
+
+    /// Gives every manager-created window a profile/saved size and an explicit position.
+    func prepare(
+        _ window: NSWindow,
+        profile: TerminalProfile,
+        style: SidebarPreferences,
+        policy: TerminalWindowInitialFrame,
+        cascadeFrom source: NSWindow?
+    ) {
+        var restored = false
+        switch policy {
+        case .windowGroup(let frame), .cascaded(let frame):
+            let destination: NSRect
+            if case .cascaded = policy {
+                destination = frame.offsetBy(dx: 20, dy: -20)
+            } else {
+                destination = frame
+            }
+            restoreWindowGroupFrame(destination, to: window)
+            return
+        case .profile:
+            setProfileContentSize(contentSize(for: window, profile: profile, style: style), on: window)
+            configure(window, restoresFrame: false)
+        case .saved:
+            restored = configure(window, restoresFrame: true)
+            if !restored {
+                setProfileContentSize(contentSize(for: window, profile: profile, style: style), on: window)
+            }
+        }
+        if let source {
+            var frame = window.frame
+            frame.origin = NSPoint(x: source.frame.minX + 20, y: source.frame.maxY - frame.height - 20)
+            window.setFrame(constrainedFrame(frame, for: window), display: false)
+        } else if !restored {
+            window.center()
+        }
+    }
+
+    private func contentSize(for window: NSWindow, profile: TerminalProfile, style: SidebarPreferences) -> NSSize {
+        var size = profileContentSize(profile)
+        window.contentView?.layoutSubtreeIfNeeded()
+        if
+            let owner = window.windowController as? TerminalWindowController,
+            let host = owner.group.selectedTab?.loadedWorkspace?.hostView,
+            host.visibleCards.count == 1, let card = host.visibleCards.first,
+            let content = window.contentView {
+            // Header preferences change the chrome. Measure the mounted container.
+            size.width += content.bounds.width - card.content.bounds.width
+            size.height += content.bounds.height - card.content.bounds.height
+            size.height += card.content.topPadding - GlobalAppearanceSettings.storedTerminalPadding.topPoints(cardsEnabled: false)
+        } else {
+            size.width += style.style == .above || style.hidden ? 16 : style.width + 8
+            size.height += style.style == .above ? 54 : (style.style == .right || style.hidden ? 52 : 16)
+        }
+        return size
+    }
 
     func setProfileContentSize(_ contentSize: NSSize, on window: NSWindow) {
         let oldFrame = window.frame
-        let oldContentSize = window.contentLayoutRect.size
+        let oldContentSize = window.styleMask.contains(.fullSizeContentView)
+            ? (window.contentView?.bounds.size ?? window.frame.size) : window.contentLayoutRect.size
         var frame = oldFrame
         frame.size.width += contentSize.width - oldContentSize.width
         frame.size.height += contentSize.height - oldContentSize.height
@@ -35,11 +129,11 @@ final class TerminalWindowSizeStore {
     @discardableResult
     func configure(_ window: NSWindow, restoresFrame: Bool = true) -> Bool {
         let identifier = ObjectIdentifier(window)
-        guard observers[identifier] == nil else { return false }
+        guard observers[identifier] == nil else {
+            return false
+        }
 
-        // macOS puts even a single document window in a tab group. All tabs
-        // share one frame, so restoring each tab is safe and ensures that
-        // startup document windows restore their saved frame.
+        // Each terminal window has one frame, regardless of its tab count.
         let didRestoreFrame = restoresFrame && restoreFrame(to: window)
         if didRestoreFrame {
             recordFrame(of: window)
@@ -47,10 +141,16 @@ final class TerminalWindowSizeStore {
         observers[identifier] = WindowObserver(
             window: window,
             didChangeFrame: { [weak self, weak window] in
-                guard let window else { return }
+                guard let window else {
+                    return
+                }
                 self?.recordFrame(of: window)
             },
+            didEndResize: { [weak self] in
+                self?.flush()
+            },
             didClose: { [weak self] in
+                self?.flush()
                 self?.observers.removeValue(forKey: identifier)
                 self?.suppressedWindowIDs.remove(identifier)
             }
@@ -71,7 +171,7 @@ final class TerminalWindowSizeStore {
     }
 
     private func restoreFrame(to window: NSWindow) -> Bool {
-        if let storedValue = UserDefaults.standard.string(forKey: DefaultsKey.lastFrame) {
+        if let storedValue = defaults.string(forKey: DefaultsKey.lastFrame) {
             let savedFrame = NSRectFromString(storedValue)
             if isValid(savedFrame) {
                 window.setFrame(constrainedFrame(savedFrame, for: window), display: false)
@@ -79,11 +179,13 @@ final class TerminalWindowSizeStore {
             }
         }
 
-        guard let storedValue = UserDefaults.standard.string(forKey: DefaultsKey.lastFrameSize) else {
+        guard let storedValue = defaults.string(forKey: DefaultsKey.lastFrameSize) else {
             return false
         }
         let size = NSSizeFromString(storedValue)
-        guard isValid(size) else { return false }
+        guard isValid(size) else {
+            return false
+        }
         var savedFrame = window.frame
         savedFrame.size = size
         window.setFrame(constrainedFrame(savedFrame, for: window), display: false)
@@ -95,7 +197,17 @@ final class TerminalWindowSizeStore {
         guard !suppressedWindowIDs.contains(identifier), isNormal(window) else {
             return
         }
-        save(window.frame)
+        pendingFrame = window.frame
+        guard pendingSave == nil else {
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                self?.flush()
+            }
+        }
+        pendingSave = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + saveInterval, execute: work)
     }
 
     private func isNormal(_ window: NSWindow) -> Bool {
@@ -133,9 +245,12 @@ final class TerminalWindowSizeStore {
     }
 
     private func save(_ frame: NSRect) {
-        guard isValid(frame) else { return }
-        UserDefaults.standard.set(NSStringFromRect(frame), forKey: DefaultsKey.lastFrame)
-        UserDefaults.standard.set(NSStringFromSize(frame.size), forKey: DefaultsKey.lastFrameSize)
+        guard isValid(frame) else {
+            return
+        }
+        didSave()
+        defaults.set(NSStringFromRect(frame), forKey: DefaultsKey.lastFrame)
+        defaults.set(NSStringFromSize(frame.size), forKey: DefaultsKey.lastFrameSize)
     }
 
     private func isValid(_ frame: NSRect) -> Bool {
@@ -156,10 +271,12 @@ private final class WindowObserver {
     private let resizeObserver: NSObjectProtocol
     private let moveObserver: NSObjectProtocol
     private let closeObserver: NSObjectProtocol
+    private let endResizeObserver: NSObjectProtocol
 
     init(
         window: NSWindow,
         didChangeFrame: @escaping () -> Void,
+        didEndResize: @escaping () -> Void,
         didClose: @escaping () -> Void
     ) {
         resizeObserver = NotificationCenter.default.addObserver(
@@ -176,6 +293,12 @@ private final class WindowObserver {
         ) { _ in
             didChangeFrame()
         }
+        endResizeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didEndLiveResizeNotification, object: window, queue: .main
+        ) { _ in
+            didChangeFrame()
+            didEndResize()
+        }
         closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
@@ -189,5 +312,6 @@ private final class WindowObserver {
         NotificationCenter.default.removeObserver(resizeObserver)
         NotificationCenter.default.removeObserver(moveObserver)
         NotificationCenter.default.removeObserver(closeObserver)
+        NotificationCenter.default.removeObserver(endResizeObserver)
     }
 }

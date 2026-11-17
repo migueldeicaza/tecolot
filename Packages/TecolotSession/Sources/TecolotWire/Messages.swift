@@ -16,7 +16,9 @@ public enum SessionProtocol {
 /// Optional features that a peer advertises in `Hello` / `HelloReply`.
 public struct SessionCapabilities: OptionSet, Hashable, Sendable {
     public let rawValue: UInt64
-    public init(rawValue: UInt64) { self.rawValue = rawValue }
+    public init(rawValue: UInt64) {
+        self.rawValue = rawValue
+    }
 
     public static let search = SessionCapabilities(rawValue: 1 << 0)
     public static let images = SessionCapabilities(rawValue: 1 << 1)
@@ -33,8 +35,16 @@ public struct SessionCapabilities: OptionSet, Hashable, Sendable {
     /// client's setting.
     public static let keyBytes = SessionCapabilities(rawValue: 1 << 6)
 
+    /// Exchanges status snapshots and seen clears; older peers omit this bit and receive neither.
+    public static let programStatus = SessionCapabilities(rawValue: 1 << 7)
+    /// Suspends frames without detaching; older helpers use the legacy low-frame-rate attach fallback.
+    public static let statusOnly = SessionCapabilities(rawValue: 1 << 8)
+
+    /// Title, icon title and cwd snapshots independent of frame credits.
+    public static let metadata = SessionCapabilities(rawValue: 1 << 9)
+
     /// What this build of the helper handles.
-    public static let helper: SessionCapabilities = [.search, .reset, .prompts, .images, .bidi, .keyBytes]
+    public static let helper: SessionCapabilities = [.search, .reset, .prompts, .images, .bidi, .keyBytes, .programStatus, .statusOnly, .metadata]
 }
 
 public enum WireBuffer: UInt8, Hashable, Sendable {
@@ -94,7 +104,9 @@ public struct WireLineRange: Hashable, Sendable {
         self.count = count
     }
 
-    public var lines: Range<UInt64> { start ..< start + UInt64(count) }
+    public var lines: Range<UInt64> {
+        start ..< start + UInt64(count)
+    }
 }
 
 // MARK: - Shared field helpers
@@ -108,7 +120,9 @@ extension WireWriter {
 
     public mutating func array<T>(_ items: [T], _ body: (inout WireWriter, T) -> Void) {
         varint(items.count)
-        for item in items { body(&self, item) }
+        for item in items {
+            body(&self, item)
+        }
     }
 
     mutating func knownVersions(_ items: [WireKnownVersion]) {
@@ -131,12 +145,16 @@ extension WireReader {
         WireRGB(red: try u16(), green: try u16(), blue: try u16())
     }
 
-    public mutating func array<T>(limit: Int = 1 << 20,
-                                  _ body: (inout WireReader) throws(WireError) -> T) throws(WireError) -> [T] {
+    public mutating func array<T>(
+        limit: Int = 1 << 20,
+        _ body: (inout WireReader) throws(WireError) -> T
+    ) throws(WireError) -> [T] {
         let count = try count(limit: limit)
         var items: [T] = []
         items.reserveCapacity(Swift.min(count, 4096))
-        for _ in 0 ..< count { items.append(try body(&self)) }
+        for _ in 0 ..< count {
+            items.append(try body(&self))
+        }
         return items
     }
 
@@ -154,7 +172,9 @@ extension WireReader {
 
     mutating func buffer() throws(WireError) -> WireBuffer {
         let raw = try u8()
-        guard let buffer = WireBuffer(rawValue: raw) else { throw .invalidValue("buffer \(raw)") }
+        guard let buffer = WireBuffer(rawValue: raw) else {
+            throw .invalidValue("buffer \(raw)")
+        }
         return buffer
     }
 }
@@ -174,11 +194,16 @@ public struct HelloMessage: WireMessage, Hashable {
     /// A pane identifier that stays the same across reconnects.
     public var clientInstance: String
 
-    public init(minimumVersion: UInt32 = SessionProtocol.minimumVersion,
-                maximumVersion: UInt32 = SessionProtocol.version,
-                build: String, capabilities: SessionCapabilities = [],
-                maximumMessageSize: Int = 32 * 1024 * 1024, retainMargin: Int = 256,
-                clientName: String, clientInstance: String = "") {
+    public init(
+        minimumVersion: UInt32 = SessionProtocol.minimumVersion,
+        maximumVersion: UInt32 = SessionProtocol.version,
+        build: String,
+        capabilities: SessionCapabilities = [],
+        maximumMessageSize: Int = 32 * 1024 * 1024,
+        retainMargin: Int = 256,
+        clientName: String,
+        clientInstance: String = ""
+    ) {
         self.minimumVersion = minimumVersion
         self.maximumVersion = maximumVersion
         self.build = build
@@ -220,8 +245,13 @@ public struct HelloReplyMessage: WireMessage, Hashable {
     public var sessionID: String
     public var maximumMessageSize: Int
 
-    public init(version: UInt32, build: String, capabilities: SessionCapabilities,
-                sessionID: String, maximumMessageSize: Int = 32 * 1024 * 1024) {
+    public init(
+        version: UInt32,
+        build: String,
+        capabilities: SessionCapabilities,
+        sessionID: String,
+        maximumMessageSize: Int = 32 * 1024 * 1024
+    ) {
         self.version = version
         self.build = build
         self.capabilities = capabilities
@@ -288,8 +318,13 @@ public struct AttachMessage: WireMessage, Hashable {
     /// 0 when unknown. Image sizes that a program gives in pixels are points.
     public var scale: Int
 
-    public init(size: WireGridSize, maximumFramesPerSecond: Int = 60, viewer: Bool = false, focused: Bool = true,
-                scale: Int = 0) {
+    public init(
+        size: WireGridSize,
+        maximumFramesPerSecond: Int = 60,
+        viewer: Bool = false,
+        focused: Bool = true,
+        scale: Int = 0
+    ) {
         self.size = size
         self.maximumFramesPerSecond = maximumFramesPerSecond
         self.viewer = viewer
@@ -377,9 +412,15 @@ public struct FrameAckMessage: WireMessage, Hashable {
     public static let kind = MessageKind.frameAck
     public var sequence: UInt64
 
-    public init(sequence: UInt64) { self.sequence = sequence }
-    public init(from reader: inout WireReader) throws(WireError) { sequence = try reader.varint() }
-    public func encode(to writer: inout WireWriter) { writer.varint(sequence) }
+    public init(sequence: UInt64) {
+        self.sequence = sequence
+    }
+    public init(from reader: inout WireReader) throws(WireError) {
+        sequence = try reader.varint()
+    }
+    public func encode(to writer: inout WireWriter) {
+        writer.varint(sequence)
+    }
 }
 
 public struct FetchRowsMessage: WireMessage, Hashable {
@@ -451,10 +492,19 @@ public struct KeyMessage: WireMessage, Hashable {
     /// `keyboardModeMask` counts.
     public var modes: UInt32
 
-    public init(key: String, code: String, modifiers: UInt32 = 0, eventType: UInt32 = 1,
-                text: String? = nil, shiftedKey: UInt32 = 0, baseLayoutKey: UInt32 = 0,
-                composing: Bool = false, backspaceSendsControlH: Bool = false,
-                bytes: [UInt8]? = nil, modes: UInt32 = 0) {
+    public init(
+        key: String,
+        code: String,
+        modifiers: UInt32 = 0,
+        eventType: UInt32 = 1,
+        text: String? = nil,
+        shiftedKey: UInt32 = 0,
+        baseLayoutKey: UInt32 = 0,
+        composing: Bool = false,
+        backspaceSendsControlH: Bool = false,
+        bytes: [UInt8]? = nil,
+        modes: UInt32 = 0
+    ) {
         self.key = key
         self.code = code
         self.modifiers = modifiers
@@ -516,9 +566,15 @@ public struct TextMessage: WireMessage, Hashable {
     public static let kind = MessageKind.text
     public var text: String
 
-    public init(text: String) { self.text = text }
-    public init(from reader: inout WireReader) throws(WireError) { text = try reader.string() }
-    public func encode(to writer: inout WireWriter) { writer.string(text) }
+    public init(text: String) {
+        self.text = text
+    }
+    public init(from reader: inout WireReader) throws(WireError) {
+        text = try reader.string()
+    }
+    public func encode(to writer: inout WireWriter) {
+        writer.string(text)
+    }
 }
 
 /// Literal bytes for the program, sent as user input.
@@ -526,9 +582,15 @@ public struct InputMessage: WireMessage, Hashable {
     public static let kind = MessageKind.input
     public var bytes: [UInt8]
 
-    public init(bytes: [UInt8]) { self.bytes = bytes }
-    public init(from reader: inout WireReader) throws(WireError) { bytes = try reader.blob() }
-    public func encode(to writer: inout WireWriter) { writer.blob(bytes) }
+    public init(bytes: [UInt8]) {
+        self.bytes = bytes
+    }
+    public init(from reader: inout WireReader) throws(WireError) {
+        bytes = try reader.blob()
+    }
+    public func encode(to writer: inout WireWriter) {
+        writer.blob(bytes)
+    }
 }
 
 public struct MouseMessage: WireMessage, Hashable {
@@ -621,9 +683,15 @@ public struct FocusMessage: WireMessage, Hashable {
     public static let kind = MessageKind.focus
     public var focused: Bool
 
-    public init(focused: Bool) { self.focused = focused }
-    public init(from reader: inout WireReader) throws(WireError) { focused = try reader.bool() }
-    public func encode(to writer: inout WireWriter) { writer.bool(focused) }
+    public init(focused: Bool) {
+        self.focused = focused
+    }
+    public init(from reader: inout WireReader) throws(WireError) {
+        focused = try reader.bool()
+    }
+    public func encode(to writer: inout WireWriter) {
+        writer.bool(focused)
+    }
 }
 
 // MARK: - Queries and replies
@@ -666,9 +734,15 @@ public struct TextResultMessage: WireMessage, Hashable {
     public static let kind = MessageKind.textResult
     public var text: String
 
-    public init(text: String) { self.text = text }
-    public init(from reader: inout WireReader) throws(WireError) { text = try reader.string() }
-    public func encode(to writer: inout WireWriter) { writer.string(text) }
+    public init(text: String) {
+        self.text = text
+    }
+    public init(from reader: inout WireReader) throws(WireError) {
+        text = try reader.string()
+    }
+    public func encode(to writer: inout WireWriter) {
+        writer.string(text)
+    }
 }
 
 public struct ClipboardReplyMessage: WireMessage, Hashable {
@@ -712,18 +786,40 @@ public struct SetThemeMessage: WireMessage, Hashable {
     }
 
     public init(from reader: inout WireReader) throws(WireError) {
-        palette = try reader.array(limit: 256) { reader throws(WireError) in try reader.rgb() }
+        palette = try reader.array(limit: 256) { reader throws(WireError) in
+            try reader.rgb()
+        }
         foreground = try reader.rgb()
         background = try reader.rgb()
         cursor = try reader.bool() ? try reader.rgb() : nil
     }
 
     public func encode(to writer: inout WireWriter) {
-        writer.array(palette) { writer, color in writer.rgb(color) }
+        writer.array(palette) { writer, color in
+            writer.rgb(color)
+        }
         writer.rgb(foreground)
         writer.rgb(background)
         writer.bool(cursor != nil)
-        if let cursor { writer.rgb(cursor) }
+        if let cursor {
+            writer.rgb(cursor)
+        }
+    }
+}
+
+public struct SetScreenChecksumReportsMessage: WireMessage, Hashable {
+    public static let kind = MessageKind.setScreenChecksumReports
+    public var enabled: Bool
+
+    public init(enabled: Bool) {
+        self.enabled = enabled
+    }
+
+    public init(from reader: inout WireReader) throws(WireError) {
+        enabled = try reader.bool()
+    }
+    public func encode(to writer: inout WireWriter) {
+        writer.bool(enabled)
     }
 }
 
@@ -731,18 +827,30 @@ public struct PingMessage: WireMessage, Hashable {
     public static let kind = MessageKind.ping
     public var nonce: UInt64
 
-    public init(nonce: UInt64) { self.nonce = nonce }
-    public init(from reader: inout WireReader) throws(WireError) { nonce = try reader.u64() }
-    public func encode(to writer: inout WireWriter) { writer.u64(nonce) }
+    public init(nonce: UInt64) {
+        self.nonce = nonce
+    }
+    public init(from reader: inout WireReader) throws(WireError) {
+        nonce = try reader.u64()
+    }
+    public func encode(to writer: inout WireWriter) {
+        writer.u64(nonce)
+    }
 }
 
 public struct PongMessage: WireMessage, Hashable {
     public static let kind = MessageKind.pong
     public var nonce: UInt64
 
-    public init(nonce: UInt64) { self.nonce = nonce }
-    public init(from reader: inout WireReader) throws(WireError) { nonce = try reader.u64() }
-    public func encode(to writer: inout WireWriter) { writer.u64(nonce) }
+    public init(nonce: UInt64) {
+        self.nonce = nonce
+    }
+    public init(from reader: inout WireReader) throws(WireError) {
+        nonce = try reader.u64()
+    }
+    public func encode(to writer: inout WireWriter) {
+        writer.u64(nonce)
+    }
 }
 
 /// Ends the session: the helper sends `signal` to the shell's process group.
@@ -750,11 +858,15 @@ public struct TerminateMessage: WireMessage, Hashable {
     public static let kind = MessageKind.terminate
     public var signal: Int32
 
-    public init(signal: Int32 = 1) { self.signal = signal }
+    public init(signal: Int32 = 1) {
+        self.signal = signal
+    }
     public init(from reader: inout WireReader) throws(WireError) {
         signal = Int32(clamping: try reader.svarint())
     }
-    public func encode(to writer: inout WireWriter) { writer.svarint(Int64(signal)) }
+    public func encode(to writer: inout WireWriter) {
+        writer.svarint(Int64(signal))
+    }
 }
 
 public enum ResetAction: UInt8, Hashable, Sendable {
@@ -773,20 +885,28 @@ public struct ResetMessage: WireMessage, Hashable {
     public static let kind = MessageKind.reset
     public var action: ResetAction
 
-    public init(action: ResetAction) { self.action = action }
-
-    public init(from reader: inout WireReader) throws(WireError) {
-        let raw = try reader.u8()
-        guard let action = ResetAction(rawValue: raw) else { throw .invalidValue("reset action \(raw)") }
+    public init(action: ResetAction) {
         self.action = action
     }
 
-    public func encode(to writer: inout WireWriter) { writer.u8(action.rawValue) }
+    public init(from reader: inout WireReader) throws(WireError) {
+        let raw = try reader.u8()
+        guard let action = ResetAction(rawValue: raw) else {
+            throw .invalidValue("reset action \(raw)")
+        }
+        self.action = action
+    }
+
+    public func encode(to writer: inout WireWriter) {
+        writer.u8(action.rawValue)
+    }
 }
 
 public struct SessionSearchOptions: OptionSet, Hashable, Sendable {
     public let rawValue: UInt8
-    public init(rawValue: UInt8) { self.rawValue = rawValue }
+    public init(rawValue: UInt8) {
+        self.rawValue = rawValue
+    }
 
     public static let caseSensitive = SessionSearchOptions(rawValue: 1)
     public static let regularExpression = SessionSearchOptions(rawValue: 2)
@@ -841,8 +961,14 @@ public struct SearchResultMessage: WireMessage, Hashable {
     /// A message for the user, for example an invalid regular expression.
     public var problem: String
 
-    public init(found: Bool, line: UInt64 = 0, column: Int = 0, endLine: UInt64 = 0, endColumn: Int = 0,
-                problem: String = "") {
+    public init(
+        found: Bool,
+        line: UInt64 = 0,
+        column: Int = 0,
+        endLine: UInt64 = 0,
+        endColumn: Int = 0,
+        problem: String = ""
+    ) {
         self.found = found
         self.line = line
         self.column = column
@@ -1006,13 +1132,28 @@ public struct FrameMessage: WireMessage, Hashable {
         static let progress = Extensions(rawValue: 1 << 2)
     }
 
-    public init(sequence: UInt64, snapshotSequence: UInt64, buffer: WireBuffer, epoch: UInt64,
-                firstLine: UInt64, endLine: UInt64, viewTop: UInt64, columns: Int, rows: Int,
-                cursor: WireCursor, modes: WireModes? = nil, title: String? = nil,
-                iconTitle: String? = nil, directory: String? = nil, colors: WireColorState? = nil,
-                reverseVideo: Bool? = nil, changedRows: [WireRowRecord] = [],
-                maximumBidiParagraphRows: Int? = nil, kitty: WireKittyState? = nil,
-                progress: WireProgress? = nil) {
+    public init(
+        sequence: UInt64,
+        snapshotSequence: UInt64,
+        buffer: WireBuffer,
+        epoch: UInt64,
+        firstLine: UInt64,
+        endLine: UInt64,
+        viewTop: UInt64,
+        columns: Int,
+        rows: Int,
+        cursor: WireCursor,
+        modes: WireModes? = nil,
+        title: String? = nil,
+        iconTitle: String? = nil,
+        directory: String? = nil,
+        colors: WireColorState? = nil,
+        reverseVideo: Bool? = nil,
+        changedRows: [WireRowRecord] = [],
+        maximumBidiParagraphRows: Int? = nil,
+        kitty: WireKittyState? = nil,
+        progress: WireProgress? = nil
+    ) {
         self.sequence = sequence
         self.snapshotSequence = snapshotSequence
         self.buffer = buffer
@@ -1049,15 +1190,26 @@ public struct FrameMessage: WireMessage, Hashable {
         let cursorColumn = try reader.count(limit: 65_535)
         let cursorFlags = try reader.u8()
         let cursorStyle = try reader.u8()
-        cursor = WireCursor(line: cursorLine, column: cursorColumn, visible: cursorFlags & 1 != 0,
-                            blink: cursorFlags & 2 != 0, style: cursorStyle)
+        cursor = WireCursor(
+            line: cursorLine,
+            column: cursorColumn,
+            visible: cursorFlags & 1 != 0,
+            blink: cursorFlags & 2 != 0,
+            style: cursorStyle
+        )
         let sections = Sections(rawValue: try reader.varint32())
         if sections.contains(.modes) {
             modes = WireModes(input: try reader.varint32(), pointer: try reader.varint32())
         }
-        if sections.contains(.title) { title = try reader.string(limit: 1 << 16) }
-        if sections.contains(.iconTitle) { iconTitle = try reader.string(limit: 1 << 16) }
-        if sections.contains(.directory) { directory = try reader.string(limit: 1 << 16) }
+        if sections.contains(.title) {
+            title = try reader.string(limit: 1 << 16)
+        }
+        if sections.contains(.iconTitle) {
+            iconTitle = try reader.string(limit: 1 << 16)
+        }
+        if sections.contains(.directory) {
+            directory = try reader.string(limit: 1 << 16)
+        }
         if sections.contains(.colors) {
             let foreground = try reader.rgb()
             let background = try reader.rgb()
@@ -1068,18 +1220,32 @@ public struct FrameMessage: WireMessage, Hashable {
                 let index = try reader.u8()
                 overrides[index] = try reader.rgb()
             }
-            colors = WireColorState(foreground: foreground, background: background,
-                                    cursor: cursor, paletteOverrides: overrides)
+            colors = WireColorState(
+                foreground: foreground,
+                background: background,
+                cursor: cursor,
+                paletteOverrides: overrides
+            )
         }
-        if sections.contains(.reverseVideo) { reverseVideo = try reader.bool() }
+        if sections.contains(.reverseVideo) {
+            reverseVideo = try reader.bool()
+        }
         changedRows = try reader.array(limit: 65_535) { reader throws(WireError) in
             try WireRowRecord(from: &reader)
         }
-        guard !reader.isAtEnd else { return }
+        guard !reader.isAtEnd else {
+            return
+        }
         let extensions = Extensions(rawValue: try reader.varint32())
-        if extensions.contains(.bidi) { maximumBidiParagraphRows = try reader.count(limit: 1 << 20) }
-        if extensions.contains(.kitty) { kitty = try WireKittyState(from: &reader) }
-        if extensions.contains(.progress) { progress = try WireProgress(from: &reader) }
+        if extensions.contains(.bidi) {
+            maximumBidiParagraphRows = try reader.count(limit: 1 << 20)
+        }
+        if extensions.contains(.kitty) {
+            kitty = try WireKittyState(from: &reader)
+        }
+        if extensions.contains(.progress) {
+            progress = try WireProgress(from: &reader)
+        }
     }
 
     public func encode(to writer: inout WireWriter) {
@@ -1097,42 +1263,82 @@ public struct FrameMessage: WireMessage, Hashable {
         writer.u8((cursor.visible ? 1 : 0) | (cursor.blink ? 2 : 0))
         writer.u8(cursor.style)
         var sections: Sections = []
-        if modes != nil { sections.insert(.modes) }
-        if title != nil { sections.insert(.title) }
-        if iconTitle != nil { sections.insert(.iconTitle) }
-        if directory != nil { sections.insert(.directory) }
-        if colors != nil { sections.insert(.colors) }
-        if reverseVideo != nil { sections.insert(.reverseVideo) }
+        if modes != nil {
+            sections.insert(.modes)
+        }
+        if title != nil {
+            sections.insert(.title)
+        }
+        if iconTitle != nil {
+            sections.insert(.iconTitle)
+        }
+        if directory != nil {
+            sections.insert(.directory)
+        }
+        if colors != nil {
+            sections.insert(.colors)
+        }
+        if reverseVideo != nil {
+            sections.insert(.reverseVideo)
+        }
         writer.varint(sections.rawValue)
         if let modes {
             writer.varint(modes.input)
             writer.varint(modes.pointer)
         }
-        if let title { writer.string(title) }
-        if let iconTitle { writer.string(iconTitle) }
-        if let directory { writer.string(directory) }
+        if let title {
+            writer.string(title)
+        }
+        if let iconTitle {
+            writer.string(iconTitle)
+        }
+        if let directory {
+            writer.string(directory)
+        }
         if let colors {
             writer.rgb(colors.foreground)
             writer.rgb(colors.background)
             writer.bool(colors.cursor != nil)
-            if let cursor = colors.cursor { writer.rgb(cursor) }
+            if let cursor = colors.cursor {
+                writer.rgb(cursor)
+            }
             writer.varint(colors.paletteOverrides.count)
-            for (index, color) in colors.paletteOverrides.sorted(by: { $0.key < $1.key }) {
+            for (index, color) in colors.paletteOverrides.sorted(by: {
+                $0.key < $1.key
+            }) {
                 writer.u8(index)
                 writer.rgb(color)
             }
         }
-        if let reverseVideo { writer.bool(reverseVideo) }
-        writer.array(changedRows) { writer, row in row.encode(to: &writer) }
+        if let reverseVideo {
+            writer.bool(reverseVideo)
+        }
+        writer.array(changedRows) { writer, row in
+            row.encode(to: &writer)
+        }
         var extensions: Extensions = []
-        if maximumBidiParagraphRows != nil { extensions.insert(.bidi) }
-        if kitty != nil { extensions.insert(.kitty) }
-        if progress != nil { extensions.insert(.progress) }
-        guard !extensions.isEmpty else { return }
+        if maximumBidiParagraphRows != nil {
+            extensions.insert(.bidi)
+        }
+        if kitty != nil {
+            extensions.insert(.kitty)
+        }
+        if progress != nil {
+            extensions.insert(.progress)
+        }
+        guard !extensions.isEmpty else {
+            return
+        }
         writer.varint(extensions.rawValue)
-        if let maximumBidiParagraphRows { writer.varint(maximumBidiParagraphRows) }
-        if let kitty { kitty.encode(to: &writer) }
-        if let progress { progress.encode(to: &writer) }
+        if let maximumBidiParagraphRows {
+            writer.varint(maximumBidiParagraphRows)
+        }
+        if let kitty {
+            kitty.encode(to: &writer)
+        }
+        if let progress {
+            progress.encode(to: &writer)
+        }
     }
 }
 
@@ -1211,9 +1417,24 @@ public struct WireKittyPlacement: Hashable, Sendable {
     public var isVirtual: Bool
     public var insertionOrder: UInt64
 
-    public init(token: UInt64, placementID: UInt32, kittyID: UInt32, sourceX: Int, sourceY: Int,
-                sourceWidth: Int, sourceHeight: Int, line: Int64, column: Int, columns: Int, rows: Int,
-                pixelOffsetX: Int, pixelOffsetY: Int, zIndex: Int32, isVirtual: Bool, insertionOrder: UInt64) {
+    public init(
+        token: UInt64,
+        placementID: UInt32,
+        kittyID: UInt32,
+        sourceX: Int,
+        sourceY: Int,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        line: Int64,
+        column: Int,
+        columns: Int,
+        rows: Int,
+        pixelOffsetX: Int,
+        pixelOffsetY: Int,
+        zIndex: Int32,
+        isVirtual: Bool,
+        insertionOrder: UInt64
+    ) {
         self.token = token
         self.placementID = placementID
         self.kittyID = kittyID
@@ -1253,9 +1474,13 @@ public struct WireKittyState: Hashable, Sendable {
         images = try reader.array(limit: 65_535) { reader throws(WireError) in
             let kittyID = try reader.varint32()
             let number = try reader.varint32()
-            return WireKittyImage(kittyID: kittyID, imageNumber: number == 0 ? nil : number - 1,
-                                  imageID: try reader.varint(), width: try reader.count(limit: 1 << 20),
-                                  height: try reader.count(limit: 1 << 20))
+            return WireKittyImage(
+                kittyID: kittyID,
+                imageNumber: number == 0 ? nil : number - 1,
+                imageID: try reader.varint(),
+                width: try reader.count(limit: 1 << 20),
+                height: try reader.count(limit: 1 << 20)
+            )
         }
         placements = try reader.array(limit: 65_535) { reader throws(WireError) in
             WireKittyPlacement(
@@ -1266,7 +1491,8 @@ public struct WireKittyState: Hashable, Sendable {
                 columns: try reader.count(limit: 1 << 16), rows: try reader.count(limit: 1 << 16),
                 pixelOffsetX: Int(try reader.svarint()), pixelOffsetY: Int(try reader.svarint()),
                 zIndex: Int32(truncatingIfNeeded: try reader.svarint()), isVirtual: try reader.bool(),
-                insertionOrder: try reader.varint())
+                insertionOrder: try reader.varint()
+            )
         }
     }
 
@@ -1275,7 +1501,9 @@ public struct WireKittyState: Hashable, Sendable {
         writer.array(images) { writer, image in
             writer.varint(image.kittyID)
             // 0 means none; numbers are stored plus one.
-            writer.varint(image.imageNumber.map { UInt64($0) + 1 } ?? 0)
+            writer.varint(image.imageNumber.map {
+                UInt64($0) + 1
+            } ?? 0)
             writer.varint(image.imageID)
             writer.varint(image.width)
             writer.varint(image.height)
@@ -1307,9 +1535,15 @@ public struct FetchImageMessage: WireMessage, Hashable {
     public static let kind = MessageKind.fetchImage
     public var imageID: UInt64
 
-    public init(imageID: UInt64) { self.imageID = imageID }
-    public init(from reader: inout WireReader) throws(WireError) { imageID = try reader.varint() }
-    public func encode(to writer: inout WireWriter) { writer.varint(imageID) }
+    public init(imageID: UInt64) {
+        self.imageID = imageID
+    }
+    public init(from reader: inout WireReader) throws(WireError) {
+        imageID = try reader.varint()
+    }
+    public func encode(to writer: inout WireWriter) {
+        writer.varint(imageID)
+    }
 }
 
 /// Pixels of an image: straight (not premultiplied) RGBA, top row first,
@@ -1334,12 +1568,16 @@ public struct ImageDataMessage: WireMessage, Hashable {
     /// The largest image (in pixels) that a client accepts: 8192 x 8192, 256 MiB of RGBA.
     public static let maximumPixels = 8192 * 8192
 
-    public var totalBytes: Int { width * height * 4 }
+    public var totalBytes: Int {
+        width * height * 4
+    }
     /// True when the size is in the range that a client accepts.
     public var hasAcceptableSize: Bool {
         width > 0 && height > 0 && width * height <= Self.maximumPixels
     }
-    public var isLast: Bool { offset + bytes.count >= totalBytes }
+    public var isLast: Bool {
+        offset + bytes.count >= totalBytes
+    }
 
     public init(from reader: inout WireReader) throws(WireError) {
         imageID = try reader.varint()
@@ -1373,9 +1611,15 @@ public struct RowsMessage: WireMessage, Hashable {
     /// Rows that the helper no longer has (trimmed) or cannot read now.
     public var unavailable: [WireLineRange]
 
-    public init(snapshotSequence: UInt64, buffer: WireBuffer, epoch: UInt64, final: Bool,
-                records: [WireRowRecord] = [], confirmed: [WireLineRange] = [],
-                unavailable: [WireLineRange] = []) {
+    public init(
+        snapshotSequence: UInt64,
+        buffer: WireBuffer,
+        epoch: UInt64,
+        final: Bool,
+        records: [WireRowRecord] = [],
+        confirmed: [WireLineRange] = [],
+        unavailable: [WireLineRange] = []
+    ) {
         self.snapshotSequence = snapshotSequence
         self.buffer = buffer
         self.epoch = epoch
@@ -1402,7 +1646,9 @@ public struct RowsMessage: WireMessage, Hashable {
         writer.u8(buffer.rawValue)
         writer.varint(epoch)
         writer.bool(final)
-        writer.array(records) { writer, row in row.encode(to: &writer) }
+        writer.array(records) { writer, row in
+            row.encode(to: &writer)
+        }
         writer.lineRanges(confirmed)
         writer.lineRanges(unavailable)
     }
@@ -1413,7 +1659,9 @@ public struct DefineLinksMessage: WireMessage, Hashable {
     /// Link identifier to the OSC 8 `params;URI` payload.
     public var links: [UInt32: String]
 
-    public init(links: [UInt32: String]) { self.links = links }
+    public init(links: [UInt32: String]) {
+        self.links = links
+    }
 
     public init(from reader: inout WireReader) throws(WireError) {
         var links: [UInt32: String] = [:]
@@ -1427,7 +1675,9 @@ public struct DefineLinksMessage: WireMessage, Hashable {
 
     public func encode(to writer: inout WireWriter) {
         writer.varint(links.count)
-        for (id, value) in links.sorted(by: { $0.key < $1.key }) {
+        for (id, value) in links.sorted(by: {
+            $0.key < $1.key
+        }) {
             writer.varint(id)
             writer.string(value)
         }
@@ -1467,11 +1717,15 @@ public struct NotificationMessage: WireMessage, Hashable {
     /// Control characters are removed, and long texts are cut.
     public init?(oscCode code: Int, payload: [UInt8]) {
         // Other codes can carry large payloads (images): do not decode them.
-        guard code == 9 || code == 777 else { return nil }
+        guard code == 9 || code == 777 else {
+            return nil
+        }
         let text = String(decoding: payload, as: UTF8.self)
         switch code {
         case 9:
-            let digits = text.prefix { $0.isASCII && $0.isNumber }
+            let digits = text.prefix {
+                $0.isASCII && $0.isNumber
+            }
             if !digits.isEmpty, text.dropFirst(digits.count).first == ";" || digits.count == text.count {
                 return nil
             }
@@ -1479,7 +1733,9 @@ public struct NotificationMessage: WireMessage, Hashable {
             body = text
         case 777:
             let parts = text.split(separator: ";", maxSplits: 2, omittingEmptySubsequences: false)
-            guard parts.count >= 2, parts[0] == "notify" else { return nil }
+            guard parts.count >= 2, parts[0] == "notify" else {
+                return nil
+            }
             title = String(parts[1])
             body = parts.count > 2 ? String(parts[2]) : ""
         default:
@@ -1487,17 +1743,25 @@ public struct NotificationMessage: WireMessage, Hashable {
         }
         title = Self.clean(title, limit: Self.titleLimit)
         body = Self.clean(body, limit: Self.bodyLimit)
-        guard !title.isEmpty || !body.isEmpty else { return nil }
+        guard !title.isEmpty || !body.isEmpty else {
+            return nil
+        }
     }
 
     static func clean(_ text: String, limit: Int) -> String {
         let scalars = text.unicodeScalars
-            .filter { $0.properties.generalCategory != .control }
+            .filter {
+                $0.properties.generalCategory != .control
+            }
             .prefix(limit)
         let trimmed = scalars
-            .drop { $0.properties.isWhitespace }
+            .drop {
+                $0.properties.isWhitespace
+            }
             .reversed()
-            .drop { $0.properties.isWhitespace }
+            .drop {
+                $0.properties.isWhitespace
+            }
             .reversed()
         return String(String.UnicodeScalarView(trimmed))
     }
@@ -1517,9 +1781,15 @@ public struct ClipboardCopyMessage: WireMessage, Hashable {
     public static let kind = MessageKind.clipboardCopy
     public var data: [UInt8]
 
-    public init(data: [UInt8]) { self.data = data }
-    public init(from reader: inout WireReader) throws(WireError) { data = try reader.blob() }
-    public func encode(to writer: inout WireWriter) { writer.blob(data) }
+    public init(data: [UInt8]) {
+        self.data = data
+    }
+    public init(from reader: inout WireReader) throws(WireError) {
+        data = try reader.blob()
+    }
+    public func encode(to writer: inout WireWriter) {
+        writer.blob(data)
+    }
 }
 
 public struct ClipboardReadRequestMessage: WireMessage, Hashable {
@@ -1548,7 +1818,9 @@ public struct ProcessExitedMessage: WireMessage, Hashable {
     /// Nil when the process ended by a signal or the status is unknown.
     public var exitCode: Int32?
 
-    public init(exitCode: Int32?) { self.exitCode = exitCode }
+    public init(exitCode: Int32?) {
+        self.exitCode = exitCode
+    }
 
     public init(from reader: inout WireReader) throws(WireError) {
         exitCode = try reader.bool() ? Int32(clamping: try reader.svarint()) : nil
@@ -1556,7 +1828,9 @@ public struct ProcessExitedMessage: WireMessage, Hashable {
 
     public func encode(to writer: inout WireWriter) {
         writer.bool(exitCode != nil)
-        if let exitCode { writer.svarint(Int64(exitCode)) }
+        if let exitCode {
+            writer.svarint(Int64(exitCode))
+        }
     }
 }
 
@@ -1579,7 +1853,9 @@ public struct PasteResultMessage: WireMessage, Hashable {
 
     public init(from reader: inout WireReader) throws(WireError) {
         let raw = try reader.u8()
-        guard let status = PasteStatus(rawValue: raw) else { throw .invalidValue("paste status \(raw)") }
+        guard let status = PasteStatus(rawValue: raw) else {
+            throw .invalidValue("paste status \(raw)")
+        }
         self.status = status
         token = try reader.varint()
     }
@@ -1620,9 +1896,11 @@ public struct SessionInfoMessage: WireMessage, Hashable {
         shellPID = Int32(clamping: try reader.svarint())
         shellName = try reader.string(limit: 4096)
         if try reader.bool() {
-            foreground = WireProcess(pid: Int32(clamping: try reader.svarint()),
-                                     name: try reader.string(limit: 4096),
-                                     path: try reader.string(limit: 4096))
+            foreground = WireProcess(
+                pid: Int32(clamping: try reader.svarint()),
+                name: try reader.string(limit: 4096),
+                path: try reader.string(limit: 4096)
+            )
         }
         hasChildren = try reader.bool()
     }
@@ -1673,5 +1951,29 @@ public struct ErrorMessage: WireMessage, Hashable {
         writer.varint(code.rawValue)
         writer.varint(failedKind.rawValue)
         writer.string(message)
+    }
+}
+
+/// Optional complete metadata snapshot, sent only to peers advertising `metadata`.
+/// Older helpers keep carrying these fields in FrameMessage; protocol v1 is unchanged.
+public struct MetadataMessage: WireMessage {
+    public static let kind = MessageKind.metadata
+    public var title: String
+    public var iconTitle: String
+    public var directory: String
+    public init(title: String, iconTitle: String, directory: String) {
+        self.title = title
+        self.iconTitle = iconTitle
+        self.directory = directory
+    }
+    public init(from reader: inout WireReader) throws(WireError) {
+        title = try reader.string()
+        iconTitle = try reader.string()
+        directory = try reader.string()
+    }
+    public func encode(to writer: inout WireWriter) {
+        writer.string(title)
+        writer.string(iconTitle)
+        writer.string(directory)
     }
 }

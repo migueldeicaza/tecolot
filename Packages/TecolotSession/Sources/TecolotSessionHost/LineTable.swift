@@ -27,26 +27,48 @@ final class LineTable {
     private var clock: UInt64 = 0
     var maximumEntries = 40_000
 
-    var count: Int { entries.count }
+    var count: Int {
+        entries.count
+    }
 
     /// Returns the encoded row for `line`. Hold the terminal lock.
-    func row(for line: BufferLine, ringIndex: Int, columns: Int, terminal: Terminal,
-             links: LinkTable, encoder: inout LineEncoder) -> Entry {
+    func row(
+        for line: BufferLine,
+        ringIndex: Int,
+        columns: Int,
+        terminal: Terminal,
+        links: LinkTable,
+        encoder: inout LineEncoder
+    ) -> Entry {
         clock &+= 1
         let key = ObjectIdentifier(line)
         let marksSignature = Self.marksSignature(terminal.semanticPromptMarks(at: ringIndex))
-        if var entry = entries[key], entry.line === line, entry.generation == line.generation,
-           entry.columns == columns, entry.marksSignature == marksSignature {
+        if
+            var entry = entries[key], entry.line === line, entry.generation == line.generation,
+            entry.columns == columns, entry.marksSignature == marksSignature {
             entry.lastUse = clock
             entries[key] = entry
             return entry
         }
         var used = Set<UInt32>()
-        let payload = encoder.encode(line, ringIndex: ringIndex, columns: columns,
-                                     terminal: terminal, links: links, usedLinks: &used)
-        let entry = Entry(line: line, generation: line.generation, columns: columns,
-                          marksSignature: marksSignature, payload: payload,
-                          version: WireHash.hash64(payload), links: Array(used), lastUse: clock)
+        let payload = encoder.encode(
+            line,
+            ringIndex: ringIndex,
+            columns: columns,
+            terminal: terminal,
+            links: links,
+            usedLinks: &used
+        )
+        let entry = Entry(
+            line: line,
+            generation: line.generation,
+            columns: columns,
+            marksSignature: marksSignature,
+            payload: payload,
+            version: WireHash.hash64(payload),
+            links: Array(used),
+            lastUse: clock
+        )
         entries[key] = entry
         return entry
     }
@@ -59,7 +81,9 @@ final class LineTable {
     /// without a sort, and the old entries go in place. (Sorting and copying
     /// all the entries took about 10 ms at 40,000 rows, and delayed frames.)
     func trim() {
-        guard entries.count > maximumEntries else { return }
+        guard entries.count > maximumEntries else {
+            return
+        }
         let keep = maximumEntries * 3 / 4
         guard keep > 0 else {
             entries.removeAll()
@@ -67,7 +91,9 @@ final class LineTable {
         }
         var stamps = entries.values.map(\.lastUse)
         let oldestKept = Self.select(stamps.count - keep, in: &stamps)
-        let stale = entries.compactMap { $0.value.lastUse < oldestKept ? $0.key : nil }
+        let stale = entries.compactMap {
+            $0.value.lastUse < oldestKept ? $0.key : nil
+        }
         for key in stale {
             entries.removeValue(forKey: key)
         }
@@ -85,8 +111,12 @@ final class LineTable {
             var i = low
             var j = high
             while i <= j {
-                while values[i] < pivot { i += 1 }
-                while values[j] > pivot { j -= 1 }
+                while values[i] < pivot {
+                    i += 1
+                }
+                while values[j] > pivot {
+                    j -= 1
+                }
                 if i <= j {
                     values.swapAt(i, j)
                     i += 1
@@ -109,7 +139,9 @@ final class LineTable {
     }
 
     private static func marksSignature(_ marks: [SemanticPromptAnchor]) -> Int {
-        guard !marks.isEmpty else { return 0 }
+        guard !marks.isEmpty else {
+            return 0
+        }
         var hasher = Hasher()
         for mark in marks {
             hasher.combine(mark.position.col)

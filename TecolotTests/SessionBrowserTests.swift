@@ -7,13 +7,26 @@ import TecolotSessionDirectory
 
 @MainActor
 struct SessionBrowserTests {
-    private func record(_ id: String, minutesAgo: Double, attached: Int = 0, exited: Bool = false,
-                        foreground: String? = nil) -> SessionRecord {
-        var record = SessionRecord(id: id, pid: 1, shellPID: 2, protocolVersion: 1, build: "test",
-                                   createdAt: Date().addingTimeInterval(-minutesAgo * 60),
-                                   executable: "/bin/zsh", workingDirectory: "/tmp",
-                                   labels: ["profile": "Default", "profileID": UUID().uuidString],
-                                   columns: 80, rows: 24)
+    private func record(
+        _ id: String,
+        minutesAgo: Double,
+        attached: Int = 0,
+        exited: Bool = false,
+        foreground: String? = nil
+    ) -> SessionRecord {
+        var record = SessionRecord(
+            id: id,
+            pid: 1,
+            shellPID: 2,
+            protocolVersion: 1,
+            build: "test",
+            createdAt: Date().addingTimeInterval(-minutesAgo * 60),
+            executable: "/bin/zsh",
+            workingDirectory: "/tmp",
+            labels: ["profile": "Default", "profileID": UUID().uuidString],
+            columns: 80,
+            rows: 24
+        )
         record.attachedClients = attached
         record.exited = exited
         record.exitCode = exited ? 0 : nil
@@ -29,7 +42,11 @@ struct SessionBrowserTests {
             record("elsewhere", minutesAgo: 10, attached: 1),
             record("done", minutesAgo: 5, exited: true),
         ]
-        let model = SessionBrowserModel(list: { records }, shown: { ["here"] })
+        let model = SessionBrowserModel(list: {
+            records
+        }, shown: {
+            ["here"]
+        })
         model.selection = ["gone", "old"]
         model.refresh()
         // Newest first.
@@ -49,14 +66,19 @@ struct SessionBrowserTests {
 
         // The window draws the rows (written for a visual check).
         let view = NSHostingView(rootView: SessionBrowserView(model: model))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 260),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 860, height: 260),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
         window.contentView = view
         view.layoutSubtreeIfNeeded()
         model.refresh()
         view.layoutSubtreeIfNeeded()
-        if let output = ProcessInfo.processInfo.environment["TECOLOT_SNAPSHOT_DIR"],
-           let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+        if
+            let output = ProcessInfo.processInfo.environment["TECOLOT_SNAPSHOT_DIR"],
+            let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
             view.cacheDisplay(in: view.bounds, to: bitmap)
             try? bitmap.representation(using: .png, properties: [:])?
                 .write(to: URL(fileURLWithPath: output).appendingPathComponent("session-browser.png"))
@@ -70,11 +92,20 @@ struct SessionBrowserTests {
     /// The Sessions window is in front when it attaches a session in a new
     /// tab: the tab joins a terminal window.
     @Test func newTabsJoinATerminalWindow() {
-        let sessions = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
-                                styleMask: [.titled], backing: .buffered, defer: true)
-        let terminal = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
-                                styleMask: [.titled], backing: .buffered, defer: true)
+        let sessions = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        let terminal = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
         let controller = TerminalSessionController(startsProcess: false)
+        terminal.contentView = controller.makeTerminalView()
         TerminalSessionRegistry.shared.register(controller: controller, workspace: nil, for: terminal)
         defer { TerminalSessionRegistry.shared.unregister(controller: controller, from: terminal) }
         #expect(WindowOpener.frontTerminalWindow(in: [sessions, terminal]) === terminal)
@@ -85,7 +116,11 @@ struct SessionBrowserTests {
     /// that pane to the front.
     @Test func exitedSessionsThatAPaneShowsCanBeShown() {
         let records = [record("done", minutesAgo: 5, exited: true)]
-        let model = SessionBrowserModel(list: { records }, shown: { ["done"] })
+        let model = SessionBrowserModel(list: {
+            records
+        }, shown: {
+            ["done"]
+        })
         model.refresh()
         let row = model.rows[0]
         #expect(row.status == .exited(0))
@@ -97,7 +132,11 @@ struct SessionBrowserTests {
     @Test func refreshChangesTheRowsOnlyWhenASessionChanged() {
         final class Counter { var value = 0 }
         var records = [record("a", minutesAgo: 5), record("b", minutesAgo: 1)]
-        let model = SessionBrowserModel(list: { records }, shown: { [] })
+        let model = SessionBrowserModel(list: {
+            records
+        }, shown: {
+            []
+        })
         model.selection = ["a"]
         model.refresh()
         let changes = Counter()

@@ -92,12 +92,17 @@ public enum TerminalEnvironment {
         // Xcode adds these to the launched app. They can make child commands
         // load development libraries instead of the versions installed by macOS.
         if environment["__XCODE_BUILT_PRODUCTS_DIR_PATHS"] != nil {
-            xcodeVariables.forEach { environment.removeValue(forKey: $0) }
+            xcodeVariables.forEach {
+                environment.removeValue(forKey: $0)
+            }
         }
 
         // Finder and LaunchServices usually provide no locale variables. A
         // UTF-8 default keeps terminal programs able to process non-ASCII text.
-        if !localeVariables.contains(where: { !(environment[$0]?.isEmpty ?? true) }) {
+        if
+            !localeVariables.contains(where: {
+                !(environment[$0]?.isEmpty ?? true)
+            }) {
             environment["LANG"] = "en_US.UTF-8"
         }
 
@@ -139,7 +144,9 @@ public enum TerminalEnvironment {
         termVersion: String,
         to environment: [String]
     ) -> [String] {
-        guard termName == "xterm-ghostty" else { return environment }
+        guard termName == "xterm-ghostty" else {
+            return environment
+        }
         return applying([
             TerminalEnvironmentVariable(name: "TERM_PROGRAM_VERSION", value: nil),
             TerminalEnvironmentVariable(name: "TERM_PROGRAM", value: termProgram),
@@ -149,14 +156,18 @@ public enum TerminalEnvironment {
 
     private static func decoded(_ environment: [String]) -> [String: String] {
         environment.reduce(into: [:]) { result, entry in
-            guard let separator = entry.firstIndex(of: "=") else { return }
+            guard let separator = entry.firstIndex(of: "=") else {
+                return
+            }
             result[String(entry[..<separator])] = String(entry[entry.index(after: separator)...])
         }
     }
 
     private static func encoded(_ environment: [String: String]) -> [String] {
         environment.keys.sorted().compactMap { name in
-            guard let value = environment[name] else { return nil }
+            guard let value = environment[name] else {
+                return nil
+            }
             return "\(name)=\(value)"
         }
     }

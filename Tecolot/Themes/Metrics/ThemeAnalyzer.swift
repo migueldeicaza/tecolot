@@ -24,17 +24,25 @@ nonisolated struct ThemeAnalyzer: Sendable {
 
         // ThemeStore filters invalid themes, but the engine must not trap on
         // a malformed value: pad or cut the ANSI table to 16 entries.
-        var ansi = theme.ansi.map { PerceptualColor($0) }
+        var ansi = theme.ansi.map {
+            PerceptualColor($0)
+        }
         if ansi.count != 16 {
             ansi = Array((ansi + Array(repeating: foreground, count: 16)).prefix(16))
         }
 
         // Contrast profile (§12/§13)
-        let contrasts = ansi.map { ThemeColorMath.contrastRatio($0.luminance, background.luminance) }
-        let logContrasts = contrasts.map { log2($0) }
+        let contrasts = ansi.map {
+            ThemeColorMath.contrastRatio($0.luminance, background.luminance)
+        }
+        let logContrasts = contrasts.map {
+            log2($0)
+        }
 
         // Colorfulness: RMS chroma (§14)
-        let ansiColorfulness = sqrt(ThemeColorMath.mean(ansi.map { $0.chroma * $0.chroma }))
+        let ansiColorfulness = sqrt(ThemeColorMath.mean(ansi.map {
+            $0.chroma * $0.chroma
+        }))
 
         // Dynamic range (§15)
         let lightnesses = ansi.map(\.L).sorted()
@@ -61,7 +69,9 @@ nonisolated struct ThemeAnalyzer: Sendable {
         }
         var hueDrifts: [Double] = []
         for i in 1...6 {
-            guard let normalHue = ansi[i].hue, let brightHue = ansi[i + 8].hue else { continue }
+            guard let normalHue = ansi[i].hue, let brightHue = ansi[i + 8].hue else {
+                continue
+            }
             hueDrifts.append(ThemeColorMath.circularHueDistance(normalHue, brightHue))
         }
 
@@ -71,7 +81,9 @@ nonisolated struct ThemeAnalyzer: Sendable {
         var v = 0.0
         for index in ThemeAnalyzer.accentIndices {
             let accent = ansi[index]
-            guard let hue = accent.hue else { continue }
+            guard let hue = accent.hue else {
+                continue
+            }
             let weight = accent.chroma * accent.chroma
             let radians = hue * .pi / 180
             weightSum += weight
@@ -110,7 +122,9 @@ nonisolated struct ThemeAnalyzer: Sendable {
         dominantAccentIndex = ThemeAnalyzer.accentIndex(near: dominantAccentHue, in: ansi)
 
         // Interaction colors from fallback resolution (spec-theme-tecolot §2.2)
-        let effectiveCursor = theme.cursor.map { PerceptualColor($0) } ?? foreground
+        let effectiveCursor = theme.cursor.map {
+            PerceptualColor($0)
+        } ?? foreground
         let hasCustomSelection = theme.selectionBackground != nil
         let effectiveSelection: PerceptualColor
         if let selection = theme.selectionBackground {
@@ -123,7 +137,9 @@ nonisolated struct ThemeAnalyzer: Sendable {
                 linearBlue: 0.25 * foreground.linearBlue + 0.75 * background.linearBlue
             )
         }
-        let effectiveSelectionText = theme.selectionText.map { PerceptualColor($0) } ?? foreground
+        let effectiveSelectionText = theme.selectionText.map {
+            PerceptualColor($0)
+        } ?? foreground
 
         // Feature vector (§25): role-weighted ΔEOKr2 coordinates
         var featureVector: [Double] = []
@@ -179,12 +195,16 @@ nonisolated struct ThemeAnalyzer: Sendable {
     /// The accent slot whose color best represents the dominant hue: the most
     /// chromatic accent within 30°, or the nearest-hue accent otherwise
     private static func accentIndex(near dominantHue: Double?, in ansi: [PerceptualColor]) -> Int? {
-        guard let dominantHue else { return nil }
+        guard let dominantHue else {
+            return nil
+        }
         var nearest: (index: Int, distance: Double)?
         var mostChromaticNearby: (index: Int, chroma: Double)?
         for index in accentIndices {
             let accent = ansi[index]
-            guard let hue = accent.hue else { continue }
+            guard let hue = accent.hue else {
+                continue
+            }
             let distance = ThemeColorMath.circularHueDistance(hue, dominantHue)
             if distance < (nearest?.distance ?? .infinity) {
                 nearest = (index, distance)
@@ -219,6 +239,8 @@ extension TerminalTheme {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = (try? encoder.encode(canonical)) ?? Data()
-        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return SHA256.hash(data: data).map {
+            String(format: "%02x", $0)
+        }.joined()
     }
 }

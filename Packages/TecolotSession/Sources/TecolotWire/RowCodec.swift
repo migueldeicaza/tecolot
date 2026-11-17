@@ -57,8 +57,13 @@ public struct WireAttribute: Hashable, Sendable {
     public var underlineStyle: UInt8
     public var underlineColor: WireColor?
 
-    public init(foreground: WireColor = .default, background: WireColor = .default,
-                style: UInt8 = 0, underlineStyle: UInt8 = 0, underlineColor: WireColor? = nil) {
+    public init(
+        foreground: WireColor = .default,
+        background: WireColor = .default,
+        style: UInt8 = 0,
+        underlineStyle: UInt8 = 0,
+        underlineColor: WireColor? = nil
+    ) {
         self.foreground = foreground
         self.background = background
         self.style = style
@@ -79,8 +84,12 @@ public struct WireCellStyle: Hashable, Sendable {
     public var semantic: UInt8
     public var isProtected: Bool
 
-    public init(attribute: WireAttribute = .plain, link: UInt32 = 0,
-                semantic: UInt8 = 0, isProtected: Bool = false) {
+    public init(
+        attribute: WireAttribute = .plain,
+        link: UInt32 = 0,
+        semantic: UInt8 = 0,
+        isProtected: Bool = false
+    ) {
         self.attribute = attribute
         self.link = link
         self.semantic = semantic
@@ -103,9 +112,12 @@ public enum WireCellContent: Hashable, Sendable {
 
     public var width: Int {
         switch self {
-        case .null, .ascii: return 1
-        case .grapheme(_, let width): return Int(width)
-        case .spacer: return 0
+        case .null, .ascii:
+            return 1
+        case .grapheme(_, let width):
+            return Int(width)
+        case .spacer:
+            return 0
         }
     }
 }
@@ -122,7 +134,9 @@ public struct WireCell: Hashable, Sendable {
 
 public struct RowFlags: OptionSet, Hashable, Sendable {
     public let rawValue: UInt8
-    public init(rawValue: UInt8) { self.rawValue = rawValue }
+    public init(rawValue: UInt8) {
+        self.rawValue = rawValue
+    }
 
     /// This row continues the previous row (SwiftTerm `isWrapped`).
     public static let wrapped = RowFlags(rawValue: 1)
@@ -184,11 +198,19 @@ public struct WireRowHeader: Hashable, Sendable {
     /// The row may need bidi layout (see `RowFlags.rightToLeft`).
     public var rightToLeft: Bool
 
-    public var hasImages: Bool { !images.isEmpty }
+    public var hasImages: Bool {
+        !images.isEmpty
+    }
 
-    public init(columns: Int, isWrapped: Bool = false, bidi: UInt8? = nil,
-                renderMode: UInt8 = 0, marks: [WireSemanticMark] = [], images: [WireRowImage] = [],
-                rightToLeft: Bool = false) {
+    public init(
+        columns: Int,
+        isWrapped: Bool = false,
+        bidi: UInt8? = nil,
+        renderMode: UInt8 = 0,
+        marks: [WireSemanticMark] = [],
+        images: [WireRowImage] = [],
+        rightToLeft: Bool = false
+    ) {
         self.columns = columns
         self.isWrapped = isWrapped
         self.bidi = bidi
@@ -238,16 +260,32 @@ public struct RowEncoder: Sendable {
         pendingRepeats = 0
 
         var flags: RowFlags = []
-        if header.isWrapped { flags.insert(.wrapped) }
-        if header.bidi != nil { flags.insert(.bidi) }
-        if header.renderMode != 0 { flags.insert(.renderMode) }
-        if !header.marks.isEmpty { flags.insert(.marks) }
-        if header.hasImages { flags.insert(.images) }
-        if header.rightToLeft { flags.insert(.rightToLeft) }
+        if header.isWrapped {
+            flags.insert(.wrapped)
+        }
+        if header.bidi != nil {
+            flags.insert(.bidi)
+        }
+        if header.renderMode != 0 {
+            flags.insert(.renderMode)
+        }
+        if !header.marks.isEmpty {
+            flags.insert(.marks)
+        }
+        if header.hasImages {
+            flags.insert(.images)
+        }
+        if header.rightToLeft {
+            flags.insert(.rightToLeft)
+        }
         writer.u8(flags.rawValue)
         writer.varint(header.columns)
-        if let bidi = header.bidi { writer.u8(bidi) }
-        if header.renderMode != 0 { writer.u8(header.renderMode) }
+        if let bidi = header.bidi {
+            writer.u8(bidi)
+        }
+        if header.renderMode != 0 {
+            writer.u8(header.renderMode)
+        }
         if !header.marks.isEmpty {
             writer.varint(header.marks.count)
             for mark in header.marks {
@@ -277,11 +315,15 @@ public struct RowEncoder: Sendable {
 
     /// Appends one cell.
     public mutating func append(_ content: WireCellContent, style newStyle: WireCellStyle) {
-        guard produced < columns else { return }
+        guard produced < columns else {
+            return
+        }
         produced += 1
         if newStyle == style, let last, last == content {
             pendingRepeats += 1
-            if lastSignificant { markSignificantAfterRepeats = true }
+            if lastSignificant {
+                markSignificantAfterRepeats = true
+            }
             return
         }
         flushRepeats()
@@ -306,8 +348,10 @@ public struct RowEncoder: Sendable {
             lastByte = RowOp.spacer
         case .grapheme(let text, let width):
             switch width {
-            case 1: writer.u8(RowOp.narrow)
-            case 2: writer.u8(RowOp.wide)
+            case 1:
+                writer.u8(RowOp.narrow)
+            case 2:
+                writer.u8(RowOp.wide)
             default:
                 writer.u8(RowOp.sized)
                 writer.u8(width)
@@ -317,7 +361,9 @@ public struct RowEncoder: Sendable {
         }
         last = content
         lastSignificant = significant
-        if significant { significantEnd = writer.count }
+        if significant {
+            significantEnd = writer.count
+        }
     }
 
     /// Returns the payload for the row started with `begin`.
@@ -330,9 +376,13 @@ public struct RowEncoder: Sendable {
     private var markSignificantAfterRepeats = false
 
     private mutating func flushRepeats() {
-        guard pendingRepeats > 0 else { return }
+        guard pendingRepeats > 0 else {
+            return
+        }
         if lastIsOneByte && pendingRepeats <= 2 {
-            for _ in 0 ..< pendingRepeats { writer.u8(lastByte) }
+            for _ in 0 ..< pendingRepeats {
+                writer.u8(lastByte)
+            }
         } else {
             writer.u8(RowOp.repeatPrevious)
             writer.varint(pendingRepeats)
@@ -361,21 +411,35 @@ public struct RowEncoder: Sendable {
 
     static func encode(_ attribute: WireAttribute, to writer: inout WireWriter) {
         var mask: UInt8 = 0
-        if attribute.style != 0 { mask |= 1 }
-        if attribute.underlineStyle != 0 { mask |= 2 }
-        if attribute.underlineColor != nil { mask |= 4 }
+        if attribute.style != 0 {
+            mask |= 1
+        }
+        if attribute.underlineStyle != 0 {
+            mask |= 2
+        }
+        if attribute.underlineColor != nil {
+            mask |= 4
+        }
         writer.u8(mask)
         encode(attribute.foreground, to: &writer)
         encode(attribute.background, to: &writer)
-        if attribute.style != 0 { writer.u8(attribute.style) }
-        if attribute.underlineStyle != 0 { writer.u8(attribute.underlineStyle) }
-        if let color = attribute.underlineColor { encode(color, to: &writer) }
+        if attribute.style != 0 {
+            writer.u8(attribute.style)
+        }
+        if attribute.underlineStyle != 0 {
+            writer.u8(attribute.underlineStyle)
+        }
+        if let color = attribute.underlineColor {
+            encode(color, to: &writer)
+        }
     }
 
     static func encode(_ color: WireColor, to writer: inout WireWriter) {
         switch color {
-        case .default: writer.u8(0)
-        case .defaultInverted: writer.u8(1)
+        case .default:
+            writer.u8(0)
+        case .defaultInverted:
+            writer.u8(1)
         case .ansi(let code):
             writer.u8(2)
             writer.u8(code)
@@ -392,16 +456,28 @@ public struct RowEncoder: Sendable {
 public enum RowDecoder {
     /// Decodes the header and calls `body` once per cell, in column order,
     /// for every column of the row (missing trailing cells are plain nulls).
-    public static func decode(_ payload: [UInt8], range: Range<Int>? = nil,
-                              cell body: (Int, WireCellContent, WireCellStyle) throws -> Void)
-        throws -> WireRowHeader {
-        var reader = range.map { WireReader(payload, range: $0) } ?? WireReader(payload)
+    public static func decode(
+        _ payload: [UInt8],
+        range: Range<Int>? = nil,
+        cell body: (Int, WireCellContent, WireCellStyle) throws -> Void
+    )
+    throws -> WireRowHeader {
+        var reader = range.map {
+            WireReader(payload, range: $0)
+        } ?? WireReader(payload)
         let flags = RowFlags(rawValue: try reader.u8())
         let columns = try reader.count(limit: 65_535)
-        var header = WireRowHeader(columns: columns, isWrapped: flags.contains(.wrapped),
-                                   rightToLeft: flags.contains(.rightToLeft))
-        if flags.contains(.bidi) { header.bidi = try reader.u8() }
-        if flags.contains(.renderMode) { header.renderMode = try reader.u8() }
+        var header = WireRowHeader(
+            columns: columns,
+            isWrapped: flags.contains(.wrapped),
+            rightToLeft: flags.contains(.rightToLeft)
+        )
+        if flags.contains(.bidi) {
+            header.bidi = try reader.u8()
+        }
+        if flags.contains(.renderMode) {
+            header.renderMode = try reader.u8()
+        }
         if flags.contains(.marks) {
             let count = try reader.count(limit: columns + 1)
             header.marks.reserveCapacity(count)
@@ -421,8 +497,14 @@ public enum RowDecoder {
                 let height = Float(bitPattern: try reader.u32())
                 let sourceY = Float(bitPattern: try reader.u32())
                 let sourceHeight = Float(bitPattern: try reader.u32())
-                header.images.append(WireRowImage(imageID: imageID, column: column, width: width,
-                                                  height: height, sourceY: sourceY, sourceHeight: sourceHeight))
+                header.images.append(WireRowImage(
+                    imageID: imageID,
+                    column: column,
+                    width: width,
+                    height: height,
+                    sourceY: sourceY,
+                    sourceHeight: sourceHeight
+                ))
             }
         }
 
@@ -458,9 +540,13 @@ public enum RowDecoder {
                 style.isProtected = value & 0x8 != 0
                 continue
             case RowOp.repeatPrevious:
-                guard let previous = last else { throw WireError.invalidValue("repeat without a cell") }
+                guard let previous = last else {
+                    throw WireError.invalidValue("repeat without a cell")
+                }
                 let count = try reader.count(limit: columns)
-                guard column + count <= columns else { throw WireError.invalidValue("row overflow") }
+                guard column + count <= columns else {
+                    throw WireError.invalidValue("row overflow")
+                }
                 for _ in 0 ..< count {
                     try body(column, previous, style)
                     column += 1
@@ -469,7 +555,9 @@ public enum RowDecoder {
             default:
                 throw WireError.invalidValue("row op \(op)")
             }
-            guard column < columns else { throw WireError.invalidValue("row overflow") }
+            guard column < columns else {
+                throw WireError.invalidValue("row overflow")
+            }
             try body(column, content, style)
             column += 1
             last = content
@@ -495,19 +583,30 @@ public enum RowDecoder {
         var attribute = WireAttribute()
         attribute.foreground = try decodeColor(&reader)
         attribute.background = try decodeColor(&reader)
-        if mask & 1 != 0 { attribute.style = try reader.u8() }
-        if mask & 2 != 0 { attribute.underlineStyle = try reader.u8() }
-        if mask & 4 != 0 { attribute.underlineColor = try decodeColor(&reader) }
+        if mask & 1 != 0 {
+            attribute.style = try reader.u8()
+        }
+        if mask & 2 != 0 {
+            attribute.underlineStyle = try reader.u8()
+        }
+        if mask & 4 != 0 {
+            attribute.underlineColor = try decodeColor(&reader)
+        }
         return attribute
     }
 
     static func decodeColor(_ reader: inout WireReader) throws(WireError) -> WireColor {
         switch try reader.u8() {
-        case 0: return .default
-        case 1: return .defaultInverted
-        case 2: return .ansi(try reader.u8())
-        case 3: return .rgb(try reader.u8(), try reader.u8(), try reader.u8())
-        case let tag: throw .invalidValue("color tag \(tag)")
+        case 0:
+            return .default
+        case 1:
+            return .defaultInverted
+        case 2:
+            return .ansi(try reader.u8())
+        case 3:
+            return .rgb(try reader.u8(), try reader.u8(), try reader.u8())
+        case let tag:
+            throw .invalidValue("color tag \(tag)")
         }
     }
 }

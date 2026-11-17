@@ -18,9 +18,9 @@ import TecolotSessionDirectory
 import TecolotTransport
 import TecolotWire
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #endif
 
 public enum SessionDaemonCommand {
@@ -32,13 +32,20 @@ public enum SessionDaemonCommand {
         let command = parser.next() ?? "help"
         do {
             switch command {
-            case "askpass": exit(Askpass.run(arguments: Array(arguments.dropFirst(2))))
-            case "serve": try serve(&parser)
-            case "create": try create(&parser)
-            case "list": try list(&parser)
-            case "terminate": try terminate(&parser)
-            case "version": version(&parser)
-            case "bridge": try bridge(&parser)
+            case "askpass":
+                exit(Askpass.run(arguments: Array(arguments.dropFirst(2))))
+            case "serve":
+                try serve(&parser)
+            case "create":
+                try create(&parser)
+            case "list":
+                try list(&parser)
+            case "terminate":
+                try terminate(&parser)
+            case "version":
+                version(&parser)
+            case "bridge":
+                try bridge(&parser)
             default:
                 fail("usage: tecolot-sessiond serve|create|list|terminate|version|bridge|askpass")
             }
@@ -75,11 +82,25 @@ public enum SessionDaemonCommand {
         if !parser.flag("--foreground") {
             // Detach: start a copy in a new session and exit, so that the
             // process that started us can reap this one at once.
-            var arguments = ["tecolot-sessiond", "serve", "--id", id, "--runtime-dir", directory.url.path,
-                             "--foreground"]
-            if let readyFD { arguments += ["--ready-fd", "\(readyFD)"] }
-            _ = try SessionDirectory.spawn(executablePath, arguments: arguments, readyFD: readyFD,
-                                           log: directory.logURL(for: id).path, newSession: true)
+            var arguments = [
+                "tecolot-sessiond",
+                "serve",
+                "--id",
+                id,
+                "--runtime-dir",
+                directory.url.path,
+                "--foreground"
+            ]
+            if let readyFD {
+                arguments += ["--ready-fd", "\(readyFD)"]
+            }
+            _ = try SessionDirectory.spawn(
+                executablePath,
+                arguments: arguments,
+                readyFD: readyFD,
+                log: directory.logURL(for: id).path,
+                newSession: true
+            )
             exit(0)
         }
         let server: SessionServer
@@ -94,7 +115,9 @@ public enum SessionDaemonCommand {
     }
 
     static func bridge(_ parser: inout ArgumentList) throws -> Never {
-        guard parser.flag("--stdio") else { fail("bridge needs --stdio") }
+        guard parser.flag("--stdio") else {
+            fail("bridge needs --stdio")
+        }
         let nonce = parser.option("--nonce")
         if let nonce, nonce.contains("\n") || nonce.contains("\r") {
             fail("bridge nonce must be one line")
@@ -107,9 +130,16 @@ public enum SessionDaemonCommand {
         let path = parser.option("--runtime-dir") ?? "/tmp/tecolot-\(getuid())"
         let url = URL(fileURLWithPath: path, isDirectory: true)
         try RuntimeDirectory.prepare(url)
-        let server = try BridgeServer(directory: SessionDirectory(url: url), helperPath: executablePath,
-                                      build: build, nonce: nonce, idleTimeout: timeout)
-        withExtendedLifetime(server) { server.run() }
+        let server = try BridgeServer(
+            directory: SessionDirectory(url: url),
+            helperPath: executablePath,
+            build: build,
+            nonce: nonce,
+            idleTimeout: timeout
+        )
+        withExtendedLifetime(server) {
+            server.run()
+        }
     }
 
     static func create(_ parser: inout ArgumentList) throws {
@@ -128,7 +158,9 @@ public enum SessionDaemonCommand {
     static func terminate(_ parser: inout ArgumentList) throws {
         let signalNumber = parser.option("--signal").flatMap(Int32.init) ?? SIGHUP
         let directory = try directory(&parser)
-        guard let id = parser.next() else { fail("terminate needs a session id") }
+        guard let id = parser.next() else {
+            fail("terminate needs a session id")
+        }
         try directory.terminate(id, signal: signalNumber)
     }
 
@@ -153,22 +185,33 @@ public enum SessionDaemonCommand {
 struct ArgumentList {
     private var items: [String]
 
-    init(_ items: [String]) { self.items = items }
+    init(_ items: [String]) {
+        self.items = items
+    }
 
     mutating func next() -> String? {
-        guard let index = items.firstIndex(where: { !$0.hasPrefix("--") }) else { return nil }
+        guard
+            let index = items.firstIndex(where: {
+                !$0.hasPrefix("--")
+            }) else {
+            return nil
+        }
         return items.remove(at: index)
     }
 
     mutating func option(_ name: String) -> String? {
-        guard let index = items.firstIndex(of: name), index + 1 < items.count else { return nil }
+        guard let index = items.firstIndex(of: name), index + 1 < items.count else {
+            return nil
+        }
         let value = items[index + 1]
         items.removeSubrange(index ... index + 1)
         return value
     }
 
     mutating func flag(_ name: String) -> Bool {
-        guard let index = items.firstIndex(of: name) else { return false }
+        guard let index = items.firstIndex(of: name) else {
+            return false
+        }
         items.remove(at: index)
         return true
     }

@@ -20,12 +20,21 @@ extension TerminalSessionController {
     /// remote pane cannot check it: the app does not know the names of the
     /// remote host.
     func noteDirectoryReport(_ report: String?) {
-        guard let report, !report.isEmpty else { return }
+        guard let report, !report.isEmpty else {
+            return
+        }
         let isRemote = remoteDestination != nil
-        guard let directory = PaneDirectory.osc7(report, isPaneHost: { host in
-            isRemote || HostNames.contains(host, in: HostNames.current()) || LocalHostNames.shared.contains(host)
-        }) else { return }
+        guard
+            let directory = PaneDirectory.osc7(report, isPaneHost: { host in
+                isRemote || HostNames.contains(host, in: HostNames.current()) || LocalHostNames.shared.contains(host)
+            }) else {
+            return
+        }
+        let before = currentWorkingDirectory
         directoryTracker.report(directory)
+        if before != currentWorkingDirectory {
+            workspace?.windowManager?.persistenceDidChange?(false)
+        }
     }
 
     /// The pane for the restore store, or nil to leave it out: a session
@@ -39,28 +48,36 @@ extension TerminalSessionController {
         }
         let kind: RestorePaneKind
         if remoteDestination != nil {
-            guard !remoteSessionEnded else { return nil }
+            guard !remoteSessionEnded else {
+                return nil
+            }
             kind = .remote
         } else if isPersistent {
-            guard persistentView?.session.state.exitStatus == nil else { return nil }
+            guard persistentView?.session.state.exitStatus == nil else {
+                return nil
+            }
             kind = .persistent
         } else {
-            guard terminal != nil else { return nil }
+            guard terminal != nil else {
+                return nil
+            }
             kind = .local
         }
-        return RestorePane(id: id, kind: kind, profileID: profile.id, themeOverride: themeOverride,
-                           directory: restoreDirectory(), sessionID: persistentSessionID ?? remotePendingRestore,
-                           remoteDestination: remoteDestination, title: panePresentation.title)
+        return RestorePane(
+            id: id,
+            kind: kind,
+            profileID: profile.id,
+            themeOverride: themeOverride,
+            directory: restoreDirectory(),
+            sessionID: persistentSessionID ?? remotePendingRestore,
+            remoteDestination: remoteDestination,
+            title: panePresentation.title
+        )
     }
 
     /// A pane of a restored tab that did not get a view yet.
     var isUnshownRestoredPane: Bool {
         presetRestoration != nil && terminal == nil && persistentView == nil
-    }
-
-    /// The session that a hidden pane of a restored tab will use when it shows.
-    var unshownRestoreSessionID: String? {
-        isUnshownRestoredPane ? presetRestoration?.pane.sessionID : nil
     }
 
     /// The directory to restore. Reads the shell's directory only when no
@@ -75,7 +92,9 @@ extension TerminalSessionController {
         } else {
             pid = terminal?.process?.shellPid ?? 0
         }
-        return directoryTracker.resolved { pid > 0 ? ProcessDirectory.workingDirectory(of: pid) : nil }
+        return directoryTracker.resolved {
+            pid > 0 ? ProcessDirectory.workingDirectory(of: pid) : nil
+        }
     }
 
     /// Copies the normal screen and up to `limit` rows of scrollback, in one
@@ -83,16 +102,25 @@ extension TerminalSessionController {
     /// persistent session.
     @MainActor
     func copyScrollback(limit: Int) -> ScrollbackSnapshot.Pending? {
-        guard limit > 0, persistentView == nil else { return nil }
+        guard limit > 0, persistentView == nil else {
+            return nil
+        }
         // The shell did not start: save the file that the pane came from.
         if !hasStartedShell, let restoredTextFile {
             return ScrollbackSnapshot.Pending(paneID: id, savedFile: restoredTextFile)
         }
-        guard let terminal,
-              let snapshot = terminal.terminalContentSnapshot(region: .history(maximumScrollbackRows: limit),
-                                                              buffer: .normal) else { return nil }
+        guard
+            let terminal,
+            let snapshot = terminal.terminalContentSnapshot(
+                region: .history(maximumScrollbackRows: limit),
+                buffer: .normal
+            ) else {
+            return nil
+        }
         let program = snapshot.inputState.isAlternateBuffer
-            ? terminal.process.flatMap { ScrollbackCapture.foregroundProgram(ptyDescriptor: $0.childfd) }
+            ? terminal.process.flatMap {
+                ScrollbackCapture.foregroundProgram(ptyDescriptor: $0.childfd)
+            }
             : nil
         return ScrollbackSnapshot.Pending(paneID: id, snapshot: snapshot, alternateScreenProgram: program, limit: limit)
     }
@@ -102,11 +130,19 @@ extension TerminalSessionController {
     /// save, also when the file is not read yet. A limit of 0 saves no text.
     @MainActor
     func copyRemoteRows(limit: Int) -> RemoteRowCopy? {
-        guard limit > 0, remoteDestination != nil else { return nil }
-        if let restoredRowsURL { return RemoteRowCopy(paneID: id, rows: .saved(restoredRowsURL)) }
-        guard let view = persistentView else { return nil }
+        guard limit > 0, remoteDestination != nil else {
+            return nil
+        }
+        if let restoredRowsURL {
+            return RemoteRowCopy(paneID: id, rows: .saved(restoredRowsURL))
+        }
+        guard let view = persistentView else {
+            return nil
+        }
         guard let rows = RemoteRowSnapshot.capture(view.session, sessionID: persistentSessionID ?? "", limit: limit)
-        else { return nil }
+        else {
+            return nil
+        }
         return RemoteRowCopy(paneID: id, rows: .captured(rows))
     }
 
@@ -116,10 +152,16 @@ extension TerminalSessionController {
     /// before it attaches gets them too (`preloadRestoredRows`).
     @MainActor
     func showRestoredRows() {
-        guard let url = restoredRowsURL else { return }
+        guard let url = restoredRowsURL else {
+            return
+        }
         Task { [weak self] in
-            let snapshot = await Task.detached(priority: .userInitiated) { RestoreStore.readRows(at: url) }.value
-            guard let self, let snapshot, self.restoredRowsURL == url else { return }
+            let snapshot = await Task.detached(priority: .userInitiated) {
+                RestoreStore.readRows(at: url)
+            }.value
+            guard let self, let snapshot, self.restoredRowsURL == url else {
+                return
+            }
             self.restoredRows = snapshot
             self.persistentView?.session.preload(snapshot)
         }
@@ -128,13 +170,17 @@ extension TerminalSessionController {
     /// Shows the saved rows in a new session of a pane that did not attach yet.
     @MainActor
     func preloadRestoredRows(in session: RemoteSession) {
-        if let restoredRows { session.preload(restoredRows) }
+        if let restoredRows {
+            session.preload(restoredRows)
+        }
     }
 
     /// Deletes the saved rows after the pane attached.
     @MainActor
     func removeRestoredRows() {
-        guard let url = restoredRowsURL else { return }
+        guard let url = restoredRowsURL else {
+            return
+        }
         restoredRowsURL = nil
         restoredRows = nil
         RestoreStore.shared.removeRows(at: url)
@@ -148,23 +194,35 @@ extension TerminalSessionController {
         awaitingRestore = true
         let path = restoration.pane.directory?.path
         let textURL = restoration.textURL
-        let limit = RestoreStore.restoredRowsLimit
+        let limit = restoration.restoresScrollback ? RestoreStore.restoredRowsLimit : 0
         Task { [weak self] in
             async let directory = RestoreDirectoryCheck.resolve(path)
             async let saved = Task.detached(priority: .userInitiated) {
                 textURL.flatMap(RestoreStore.takeTextFile(at:))
             }.value
             let (check, file) = await (directory, saved)
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             let text = file?.decoded
             // Keep the file until the shell starts: a pane that does not
             // show (a hidden pane of a zoomed tab) saves it again at quit.
-            if !self.hasStartedShell { self.restoredTextFile = file?.data }
+            if !self.hasStartedShell {
+                self.restoredTextFile = file?.data
+            }
             var replay = ""
-            if limit > 0, let text { replay = DurableStateDirectory.lastLines(text.text, limit: limit) }
+            if limit > 0, let text {
+                replay = DurableStateDirectory.lastLines(text.text, limit: limit)
+            }
             let program = text?.header.alternateScreenProgram ?? restoration.pane.alternateScreenProgram
-            replay += RestoreSeparator.line(savedAt: restoration.savedAt, reason: restoration.reason,
-                                            directoryNotFound: check.notFound, program: program)
+            if !restoration.startsFresh || check.notFound {
+                replay += RestoreSeparator.line(
+                    savedAt: text?.header.savedAt ?? restoration.savedAt,
+                    reason: restoration.reason,
+                    directoryNotFound: check.notFound,
+                    program: program
+                )
+            }
             replayText = replay
             launchDirectory = check.path
             awaitingRestore = false
@@ -182,33 +240,52 @@ extension TerminalSessionController {
             showReplacementError(PersistentSessionError.helperMissing)
             return
         }
-        let base = PersistentSessions.makeLaunch(profile: profile, workingDirectory: nil, columns: profile.columns,
-                                                 rows: profile.rows, cellWidth: 0, cellHeight: 0)
+        let base = PersistentSessions.makeLaunch(
+            profile: profile,
+            workingDirectory: nil,
+            columns: profile.columns,
+            rows: profile.rows,
+            cellWidth: 0,
+            cellHeight: 0
+        )
         let states = RestoreStore.shared.sessionStates
         let oldID = restoration.pane.sessionID
         let pane = restoration.pane
-        let limit = RestoreStore.restoredRowsLimit
+        let limit = restoration.restoresScrollback ? RestoreStore.restoredRowsLimit : 0
         Task { [weak self] in
-            let state = await Task.detached { oldID.flatMap { states.read($0) } }.value
+            let state = await Task.detached {
+                oldID.flatMap {
+                    states.read($0)
+                }
+            }.value
             let check = await RestoreDirectoryCheck.resolve(state?.directory?.path ?? pane.directory?.path
-                                                            ?? state?.launch.workingDirectory)
+                ?? state?.launch.workingDirectory)
             var launch = base
-            if let path = check.path { launch.workingDirectory = path }
+            if let path = check.path {
+                launch.workingDirectory = path
+            }
             if let state {
                 launch.replay = await Task.detached {
                     states.replay(for: state, rowLimit: limit, remote: false, directoryNotFound: check.notFound)
                 }.value
-            } else {
-                launch.replay = RestoreSeparator.line(savedAt: nil, reason: .sessionEnded,
-                                                      directoryNotFound: check.notFound,
-                                                      program: pane.alternateScreenProgram)
+            } else if !restoration.startsFresh || check.notFound {
+                launch.replay = RestoreSeparator.line(
+                    savedAt: nil,
+                    reason: .sessionEnded,
+                    directoryNotFound: check.notFound,
+                    program: pane.alternateScreenProgram
+                )
             }
             // The pane can close while the checks run: then no session starts.
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             // When the pane closes during the create, the new session ends
             // and the state stays, so that the Sessions window can restore it.
             createSession(launch, helperPath: helperPath) {
-                if let state { states.remove(state.id) }
+                if let state {
+                    states.remove(state.id)
+                }
             }
         }
     }

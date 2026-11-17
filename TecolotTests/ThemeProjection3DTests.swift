@@ -22,8 +22,12 @@ final class ThemeProjection3DTests {
         let points = ThemeProjection3D.project(
             themes: [dark, light], metrics: index.metrics, catalog: catalog, mode: .colorSpace3D
         )
-        let darkPoint = try #require(points.first(where: { $0.id == dark.name }))
-        let lightPoint = try #require(points.first(where: { $0.id == light.name }))
+        let darkPoint = try #require(points.first(where: {
+            $0.id == dark.name
+        }))
+        let lightPoint = try #require(points.first(where: {
+            $0.id == light.name
+        }))
 
         #expect(abs(darkPoint.position.x) < 1e-12)
         #expect(abs(darkPoint.position.z) < 1e-12)
@@ -53,7 +57,9 @@ final class ThemeProjection3DTests {
         )
 
         for point in perceptual {
-            let expandedPoint = try #require(expanded.first(where: { $0.id == point.id }))
+            let expandedPoint = try #require(expanded.first(where: {
+                $0.id == point.id
+            }))
             let rawAngle = atan2(point.rawPosition.z, point.rawPosition.x)
             #expect(abs(atan2(point.position.z, point.position.x) - rawAngle) < 1e-12)
             #expect(abs(atan2(expandedPoint.position.z, expandedPoint.position.x) - rawAngle) < 1e-12)
@@ -102,7 +108,9 @@ final class ThemeProjection3DTests {
         )
         #expect(firstPoints.count == themes.count)
         for firstPoint in firstPoints {
-            let secondPoint = try #require(secondPoints.first(where: { $0.id == firstPoint.id }))
+            let secondPoint = try #require(secondPoints.first(where: {
+                $0.id == firstPoint.id
+            }))
             #expect(simd_length(firstPoint.position - secondPoint.position) < 1e-9)
         }
 
@@ -123,7 +131,9 @@ final class ThemeProjection3DTests {
     }
 
     private func dot(_ left: [Double], _ right: [Double]) -> Double {
-        zip(left, right).reduce(0) { $0 + $1.0 * $1.1 }
+        zip(left, right).reduce(0) {
+            $0 + $1.0 * $1.1
+        }
     }
 
     private func length(_ vector: [Double]) -> Double {

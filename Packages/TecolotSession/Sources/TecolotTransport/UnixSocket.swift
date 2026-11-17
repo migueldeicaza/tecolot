@@ -7,9 +7,9 @@
 
 import Foundation
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #endif
 
 public struct TransportError: Error, CustomStringConvertible, Sendable {
@@ -44,22 +44,24 @@ public enum UnixSocket {
             buffer[bytes.count] = 0
         }
         #if canImport(Darwin)
-        address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+            address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
         #endif
         return address
     }
 
     static func makeSocket() throws -> Int32 {
         #if canImport(Darwin)
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         #else
-        let fd = socket(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0)
+            let fd = socket(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0)
         #endif
-        guard fd >= 0 else { throw TransportError("socket") }
+        guard fd >= 0 else {
+            throw TransportError("socket")
+        }
         setCloseOnExec(fd)
         #if canImport(Darwin)
-        var on: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+            var on: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         #endif
         return fd
     }
@@ -113,15 +115,18 @@ public enum UnixSocket {
             if fd >= 0 {
                 setCloseOnExec(fd)
                 #if canImport(Darwin)
-                var on: Int32 = 1
-                setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+                    var on: Int32 = 1
+                    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
                 #endif
                 return fd
             }
             switch errno {
-            case EINTR: continue
-            case EAGAIN, EWOULDBLOCK, ECONNABORTED: return nil
-            default: throw TransportError("accept")
+            case EINTR:
+                continue
+            case EAGAIN, EWOULDBLOCK, ECONNABORTED:
+                return nil
+            default:
+                throw TransportError("accept")
             }
         }
     }
@@ -129,13 +134,13 @@ public enum UnixSocket {
     /// The user ID of the process at the other end of a connected socket.
     public static func peerUID(_ fd: Int32) -> uid_t? {
         #if canImport(Darwin)
-        var uid: uid_t = 0
-        var gid: gid_t = 0
-        return getpeereid(fd, &uid, &gid) == 0 ? uid : nil
+            var uid: uid_t = 0
+            var gid: gid_t = 0
+            return getpeereid(fd, &uid, &gid) == 0 ? uid : nil
         #else
-        var credentials = ucred()
-        var length = socklen_t(MemoryLayout<ucred>.size)
-        return getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &credentials, &length) == 0 ? credentials.uid : nil
+            var credentials = ucred()
+            var length = socklen_t(MemoryLayout<ucred>.size)
+            return getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &credentials, &length) == 0 ? credentials.uid : nil
         #endif
     }
 
@@ -147,7 +152,9 @@ public enum UnixSocket {
 
     public static func setNonBlocking(_ fd: Int32) {
         let flags = fcntl(fd, F_GETFL)
-        if flags >= 0 { _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK) }
+        if flags >= 0 {
+            _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+        }
     }
 
     /// A write to a closed peer fails with EPIPE instead of raising SIGPIPE,
@@ -156,20 +163,22 @@ public enum UnixSocket {
     /// socket whose peer already closed, so set it before the peer can close.
     public static func setNoSignalOnBrokenPipe(_ fd: Int32) {
         #if canImport(Darwin)
-        // Pipes take the fcntl; sockets take the socket option. Each call
-        // fails harmlessly on the other kind of descriptor. Socket options
-        // can fail after the peer closes, so posixWrite also uses MSG_NOSIGNAL.
-        _ = fcntl(fd, F_SETNOSIGPIPE, 1)
-        var on: Int32 = 1
-        _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+            // Pipes take the fcntl; sockets take the socket option. Each call
+            // fails harmlessly on the other kind of descriptor. Socket options
+            // can fail after the peer closes, so posixWrite also uses MSG_NOSIGNAL.
+            _ = fcntl(fd, F_SETNOSIGPIPE, 1)
+            var on: Int32 = 1
+            _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         #elseif canImport(Glibc)
-        _ = signal(SIGPIPE, SIG_IGN)
+            _ = signal(SIGPIPE, SIG_IGN)
         #endif
     }
 
     public static func setCloseOnExec(_ fd: Int32) {
         let flags = fcntl(fd, F_GETFD)
-        if flags >= 0 { _ = fcntl(fd, F_SETFD, flags | FD_CLOEXEC) }
+        if flags >= 0 {
+            _ = fcntl(fd, F_SETFD, flags | FD_CLOEXEC)
+        }
     }
 }
 
@@ -178,13 +187,19 @@ public enum UnixSocket {
     listen(fd, backlog)
 }
 
-@inline(__always) private func posixConnect(_ fd: Int32, _ address: UnsafePointer<sockaddr>,
-                                                       _ length: socklen_t) -> Int32 {
+@inline(__always) private func posixConnect(
+    _ fd: Int32,
+    _ address: UnsafePointer<sockaddr>,
+    _ length: socklen_t
+) -> Int32 {
     connect(fd, address, length)
 }
 
-@inline(__always) private func posixAccept(_ fd: Int32, _ address: UnsafeMutablePointer<sockaddr>?,
-                                                      _ length: UnsafeMutablePointer<socklen_t>?) -> Int32 {
+@inline(__always) private func posixAccept(
+    _ fd: Int32,
+    _ address: UnsafeMutablePointer<sockaddr>?,
+    _ length: UnsafeMutablePointer<socklen_t>?
+) -> Int32 {
     accept(fd, address, length)
 }
 
@@ -205,16 +220,22 @@ public enum RuntimeDirectory {
             return URL(fileURLWithPath: override, isDirectory: true)
         }
         #if canImport(Darwin)
-        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
-        if confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, buffer.count) > 0 {
-            let temporary = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
-                                   as: UTF8.self)
-            return URL(fileURLWithPath: temporary, isDirectory: true)
-                .appendingPathComponent("tecolot", isDirectory: true)
-        }
-        return URL(fileURLWithPath: "/tmp/tecolot-\(getuid())", isDirectory: true)
+            var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+            if confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, buffer.count) > 0 {
+                let temporary = String(
+                    decoding: buffer.prefix {
+                        $0 != 0
+                    }.map {
+                        UInt8(bitPattern: $0)
+                    },
+                    as: UTF8.self
+                )
+                return URL(fileURLWithPath: temporary, isDirectory: true)
+                    .appendingPathComponent("tecolot", isDirectory: true)
+            }
+            return URL(fileURLWithPath: "/tmp/tecolot-\(getuid())", isDirectory: true)
         #else
-        return URL(fileURLWithPath: "/tmp/tecolot-\(getuid())", isDirectory: true)
+            return URL(fileURLWithPath: "/tmp/tecolot-\(getuid())", isDirectory: true)
         #endif
     }
 
@@ -227,7 +248,9 @@ public enum RuntimeDirectory {
             throw TransportError("mkdir \(path)")
         }
         var status = stat()
-        guard lstat(path, &status) == 0 else { throw TransportError("lstat \(path)") }
+        guard lstat(path, &status) == 0 else {
+            throw TransportError("lstat \(path)")
+        }
         guard (status.st_mode & S_IFMT) == S_IFDIR else {
             throw TransportError("\(path) is not a directory", code: ENOTDIR)
         }
@@ -235,7 +258,9 @@ public enum RuntimeDirectory {
             throw TransportError("\(path) belongs to another user", code: EPERM)
         }
         if status.st_mode & 0o077 != 0 {
-            guard chmod(path, 0o700) == 0 else { throw TransportError("chmod \(path)") }
+            guard chmod(path, 0o700) == 0 else {
+                throw TransportError("chmod \(path)")
+            }
         }
     }
 }
@@ -252,7 +277,9 @@ public enum RuntimeDirectory {
 @inline(__always) func posixWrite(_ fd: Int32, _ buffer: UnsafeRawPointer?, _ count: Int) -> Int {
     // Glibc imports MSG_NOSIGNAL as Int.
     let sent = send(fd, buffer, count, Int32(MSG_NOSIGNAL))
-    if sent < 0 && errno == ENOTSOCK { return write(fd, buffer, count) }
+    if sent < 0 && errno == ENOTSOCK {
+        return write(fd, buffer, count)
+    }
     return sent
 }
 
@@ -268,17 +295,26 @@ final class DescriptorOwner: @unchecked Sendable {
     private let writeFD: Int32
     private let group = DispatchGroup()
     private var closing = false
-    init(readFD: Int32, writeFD: Int32) { self.readFD = readFD; self.writeFD = writeFD }
+    init(readFD: Int32, writeFD: Int32) {
+        self.readFD = readFD
+        self.writeFD = writeFD
+    }
     func track(_ source: any DispatchSourceProtocol) {
         group.enter()
-        source.setCancelHandler { [group] in group.leave() }
+        source.setCancelHandler { [group] in
+            group.leave()
+        }
     }
     func close(on queue: DispatchQueue) {
-        guard !closing else { return }
+        guard !closing else {
+            return
+        }
         closing = true
         group.notify(queue: queue) { [readFD, writeFD] in
             posixClose(readFD)
-            if readFD != writeFD { posixClose(writeFD) }
+            if readFD != writeFD {
+                posixClose(writeFD)
+            }
         }
     }
 }

@@ -13,17 +13,19 @@ import SwiftUI
 
 enum UpdatePolicy {
     static var permitsUpdates: Bool {
-#if DEBUG
-        false
-#else
-        permitsUpdates(
-            bundleIdentifier: Bundle.main.bundleIdentifier,
-            bundleNames: [
-                Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
-                Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-            ].compactMap { $0 }
-        )
-#endif
+        #if DEBUG
+            false
+        #else
+            permitsUpdates(
+                bundleIdentifier: Bundle.main.bundleIdentifier,
+                bundleNames: [
+                    Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
+                    Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+                ].compactMap {
+                    $0
+                }
+            )
+        #endif
     }
 
     static func permitsUpdates(bundleIdentifier: String?, bundleNames: [String]) -> Bool {
@@ -67,7 +69,9 @@ final class UpdaterModel: ObservableObject {
         }
     }
 
-    var updater: SPUUpdater { controller.updater }
+    var updater: SPUUpdater {
+        controller.updater
+    }
 }
 
 struct UpdateCommands: Commands {

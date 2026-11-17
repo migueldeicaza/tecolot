@@ -33,21 +33,36 @@ nonisolated enum ThemeSortMode: Hashable, Sendable {
 
     var title: String {
         switch self {
-        case .name: return "Name"
-        case .backgroundLightness: return "Background Brightness"
-        case .backgroundHue: return "Background Color"
-        case .backgroundChroma: return "Background Saturation"
-        case .foregroundContrast: return "Text Contrast"
-        case .ansiVisibility: return "ANSI Visibility"
-        case .ansiDistinctness: return "Color Distinction"
-        case .colorfulness: return "Colorfulness"
-        case .dynamicRange: return "Dynamic Range"
-        case .temperature: return "Warm ↔ Cool"
-        case .hueDiversity: return "Palette Variety"
-        case .brightPairSeparation: return "Bright Color Difference"
-        case .cursorVisibility: return "Cursor Visibility"
-        case .selectionVisibility: return "Selection Visibility"
-        case .similarity: return "Similar to Current"
+        case .name:
+            return "Name"
+        case .backgroundLightness:
+            return "Background Brightness"
+        case .backgroundHue:
+            return "Background Color"
+        case .backgroundChroma:
+            return "Background Saturation"
+        case .foregroundContrast:
+            return "Text Contrast"
+        case .ansiVisibility:
+            return "ANSI Visibility"
+        case .ansiDistinctness:
+            return "Color Distinction"
+        case .colorfulness:
+            return "Colorfulness"
+        case .dynamicRange:
+            return "Dynamic Range"
+        case .temperature:
+            return "Warm ↔ Cool"
+        case .hueDiversity:
+            return "Palette Variety"
+        case .brightPairSeparation:
+            return "Bright Color Difference"
+        case .cursorVisibility:
+            return "Cursor Visibility"
+        case .selectionVisibility:
+            return "Selection Visibility"
+        case .similarity:
+            return "Similar to Current"
         }
     }
 }
@@ -81,15 +96,21 @@ nonisolated struct CatalogStatistics: Sendable {
 
     /// Clamped robust normalization into 0…1
     func normalized(_ value: Double, for key: MetricKey) -> Double {
-        guard let bounds = normalizationBounds[key] else { return 0.5 }
+        guard let bounds = normalizationBounds[key] else {
+            return 0.5
+        }
         let span = bounds.upperBound - bounds.lowerBound
-        guard span > 0 else { return 0.5 }
+        guard span > 0 else {
+            return 0.5
+        }
         return min(max((value - bounds.lowerBound) / span, 0), 1)
     }
 
     /// Fraction of catalog values below `value` in an ascending table, 0…1
     static func percentileRank(of value: Double, in sorted: [Double]) -> Double {
-        guard !sorted.isEmpty else { return 0 }
+        guard !sorted.isEmpty else {
+            return 0
+        }
         var low = 0
         var high = sorted.count
         while low < high {
@@ -107,10 +128,14 @@ nonisolated struct CatalogStatistics: Sendable {
     func colorfulnessBucket(for value: Double) -> String {
         let rank = CatalogStatistics.percentileRank(of: value, in: colorfulnessSorted)
         switch rank {
-        case ..<0.25: return "Muted"
-        case ..<0.75: return "Balanced"
-        case ..<0.95: return "Vivid"
-        default: return "Extreme"
+        case ..<0.25:
+            return "Muted"
+        case ..<0.75:
+            return "Balanced"
+        case ..<0.95:
+            return "Vivid"
+        default:
+            return "Extreme"
         }
     }
 }
@@ -140,7 +165,9 @@ final class ThemeCatalogIndex: ObservableObject {
     private var catalogFingerprint: [String] = []
 
     init(analyze: ((TerminalTheme) -> ThemeMetrics)? = nil) {
-        self.analyze = analyze ?? { ThemeAnalyzer().analyze($0) }
+        self.analyze = analyze ?? {
+            ThemeAnalyzer().analyze($0)
+        }
     }
 
     private static func cacheKey(for theme: TerminalTheme) -> String {
@@ -188,7 +215,9 @@ final class ThemeCatalogIndex: ObservableObject {
             _ key: (ThemeMetrics) -> Double?
         ) -> [TerminalTheme] {
             themes
-                .map { (theme: $0, value: metrics[$0.name].flatMap(key)) }
+                .map {
+                    (theme: $0, value: metrics[$0.name].flatMap(key))
+                }
                 .sorted { left, right in
                     switch (left.value, right.value) {
                     case (nil, nil):
@@ -211,29 +240,53 @@ final class ThemeCatalogIndex: ObservableObject {
         case .name:
             return themes.sorted(by: byName)
         case .backgroundLightness:
-            return sortedByKey { $0.backgroundLightness }
+            return sortedByKey {
+                $0.backgroundLightness
+            }
         case .backgroundHue:
-            return sortedByKey { $0.backgroundHue }
+            return sortedByKey {
+                $0.backgroundHue
+            }
         case .backgroundChroma:
-            return sortedByKey { $0.backgroundChroma }
+            return sortedByKey {
+                $0.backgroundChroma
+            }
         case .foregroundContrast:
-            return sortedByKey(ascending: false) { $0.foregroundContrast }
+            return sortedByKey(ascending: false) {
+                $0.foregroundContrast
+            }
         case .ansiVisibility:
-            return sortedByKey(ascending: false) { $0.ansiContrastP10 }
+            return sortedByKey(ascending: false) {
+                $0.ansiContrastP10
+            }
         case .ansiDistinctness:
-            return sortedByKey(ascending: false) { $0.ansiSeparationP10 }
+            return sortedByKey(ascending: false) {
+                $0.ansiSeparationP10
+            }
         case .colorfulness:
-            return sortedByKey(ascending: false) { $0.ansiColorfulness }
+            return sortedByKey(ascending: false) {
+                $0.ansiColorfulness
+            }
         case .dynamicRange:
-            return sortedByKey(ascending: false) { $0.ansiLightnessSpread }
+            return sortedByKey(ascending: false) {
+                $0.ansiLightnessSpread
+            }
         case .temperature:
-            return sortedByKey(ascending: false) { $0.temperature }
+            return sortedByKey(ascending: false) {
+                $0.temperature
+            }
         case .hueDiversity:
-            return sortedByKey(ascending: false) { $0.hueDiversity }
+            return sortedByKey(ascending: false) {
+                $0.hueDiversity
+            }
         case .brightPairSeparation:
-            return sortedByKey(ascending: false) { $0.brightPairSeparation }
+            return sortedByKey(ascending: false) {
+                $0.brightPairSeparation
+            }
         case .cursorVisibility:
-            return sortedByKey(ascending: false) { $0.cursorContrast }
+            return sortedByKey(ascending: false) {
+                $0.cursorContrast
+            }
         case .selectionVisibility:
             // Themes on the system selection color have no real value; they
             // group last instead of pretending the synthetic mix is real.
@@ -244,7 +297,9 @@ final class ThemeCatalogIndex: ObservableObject {
             guard let reference = metrics[name] else {
                 return themes.sorted(by: byName)
             }
-            return sortedByKey { themeDistance(reference, $0) }
+            return sortedByKey {
+                themeDistance(reference, $0)
+            }
         }
     }
 
@@ -254,8 +309,12 @@ final class ThemeCatalogIndex: ObservableObject {
         for themes: [TerminalTheme],
         metrics: [String: ThemeMetrics]
     ) -> CatalogStatistics? {
-        let ordered = themes.compactMap { metrics[$0.name] }
-        guard !ordered.isEmpty else { return nil }
+        let ordered = themes.compactMap {
+            metrics[$0.name]
+        }
+        guard !ordered.isEmpty else {
+            return nil
+        }
 
         func bounds(_ values: [Double]) -> ClosedRange<Double> {
             let sorted = values.sorted()
@@ -307,7 +366,9 @@ final class ThemeCatalogIndex: ObservableObject {
         var identity2 = [Double](repeating: 0, count: dimensions)
         identity2[1] = 1
 
-        let vectors = ordered.map(\.featureVector).filter { $0.count == dimensions }
+        let vectors = ordered.map(\.featureVector).filter {
+            $0.count == dimensions
+        }
         guard vectors.count >= 2 else {
             return PCABasis(
                 mean: vectors.first ?? [Double](repeating: 0, count: dimensions),
@@ -327,7 +388,9 @@ final class ThemeCatalogIndex: ObservableObject {
             mean[i] /= Double(vectors.count)
         }
         let centered = vectors.map { vector in
-            (0..<dimensions).map { vector[$0] - mean[$0] }
+            (0..<dimensions).map {
+                vector[$0] - mean[$0]
+            }
         }
 
         // Covariance matrix, row-major 60×60
@@ -335,7 +398,9 @@ final class ThemeCatalogIndex: ObservableObject {
         for vector in centered {
             for row in 0..<dimensions {
                 let value = vector[row]
-                guard value != 0 else { continue }
+                guard value != 0 else {
+                    continue
+                }
                 for column in 0..<dimensions {
                     covariance[row * dimensions + column] += value * vector[column]
                 }
@@ -409,7 +474,9 @@ final class ThemeCatalogIndex: ObservableObject {
         totalVariance: Double
     ) -> Similarity3DBasis {
         func dot(_ left: [Double], _ right: [Double]) -> Double {
-            zip(left, right).reduce(0) { $0 + $1.0 * $1.1 }
+            zip(left, right).reduce(0) {
+                $0 + $1.0 * $1.1
+            }
         }
         func covariance(_ values: [Double], _ property: [Double]) -> Double {
             let meanValue = ThemeColorMath.mean(values)
@@ -420,7 +487,9 @@ final class ThemeCatalogIndex: ObservableObject {
         }
         func normalized(_ vector: SIMD3<Double>) -> SIMD3<Double>? {
             let length = simd_length(vector)
-            guard length > 1e-12 else { return nil }
+            guard length > 1e-12 else {
+                return nil
+            }
             return vector / length
         }
         func basisVector(_ components: SIMD3<Double>) -> [Double] {
@@ -429,9 +498,15 @@ final class ThemeCatalogIndex: ObservableObject {
             }
         }
 
-        let x = centered.map { dot($0, pc1) }
-        let y = centered.map { dot($0, pc2) }
-        let z = centered.map { dot($0, pc3) }
+        let x = centered.map {
+            dot($0, pc1)
+        }
+        let y = centered.map {
+            dot($0, pc2)
+        }
+        let z = centered.map {
+            dot($0, pc3)
+        }
         let lightness = metrics.map(\.backgroundLightness)
         let temperature = metrics.map(\.temperature)
 
@@ -440,9 +515,10 @@ final class ThemeCatalogIndex: ObservableObject {
             y: SIMD3<Double>(0, 1, 0),
             z: SIMD3<Double>(0, 0, 1)
         )
-        guard let up = normalized(SIMD3(
-            covariance(x, lightness), covariance(y, lightness), covariance(z, lightness)
-        )) else {
+        guard
+            let up = normalized(SIMD3(
+                covariance(x, lightness), covariance(y, lightness), covariance(z, lightness)
+            )) else {
             return similarity3DBasis(
                 x: unrotated.x, y: unrotated.y, z: unrotated.z,
                 basisVector: basisVector, centered: centered, variances: variances,
@@ -487,7 +563,9 @@ final class ThemeCatalogIndex: ObservableObject {
         let basisY = basisVector(y)
         let basisZ = basisVector(z)
         func dot(_ left: [Double], _ right: [Double]) -> Double {
-            zip(left, right).reduce(0) { $0 + $1.0 * $1.1 }
+            zip(left, right).reduce(0) {
+                $0 + $1.0 * $1.1
+            }
         }
         let radii = centered.map { vector in
             let x = dot(vector, basisX)
@@ -512,7 +590,9 @@ final class ThemeCatalogIndex: ObservableObject {
         of matrix: [Double], dimensions: Int
     ) -> [Double]? {
         // Deterministic, non-degenerate start vector
-        var vector = (0..<dimensions).map { 1.0 + 0.001 * Double($0) }
+        var vector = (0..<dimensions).map {
+            1.0 + 0.001 * Double($0)
+        }
         normalize(&vector)
         for _ in 0..<200 {
             var next = [Double](repeating: 0, count: dimensions)
@@ -523,12 +603,18 @@ final class ThemeCatalogIndex: ObservableObject {
                 }
                 next[row] = sum
             }
-            let length = sqrt(next.reduce(0) { $0 + $1 * $1 })
-            guard length > 1e-12 else { return nil }
+            let length = sqrt(next.reduce(0) {
+                $0 + $1 * $1
+            })
+            guard length > 1e-12 else {
+                return nil
+            }
             for i in 0..<dimensions {
                 next[i] /= length
             }
-            let drift = zip(next, vector).reduce(0) { $0 + abs($1.0 - $1.1) }
+            let drift = zip(next, vector).reduce(0) {
+                $0 + abs($1.0 - $1.1)
+            }
             vector = next
             if drift < 1e-12 {
                 break
@@ -552,8 +638,12 @@ final class ThemeCatalogIndex: ObservableObject {
     }
 
     nonisolated private static func normalize(_ vector: inout [Double]) {
-        let length = sqrt(vector.reduce(0) { $0 + $1 * $1 })
-        guard length > 0 else { return }
+        let length = sqrt(vector.reduce(0) {
+            $0 + $1 * $1
+        })
+        guard length > 0 else {
+            return
+        }
         for i in 0..<vector.count {
             vector[i] /= length
         }
@@ -567,10 +657,16 @@ final class ThemeCatalogIndex: ObservableObject {
         centered: [[Double]], metrics: [ThemeMetrics]
     ) {
         func dot(_ a: [Double], _ b: [Double]) -> Double {
-            zip(a, b).reduce(0) { $0 + $1.0 * $1.1 }
+            zip(a, b).reduce(0) {
+                $0 + $1.0 * $1.1
+            }
         }
-        let xs = centered.map { dot($0, pc1) }
-        let ys = centered.map { dot($0, pc2) }
+        let xs = centered.map {
+            dot($0, pc1)
+        }
+        let ys = centered.map {
+            dot($0, pc2)
+        }
 
         func covariance(_ values: [Double], _ property: [Double]) -> Double {
             let meanValue = ThemeColorMath.mean(values)
@@ -589,15 +685,21 @@ final class ThemeCatalogIndex: ObservableObject {
             let ux = upX / upLength
             let uy = upY / upLength
             // New axes inside the PCA plane: up = (ux, uy), right ⟂ up
-            let newPc2 = (0..<pc1.count).map { ux * pc1[$0] + uy * pc2[$0] }
-            let newPc1 = (0..<pc1.count).map { uy * pc1[$0] - ux * pc2[$0] }
+            let newPc2 = (0..<pc1.count).map {
+                ux * pc1[$0] + uy * pc2[$0]
+            }
+            let newPc1 = (0..<pc1.count).map {
+                uy * pc1[$0] - ux * pc2[$0]
+            }
             pc1 = newPc1
             pc2 = newPc2
         }
 
         // Mirror so that warmer palettes sit toward the right
         let temperature = metrics.map(\.temperature)
-        let newXs = centered.map { dot($0, pc1) }
+        let newXs = centered.map {
+            dot($0, pc1)
+        }
         if covariance(newXs, temperature) < 0 {
             for i in 0..<pc1.count {
                 pc1[i] = -pc1[i]

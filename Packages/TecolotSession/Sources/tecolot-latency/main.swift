@@ -26,10 +26,12 @@ import TecolotSessionHost
 import TecolotTransport
 import TecolotWire
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #endif
 
-func uptime() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+func uptime() -> UInt64 {
+    clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+}
 
 let environment = ["PATH=/usr/bin:/bin", "TERM=xterm-256color", "LANG=en_US.UTF-8"]
 let kill: UInt8 = 0x15 // ^U erases the typed line, so cat never sees a full line.
@@ -47,11 +49,15 @@ final class Probe: @unchecked Sendable {
     /// Call from the delivery thread with the count that is now visible.
     func observe(_ count: Int) {
         let fire = state.withLock { state -> Bool in
-            guard state.waiting, count >= state.target else { return false }
+            guard state.waiting, count >= state.target else {
+                return false
+            }
             state.waiting = false
             return true
         }
-        if fire { arrived.signal() }
+        if fire {
+            arrived.signal()
+        }
     }
 
     /// Sends one key and returns the nanoseconds until `observe` sees `target`.
@@ -63,7 +69,9 @@ final class Probe: @unchecked Sendable {
         let start = uptime()
         send()
         guard arrived.wait(timeout: .now() + 2) == .success else {
-            state.withLock { $0.waiting = false }
+            state.withLock {
+                $0.waiting = false
+            }
             return nil
         }
         return uptime() - start
@@ -93,12 +101,18 @@ final class LocalPath: Path, LocalProcessDelegate, TerminalDelegate, @unchecked 
         terminal = Terminal(delegate: self, options: TerminalOptions(cols: 80, rows: 24))
         process = LocalProcess(delegate: self, dispatchQueue: queue)
         let result = process.startProcessChecked(executable: "/bin/cat", environment: environment)
-        if case .failure(let error) = result { throw error }
+        if case .failure(let error) = result {
+            throw error
+        }
     }
 
-    func type(_ bytes: [UInt8]) { process.send(data: bytes[...]) }
+    func type(_ bytes: [UInt8]) {
+        process.send(data: bytes[...])
+    }
     func resetCount() {}
-    func stop() { process.terminate() }
+    func stop() {
+        process.terminate()
+    }
 
     func dataReceived(slice: ArraySlice<UInt8>) {
         terminal.feed(buffer: slice)
@@ -106,7 +120,9 @@ final class LocalPath: Path, LocalProcessDelegate, TerminalDelegate, @unchecked 
     }
 
     func processTerminated(_ source: LocalProcess, exitCode: Int32?) {}
-    func getWindowSize() -> winsize { winsize(ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0) }
+    func getWindowSize() -> winsize {
+        winsize(ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0)
+    }
     func send(source: Terminal, data: ArraySlice<UInt8>) {}
 }
 
@@ -123,14 +139,20 @@ final class RemotePath: Path, @unchecked Sendable {
         self.cleanup = cleanup
         session = RemoteSession(socket: socket, clientName: "latency", build: "latency")
         session.onChange = { [weak self] _ in
-            guard let self else { return }
-            let column = session.withState { state, _ in Int(state.cursor?.column ?? 0) }
+            guard let self else {
+                return
+            }
+            let column = session.withState { state, _ in
+                Int(state.cursor?.column ?? 0)
+            }
             probe.observe(column)
         }
         session.start(size: WireGridSize(columns: 80, rows: 24), focused: true)
         let deadline = Date().addingTimeInterval(5)
         while !session.state.connected || session.state.cursor == nil {
-            guard Date() < deadline else { throw TransportError("\(name): no first frame") }
+            guard Date() < deadline else {
+                throw TransportError("\(name): no first frame")
+            }
             usleep(1000)
         }
     }
@@ -160,9 +182,13 @@ func inProcessPath() throws -> RemotePath {
     let host = SessionHost(id: "latency", launch: launch(), build: "latency")
     try host.start()
     var fds: [Int32] = [0, 0]
-    guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else { throw TransportError("socketpair") }
+    guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
+        throw TransportError("socketpair")
+    }
     host.accept(socket: fds[1])
-    return try RemotePath(name: "inproc", socket: fds[0]) { host.terminate(signal: SIGKILL) }
+    return try RemotePath(name: "inproc", socket: fds[0]) {
+        host.terminate(signal: SIGKILL)
+    }
 }
 
 func helperPath() throws -> RemotePath {
@@ -186,14 +212,18 @@ struct Summary {
     var timeouts: Int
 
     func percentile(_ fraction: Double) -> Double {
-        guard !samples.isEmpty else { return .nan }
+        guard !samples.isEmpty else {
+            return .nan
+        }
         let sorted = samples.sorted()
         let index = min(sorted.count - 1, Int((Double(sorted.count - 1) * fraction).rounded()))
         return Double(sorted[index]) / 1000
     }
 
     var line: String {
-        let columns = [0.0, 0.5, 0.9, 0.99, 1.0].map { String(format: "%8.0f", percentile($0)) }
+        let columns = [0.0, 0.5, 0.9, 0.99, 1.0].map {
+            String(format: "%8.0f", percentile($0))
+        }
         return columns.joined(separator: " ") + (timeouts > 0 ? "   timeouts: \(timeouts)" : "")
     }
 }
@@ -211,7 +241,10 @@ func run(_ path: Path, count: Int, gap: useconds_t) -> Summary {
         }
         column += 1
         let letter = UInt8(ascii: "a") + UInt8(index % 26)
-        if let time = path.probe.measure(target: column, send: { path.type([letter]) }) {
+        if
+            let time = path.probe.measure(target: column, send: {
+                path.type([letter])
+            }) {
             samples.append(time)
         } else {
             timeouts += 1
@@ -220,7 +253,9 @@ func run(_ path: Path, count: Int, gap: useconds_t) -> Summary {
             usleep(100_000)
             column = 0
         }
-        if gap > 0 { usleep(gap) }
+        if gap > 0 {
+            usleep(gap)
+        }
     }
     return Summary(samples: samples, timeouts: timeouts)
 }
@@ -252,7 +287,9 @@ for gap: useconds_t in [0, 16_000, 120_000] {
         print("\(label) \(String(format: "%4d ms", gap / 1000)) \(summary.line)")
     }
 }
-for path in paths { path.stop() }
+for path in paths {
+    path.stop()
+}
 
 // MARK: Interrupting a flood
 
@@ -261,10 +298,10 @@ for path in paths { path.stop() }
 // flood is the case where frame credits could delay the answer: the
 // helper is busy and the client is behind.
 let floodScript = """
-    trap 'true' INT
-    n=0
-    while read line; do yes flood-line-with-some-text; n=$((n+1)); echo "STOPPED-$n"; done
-    """
+trap 'true' INT
+n=0
+while read line; do yes flood-line-with-some-text; n=$((n+1)); echo "STOPPED-$n"; done
+"""
 
 /// The screen shows `STOPPED-n` for the round being measured.
 final class MarkerProbe: @unchecked Sendable {
@@ -272,22 +309,34 @@ final class MarkerProbe: @unchecked Sendable {
     private let arrived = DispatchSemaphore(value: 0)
 
     func observe(_ text: () -> String) {
-        let target = state.withLock { $0.waiting ? $0.target : nil }
-        guard let target, text().contains(target) else { return }
+        let target = state.withLock {
+            $0.waiting ? $0.target : nil
+        }
+        guard let target, text().contains(target) else {
+            return
+        }
         let fire = state.withLock { state -> Bool in
-            guard state.waiting else { return false }
+            guard state.waiting else {
+                return false
+            }
             state.waiting = false
             return true
         }
-        if fire { arrived.signal() }
+        if fire {
+            arrived.signal()
+        }
     }
 
     func measure(marker: String, send: () -> Void) -> UInt64? {
-        state.withLock { $0 = (marker, true) }
+        state.withLock {
+            $0 = (marker, true)
+        }
         let start = uptime()
         send()
         guard arrived.wait(timeout: .now() + 10) == .success else {
-            state.withLock { $0.waiting = false }
+            state.withLock {
+                $0.waiting = false
+            }
             return nil
         }
         return uptime() - start
@@ -311,13 +360,22 @@ final class LocalFlood: FloodPath, LocalProcessDelegate, TerminalDelegate, @unch
     init() throws {
         terminal = Terminal(delegate: self, options: TerminalOptions(cols: 80, rows: 24))
         process = LocalProcess(delegate: self, dispatchQueue: queue)
-        let result = process.startProcessChecked(executable: "/bin/sh", args: ["-c", floodScript],
-                                                 environment: environment)
-        if case .failure(let error) = result { throw error }
+        let result = process.startProcessChecked(
+            executable: "/bin/sh",
+            args: ["-c", floodScript],
+            environment: environment
+        )
+        if case .failure(let error) = result {
+            throw error
+        }
     }
 
-    func type(_ bytes: [UInt8]) { process.send(data: bytes[...]) }
-    func stop() { process.terminate() }
+    func type(_ bytes: [UInt8]) {
+        process.send(data: bytes[...])
+    }
+    func stop() {
+        process.terminate()
+    }
 
     func dataReceived(slice: ArraySlice<UInt8>) {
         terminal.feed(buffer: slice)
@@ -329,7 +387,9 @@ final class LocalFlood: FloodPath, LocalProcessDelegate, TerminalDelegate, @unch
     }
 
     func processTerminated(_ source: LocalProcess, exitCode: Int32?) {}
-    func getWindowSize() -> winsize { winsize(ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0) }
+    func getWindowSize() -> winsize {
+        winsize(ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0)
+    }
     func send(source: Terminal, data: ArraySlice<UInt8>) {}
 }
 
@@ -344,12 +404,16 @@ final class RemoteFlood: FloodPath, @unchecked Sendable {
         self.cleanup = cleanup
         session = RemoteSession(socket: socket, clientName: "latency", build: "latency")
         session.onChange = { [weak self] _ in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             probe.observe {
                 session.withState { state, cache in
                     (0 ..< Int64(state.rows)).compactMap { offset -> String? in
                         let line = state.displayTop + offset
-                        guard let row = cache[line] else { return nil }
+                        guard let row = cache[line] else {
+                            return nil
+                        }
                         return cache.text(from: (line, 0), to: (line, row.cells.count - 1))
                     }.joined(separator: "\n")
                 }
@@ -358,12 +422,16 @@ final class RemoteFlood: FloodPath, @unchecked Sendable {
         session.start(size: WireGridSize(columns: 80, rows: 24), focused: true)
         let deadline = Date().addingTimeInterval(5)
         while !session.state.connected || session.state.cursor == nil {
-            guard Date() < deadline else { throw TransportError("\(name): no first frame") }
+            guard Date() < deadline else {
+                throw TransportError("\(name): no first frame")
+            }
             usleep(1000)
         }
     }
 
-    func type(_ bytes: [UInt8]) { session.send(bytes: bytes) }
+    func type(_ bytes: [UInt8]) {
+        session.send(bytes: bytes)
+    }
     func stop() {
         session.close()
         cleanup()
@@ -371,8 +439,13 @@ final class RemoteFlood: FloodPath, @unchecked Sendable {
 }
 
 func floodLaunch() -> SessionLaunch {
-    SessionLaunch(executable: "/bin/sh", arguments: ["-c", floodScript], environment: environment,
-                  columns: 80, rows: 24)
+    SessionLaunch(
+        executable: "/bin/sh",
+        arguments: ["-c", floodScript],
+        environment: environment,
+        columns: 80,
+        rows: 24
+    )
 }
 
 /// Times the helper stages of one round: the key reaching the terminal, the
@@ -417,14 +490,18 @@ final class Tracer: @unchecked Sendable {
             switch event {
             case .fed(let slice):
                 state.feed += 1
-                guard state.armed, state.round.input != nil else { return }
+                guard state.armed, state.round.input != nil else {
+                    return
+                }
                 state.round.bytesAfterInput += slice.count
                 if state.round.parsed == nil, Self.contains(slice, Self.marker) {
                     state.round.parsed = now
                     state.round.markerFeed = state.feed
                 }
             case .input:
-                if state.armed, state.round.input == nil { state.round.input = now }
+                if state.armed, state.round.input == nil {
+                    state.round.input = now
+                }
             case .waitingForCredit:
                 if state.armed, state.round.parsed != nil, state.round.frame == nil {
                     state.round.creditWaitsAfterMarker += 1
@@ -436,7 +513,9 @@ final class Tracer: @unchecked Sendable {
             case .childInput:
                 break
             case .frameSent(_, let feed):
-                guard state.armed, state.round.input != nil else { return }
+                guard state.armed, state.round.input != nil else {
+                    return
+                }
                 state.round.framesAfterInput += 1
                 if state.round.frame == nil, let markerFeed = state.round.markerFeed, feed >= markerFeed {
                     state.round.frame = now
@@ -446,10 +525,14 @@ final class Tracer: @unchecked Sendable {
     }
 
     static func contains(_ slice: ArraySlice<UInt8>, _ needle: [UInt8]) -> Bool {
-        guard slice.count >= needle.count else { return false }
+        guard slice.count >= needle.count else {
+            return false
+        }
         var index = slice.startIndex
         while index <= slice.endIndex - needle.count {
-            if slice[index] == needle[0], slice[index ..< index + needle.count].elementsEqual(needle) { return true }
+            if slice[index] == needle[0], slice[index ..< index + needle.count].elementsEqual(needle) {
+                return true
+            }
             index += 1
         }
         return false
@@ -460,12 +543,18 @@ let tracer = Tracer()
 
 func inProcessFlood() throws -> RemoteFlood {
     let host = SessionHost(id: "flood", launch: floodLaunch(), build: "latency")
-    host.trace = { tracer.event($0) }
+    host.trace = {
+        tracer.event($0)
+    }
     try host.start()
     var fds: [Int32] = [0, 0]
-    guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else { throw TransportError("socketpair") }
+    guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
+        throw TransportError("socketpair")
+    }
     host.accept(socket: fds[1])
-    return try RemoteFlood(name: "inproc", socket: fds[0]) { host.terminate(signal: SIGKILL) }
+    return try RemoteFlood(name: "inproc", socket: fds[0]) {
+        host.terminate(signal: SIGKILL)
+    }
 }
 
 func helperFlood() throws -> RemoteFlood {
@@ -503,11 +592,17 @@ for path in floods {
     for round in 1 ... rounds {
         path.type(Array("\n".utf8))  // start the flood
         usleep(300_000)
-        if path.name == "inproc" { tracer.arm() }
-        let time = path.probe.measure(marker: "STOPPED-\(round)", send: { path.type([0x03]) })
+        if path.name == "inproc" {
+            tracer.arm()
+        }
+        let time = path.probe.measure(marker: "STOPPED-\(round)", send: {
+            path.type([0x03])
+        })
         if path.name == "inproc" {
             let traceRound = tracer.finish()
-            if let time { traced.append((traceRound, traceRound.start + time)) }
+            if let time {
+                traced.append((traceRound, traceRound.start + time))
+            }
         }
         if let time {
             samples.append(time)
@@ -524,24 +619,44 @@ for path in floods {
 
 // Where the in-process time goes, per stage (p50 / p90 in microseconds).
 func stage(_ name: String, _ values: [UInt64?]) {
-    let samples = values.compactMap { $0 }
+    let samples = values.compactMap {
+        $0
+    }
     let summary = Summary(samples: samples, timeouts: values.count - samples.count)
     print("  \(name.padding(toLength: 34, withPad: " ", startingAt: 0)) \(String(format: "%8.0f %8.0f", summary.percentile(0.5), summary.percentile(0.9)))")
 }
 print("")
 print("inproc stages                         p50      p90")
 func difference(_ later: UInt64?, _ earlier: UInt64?) -> UInt64? {
-    guard let later, let earlier, later >= earlier else { return nil }
+    guard let later, let earlier, later >= earlier else {
+        return nil
+    }
     return later - earlier
 }
-stage("key sent -> written to the PTY", traced.map { difference($0.round.input, $0.round.start) })
-stage("written -> marker parsed", traced.map { difference($0.round.parsed, $0.round.input) })
-stage("parsed -> frame sent", traced.map { difference($0.round.frame, $0.round.parsed) })
-stage("frame sent -> client has it", traced.map { difference($0.end, $0.round.frame) })
-let bytes = traced.map { UInt64($0.round.bytesAfterInput) }.sorted()
-let frames = traced.map { UInt64($0.round.framesAfterInput) }.sorted()
-let creditWaits = traced.filter { $0.round.creditWaitsAfterMarker > 0 }.count
-let slotWaits = traced.filter { $0.round.slotWaitsAfterMarker > 0 }.count
+stage("key sent -> written to the PTY", traced.map {
+    difference($0.round.input, $0.round.start)
+})
+stage("written -> marker parsed", traced.map {
+    difference($0.round.parsed, $0.round.input)
+})
+stage("parsed -> frame sent", traced.map {
+    difference($0.round.frame, $0.round.parsed)
+})
+stage("frame sent -> client has it", traced.map {
+    difference($0.end, $0.round.frame)
+})
+let bytes = traced.map {
+    UInt64($0.round.bytesAfterInput)
+}.sorted()
+let frames = traced.map {
+    UInt64($0.round.framesAfterInput)
+}.sorted()
+let creditWaits = traced.filter {
+    $0.round.creditWaitsAfterMarker > 0
+}.count
+let slotWaits = traced.filter {
+    $0.round.slotWaitsAfterMarker > 0
+}.count
 print("  rounds where the marker frame waited for a credit: \(creditWaits) of \(traced.count); for a slot: \(slotWaits)")
 if !bytes.isEmpty {
     print("  bytes parsed after the key (p50): \(bytes[bytes.count / 2]); frames sent until the marker (p50): \(frames[frames.count / 2])")
@@ -550,7 +665,13 @@ if !bytes.isEmpty {
 // The slowest rounds, stage by stage: where a tail comes from.
 print("")
 print("slowest inproc rounds (microseconds)   total  key->pty  pty->parsed  parsed->frame  frame->client  bytes  frames  credit/slot waits")
-for (round, end) in traced.sorted(by: { $0.end - $0.round.start > $1.end - $1.round.start }).prefix(5) {
-    func us(_ value: UInt64?) -> String { value.map { String(format: "%8.0f", Double($0) / 1000) } ?? "       -" }
+for (round, end) in traced.sorted(by: {
+    $0.end - $0.round.start > $1.end - $1.round.start
+}).prefix(5) {
+    func us(_ value: UInt64?) -> String {
+        value.map {
+            String(format: "%8.0f", Double($0) / 1000)
+        } ?? "       -"
+    }
     print("                                     \(us(end - round.start))  \(us(difference(round.input, round.start)))  \(us(difference(round.parsed, round.input)))     \(us(difference(round.frame, round.parsed)))       \(us(difference(end, round.frame)))  \(String(format: "%6d", round.bytesAfterInput))  \(String(format: "%6d", round.framesAfterInput))  \(round.creditWaitsAfterMarker)/\(round.slotWaitsAfterMarker)")
 }

@@ -30,9 +30,13 @@ public struct RowCache: Sendable {
 
     public init() {}
 
-    public var count: Int { rows.count }
+    public var count: Int {
+        rows.count
+    }
 
-    public subscript(line: Int64) -> CachedRow? { rows[line] }
+    public subscript(line: Int64) -> CachedRow? {
+        rows[line]
+    }
 
     /// Switches to another buffer. Rows of the other buffer are dropped; the
     /// alternate screen has no scrollback worth keeping, and the normal
@@ -52,7 +56,9 @@ public struct RowCache: Sendable {
         changed.reserveCapacity(records.count)
         for record in records {
             let line = Int64(clamping: record.line)
-            if rows[line]?.version == record.version { continue }
+            if rows[line]?.version == record.version {
+                continue
+            }
             let (header, cells) = try RowDecoder.decodeCells(record.payload)
             let stamp = Self.stamps.wrappingAdd(1, ordering: .relaxed).newValue
             rows[line] = CachedRow(version: record.version, header: header, cells: cells, stamp: stamp)
@@ -63,16 +69,29 @@ public struct RowCache: Sendable {
 
     /// Drops lines below `first` (trimmed or renumbered by the helper).
     public mutating func dropLines(before first: Int64) {
-        guard rows.keys.contains(where: { $0 < first }) else { return }
-        rows = rows.filter { $0.key >= first }
+        guard
+            rows.keys.contains(where: {
+                $0 < first
+            }) else {
+            return
+        }
+        rows = rows.filter {
+            $0.key >= first
+        }
     }
 
     /// Keeps at most `capacity` rows; rows inside `pinned` are always kept.
     public mutating func evict(keeping pinned: Range<Int64>) {
-        guard rows.count > capacity + (pinned.upperBound > pinned.lowerBound ? Int(pinned.count) : 0) else { return }
+        guard rows.count > capacity + (pinned.upperBound > pinned.lowerBound ? Int(pinned.count) : 0) else {
+            return
+        }
         let center = (pinned.lowerBound + pinned.upperBound) / 2
-        let ordered = rows.keys.filter { !pinned.contains($0) }
-            .sorted { abs($0 - center) < abs($1 - center) }
+        let ordered = rows.keys.filter {
+            !pinned.contains($0)
+        }
+        .sorted {
+            abs($0 - center) < abs($1 - center)
+        }
         for line in ordered.dropFirst(capacity) {
             rows[line] = nil
         }
@@ -95,33 +114,48 @@ public struct RowCache: Sendable {
         var start: Int64?
         for line in range {
             if rows[line] == nil {
-                if start == nil { start = line }
+                if start == nil {
+                    start = line
+                }
             } else if let open = start {
                 result.append(open ..< line)
                 start = nil
             }
         }
-        if let open = start { result.append(open ..< range.upperBound) }
+        if let open = start {
+            result.append(open ..< range.upperBound)
+        }
         return result
     }
 
     /// The text of cached rows, joining wrapped rows without a newline.
     /// Returns nil when a row in the range is not cached.
     public func text(from start: (line: Int64, column: Int), to end: (line: Int64, column: Int)) -> String? {
-        guard start.line <= end.line else { return "" }
+        guard start.line <= end.line else {
+            return ""
+        }
         var result = ""
         for line in start.line ... end.line {
-            guard let row = rows[line] else { return nil }
+            guard let row = rows[line] else {
+                return nil
+            }
             let from = line == start.line ? start.column : 0
             let to = line == end.line ? end.column : row.cells.count - 1
             var piece = ""
-            if from <= to {
-                for index in max(0, from) ... min(to, row.cells.count - 1) {
+            // A cached row can be narrower than the grid (a row from a
+            // narrower restore cache, or scrollback from before a resize).
+            let lower = max(0, from), upper = min(to, row.cells.count - 1)
+            if lower <= upper {
+                for index in lower ... upper {
                     switch row.cells[index].content {
-                    case .null: piece.append(" ")
-                    case .ascii(let byte): piece.append(Character(UnicodeScalar(byte)))
-                    case .grapheme(let text, _): piece.append(text)
-                    case .spacer: break
+                    case .null:
+                        piece.append(" ")
+                    case .ascii(let byte):
+                        piece.append(Character(UnicodeScalar(byte)))
+                    case .grapheme(let text, _):
+                        piece.append(text)
+                    case .spacer:
+                        break
                     }
                 }
             }
@@ -131,7 +165,9 @@ public struct RowCache: Sendable {
                 if next?.header.isWrapped == true {
                     result += piece
                 } else {
-                    while piece.last == " " { piece.removeLast() }
+                    while piece.last == " " {
+                        piece.removeLast()
+                    }
                     result += piece + "\n"
                 }
             } else {

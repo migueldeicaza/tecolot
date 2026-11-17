@@ -1,48 +1,12 @@
 import AppKit
 import SwiftUI
 
-@MainActor
-enum TerminalThemeTitlebar {
-    private static let identifier = NSUserInterfaceItemIdentifier("TecolotThemePicker")
-
-    static func configure(
-        _ window: NSWindow,
-        controller: TerminalSessionController?,
-        profiles: ProfileStore,
-        themes: ThemeStore,
-        themeIndex: ThemeCatalogIndex
-    ) {
-        let accessory: ThemeTitlebarAccessory
-        if let existing = window.titlebarAccessoryViewControllers.first(where: {
-            $0.identifier == identifier
-        }) as? ThemeTitlebarAccessory {
-            accessory = existing
-        } else {
-            accessory = ThemeTitlebarAccessory()
-            accessory.identifier = identifier
-            accessory.layoutAttribute = .right
-            window.addTitlebarAccessoryViewController(accessory)
-        }
-        accessory.control.configure(
-            controller: controller,
-            profiles: profiles,
-            themes: themes,
-            themeIndex: themeIndex
-        )
-        accessory.view.setFrameSize(accessory.control.intrinsicContentSize)
-    }
-}
-
-private final class ThemeTitlebarAccessory: NSTitlebarAccessoryViewController {
-    let control = ThemeTitlebarControl()
-
-    override func loadView() {
-        view = control
-    }
-}
-
 final class ThemeTitlebarControl: NSView, NSPopoverDelegate {
-    private let button = NSButton()
+    private let button = ChromeIconButton(treatment: .window)
+    var contentTintColor: NSColor? {
+        get { button.contentTintColor }
+        set { button.contentTintColor = newValue }
+    }
     private var buttonCenterY: NSLayoutConstraint!
     private weak var controller: TerminalSessionController?
     private weak var presentedController: TerminalSessionController?
@@ -51,22 +15,24 @@ final class ThemeTitlebarControl: NSView, NSPopoverDelegate {
     private weak var themeIndex: ThemeCatalogIndex?
     private var popover: NSPopover?
 
-    override var mouseDownCanMoveWindow: Bool { false }
-    override var intrinsicContentSize: NSSize { NSSize(width: 38, height: 24) }
+    override var mouseDownCanMoveWindow: Bool {
+        false
+    }
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 38, height: 24)
+    }
 
     init() {
         super.init(frame: .zero)
         button.image = NSImage(systemSymbolName: "paintbrush", accessibilityDescription: "Theme")
         button.imagePosition = .imageOnly
-        button.bezelStyle = .circular
-        button.setButtonType(.momentaryPushIn)
         button.target = self
         button.action = #selector(togglePicker(_:))
         button.toolTip = "Change the theme of this terminal"
         button.setAccessibilityLabel("Theme")
         button.translatesAutoresizingMaskIntoConstraints = false
         addSubview(button)
-        buttonCenterY = button.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -8)
+        buttonCenterY = button.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 0)
         NSLayoutConstraint.activate([
             button.widthAnchor.constraint(equalToConstant: 28),
             button.heightAnchor.constraint(equalToConstant: 28),
@@ -80,19 +46,17 @@ final class ThemeTitlebarControl: NSView, NSPopoverDelegate {
         fatalError("init(coder:) is not available")
     }
 
+    /// Opens the picker from a compact sidebar's actions menu.
+    func presentPicker() {
+        button.performClick(nil)
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         needsLayout = true
         if controller?.showThemePicker == true {
             showPicker()
         }
-    }
-
-    override func layout() {
-        super.layout()
-        guard let constant = TitlebarAccessoryAlignment.centerYConstant(for: self),
-              abs(buttonCenterY.constant - constant) > 0.5 else { return }
-        buttonCenterY.constant = constant
     }
 
     func configure(
@@ -120,7 +84,9 @@ final class ThemeTitlebarControl: NSView, NSPopoverDelegate {
     }
 
     @objc private func togglePicker(_ sender: NSButton) {
-        guard let controller else { return }
+        guard let controller else {
+            return
+        }
         controller.showThemePicker.toggle()
         if controller.showThemePicker {
             showPicker()
@@ -132,9 +98,12 @@ final class ThemeTitlebarControl: NSView, NSPopoverDelegate {
     private func showPicker() {
         // A popover that is closing is not shown, but it is not closed yet.
         // popoverDidClose opens the picker again if it is still necessary.
-        guard popover == nil,
-              let controller, let profiles, let themes, let themeIndex,
-              button.window != nil else { return }
+        guard
+            popover == nil,
+            let controller, let profiles, let themes, let themeIndex,
+            button.window != nil else {
+            return
+        }
         let popover = NSPopover()
         popover.behavior = .transient
         popover.delegate = self
@@ -152,8 +121,11 @@ final class ThemeTitlebarControl: NSView, NSPopoverDelegate {
     }
 
     func popoverDidClose(_ notification: Notification) {
-        guard let closed = notification.object as? NSPopover,
-              closed === popover else { return }
+        guard
+            let closed = notification.object as? NSPopover,
+            closed === popover else {
+            return
+        }
         presentedController?.showThemePicker = false
         presentedController = nil
         popover = nil

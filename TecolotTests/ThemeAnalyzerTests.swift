@@ -83,7 +83,9 @@ final class ThemeAnalyzerTests {
         let metrics = analyzer.analyze(theme)
         #expect(metrics.brightPairSeparation == 0)
         #expect(abs(metrics.brightLightnessLift) < 1e-12)
-        #expect(metrics.brightHueDrift.map { abs($0) < 1e-12 } ?? true)
+        #expect(metrics.brightHueDrift.map {
+            abs($0) < 1e-12
+        } ?? true)
     }
 
     @Test func sameHueAccentsAreCoherent() {
@@ -177,7 +179,9 @@ final class ThemeAnalyzerTests {
         #expect(metrics.backgroundLightness < 0.5)
         #expect(metrics.foregroundContrast > 4.5)
         #expect(metrics.featureVector.count == 60)
-        #expect(metrics.featureVector.allSatisfy { $0.isFinite })
+        #expect(metrics.featureVector.allSatisfy {
+            $0.isFinite
+        })
         #expect(metrics.ansiSeparationMinimum > 0)
     }
 

@@ -77,17 +77,23 @@ nonisolated enum ThemeColorMath {
 
     /// Type-7 linearly interpolated quantile; sorts a copy of `values`
     static func quantile(_ values: [Double], _ q: Double) -> Double {
-        guard !values.isEmpty else { return 0 }
+        guard !values.isEmpty else {
+            return 0
+        }
         return quantileOfSorted(values.sorted(), q)
     }
 
     /// Type-7 quantile over an array already sorted in ascending order
     static func quantileOfSorted(_ sorted: [Double], _ q: Double) -> Double {
-        guard let last = sorted.last else { return 0 }
+        guard let last = sorted.last else {
+            return 0
+        }
         let position = Double(sorted.count - 1) * q
         let lower = Int(position.rounded(.down))
         let upper = Int(position.rounded(.up))
-        guard upper < sorted.count else { return last }
+        guard upper < sorted.count else {
+            return last
+        }
         let fraction = position - Double(lower)
         return sorted[lower] + fraction * (sorted[upper] - sorted[lower])
     }
@@ -98,9 +104,13 @@ nonisolated enum ThemeColorMath {
 
     /// Population standard deviation
     static func standardDeviation(_ values: [Double]) -> Double {
-        guard values.count > 1 else { return 0 }
+        guard values.count > 1 else {
+            return 0
+        }
         let m = mean(values)
-        let variance = values.reduce(0) { $0 + ($1 - m) * ($1 - m) } / Double(values.count)
+        let variance = values.reduce(0) {
+            $0 + ($1 - m) * ($1 - m)
+        } / Double(values.count)
         return sqrt(variance)
     }
 }

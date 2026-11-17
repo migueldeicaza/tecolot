@@ -16,7 +16,9 @@ nonisolated enum ThemeModeGroups {
     struct Group: Identifiable, Equatable {
         let title: String
         let themes: [TerminalTheme]
-        var id: String { title }
+        var id: String {
+            title
+        }
     }
 
     static func groups(
@@ -28,15 +30,24 @@ nonisolated enum ThemeModeGroups {
         func byName(_ lhs: TerminalTheme, _ rhs: TerminalTheme) -> Bool {
             lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
-        let custom = themes.filter { !$0.isBuiltIn }.sorted(by: byName)
-        let defaults = themes.filter { $0.name == defaultName }
+        let custom = themes.filter {
+            !$0.isBuiltIn
+        }.sorted(by: byName)
+        let defaults = themes.filter {
+            $0.name == defaultName
+        }
         var favorite = themes
-            .filter { $0.isBuiltIn && $0.name != defaultName && favorites.contains($0.name) }
+            .filter {
+                $0.isBuiltIn && $0.name != defaultName && favorites.contains($0.name)
+            }
             .sorted(by: byName)
 
         // Always show the active theme, so that the selection is visible.
         let shown = Set((custom + defaults + favorite).map(\.name))
-        if !shown.contains(activeName), let active = themes.first(where: { $0.name == activeName }) {
+        if
+            !shown.contains(activeName), let active = themes.first(where: {
+                $0.name == activeName
+            }) {
             favorite.insert(active, at: 0)
         }
 
@@ -44,7 +55,9 @@ nonisolated enum ThemeModeGroups {
             Group(title: "Custom", themes: custom),
             Group(title: "Default", themes: defaults),
             Group(title: "Favorites", themes: favorite)
-        ].filter { !$0.themes.isEmpty }
+        ].filter {
+            !$0.themes.isEmpty
+        }
     }
 }
 
@@ -95,7 +108,9 @@ struct ThemeModeSection: View {
                         themes: themes,
                         profiles: profiles,
                         existingUserThemeName: request.existingUserThemeName,
-                        onSave: { saved in select(saved.name) }
+                        onSave: { saved in
+                            select(saved.name)
+                        }
                     )
                 }
                 .sheet(isPresented: $showsChooser) {
@@ -111,20 +126,36 @@ struct ThemeModeSection: View {
                 .confirmationDialog(
                     "Delete \u{201C}\(themePendingDeletion?.name ?? "")\u{201D}?",
                     isPresented: Binding(
-                        get: { themePendingDeletion != nil },
-                        set: { if !$0 { themePendingDeletion = nil } }
+                        get: {
+                            themePendingDeletion != nil
+                        },
+                        set: {
+                            if !$0 {
+                                themePendingDeletion = nil
+                            }
+                        }
                     ),
                     presenting: themePendingDeletion
                 ) { theme in
-                    Button("Delete", role: .destructive) { delete(theme) }
+                    Button("Delete", role: .destructive) {
+                        delete(theme)
+                    }
                 } message: { _ in
                     Text("Profiles that use this theme change to another theme.")
                 }
                 .alert("Theme Operation Failed", isPresented: Binding(
-                    get: { operationError != nil },
-                    set: { if !$0 { operationError = nil } }
+                    get: {
+                        operationError != nil
+                    },
+                    set: {
+                        if !$0 {
+                            operationError = nil
+                        }
+                    }
                 )) {
-                    Button("OK", role: .cancel) { operationError = nil }
+                    Button("OK", role: .cancel) {
+                        operationError = nil
+                    }
                 } message: {
                     Text(operationError ?? "")
                 }
@@ -135,10 +166,10 @@ struct ThemeModeSection: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(isDark ? "Dark Mode" : "Light Mode")
+            Text(isDark ? "Dark mode" : "Light mode")
                 .font(.headline)
             if systemAppearance.isDark == isDark {
-                Text("\u{2014} Active")
+                Text("\u{2014} active")
                     .font(.headline)
                     .foregroundStyle(.secondary)
             }
@@ -174,23 +205,33 @@ struct ThemeModeSection: View {
                     Divider()
                         .frame(height: 70)
                         .padding(.top, 22)
-                    ThemeBrowseCard { showsChooser = true }
-                        .padding(.top, 22)
+                    ThemeBrowseCard {
+                        showsChooser = true
+                    }
+                    .padding(.top, 22)
                 }
                 .padding(.vertical, 4)
                 .padding(.horizontal, 2)
             }
             .scrollIndicators(.automatic)
-            .onAppear { proxy.scrollTo(activeName, anchor: .center) }
+            .onAppear {
+                proxy.scrollTo(activeName, anchor: .center)
+            }
         }
     }
 
     private func card(for theme: TerminalTheme) -> some View {
         ThemeModeCard(theme: theme, isSelected: theme.name == activeName)
-            .onTapGesture { select(theme.name) }
+            .onTapGesture {
+                select(theme.name)
+            }
             .contextMenu {
-                Button("Edit…") { edit(theme) }
-                Button("Duplicate") { duplicate(theme) }
+                Button("Edit…") {
+                    edit(theme)
+                }
+                Button("Duplicate") {
+                    duplicate(theme)
+                }
                 if theme.isBuiltIn {
                     Button(themes.isFavorite(theme.name) ? "Remove from Favorites" : "Add to Favorites") {
                         toggleFavorite(theme.name)
@@ -209,8 +250,12 @@ struct ThemeModeSection: View {
 
     @discardableResult
     private func select(_ name: String) -> Bool {
-        guard name != activeName else { return true }
-        return update { $0.setThemeName(name, isDark: isDark) }
+        guard name != activeName else {
+            return true
+        }
+        return update {
+            $0.setThemeName(name, isDark: isDark)
+        }
     }
 
     private func newTheme() {
@@ -257,9 +302,12 @@ struct ThemeModeSection: View {
     }
 
     private func chooseFromCatalog(_ name: String) {
-        guard select(name) else { return }
+        guard select(name) else {
+            return
+        }
         let theme = themes.theme(named: name)
-        if theme.isBuiltIn && !themes.isFavorite(name)
+        if
+            theme.isBuiltIn && !themes.isFavorite(name)
             && name != TerminalProfile.defaultThemeName(isDark: isDark) {
             toggleFavorite(name)
         }
@@ -420,7 +468,9 @@ struct ThemeChooserSheet: View {
                 themeIndex: themeIndex,
                 profiles: profiles,
                 selectedThemeName: draftThemeName,
-                onSelect: { draftThemeName = $0.name },
+                onSelect: {
+                    draftThemeName = $0.name
+                },
                 style: .all,
                 samplePage: selectedPreviewPage ?? .shell,
                 sampleSelection: $selectedPreviewPage

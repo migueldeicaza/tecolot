@@ -21,7 +21,9 @@ struct HostKeyFingerprint: Equatable {
     let value: String
 
     /// The fingerprint as SSH shows it, for example "SHA256:abc…".
-    var full: String { "\(hash):\(value)" }
+    var full: String {
+        "\(hash):\(value)"
+    }
 
     /// Groups of 4 characters, 6 groups on each line.
     var groupedLines: [String] {
@@ -38,7 +40,9 @@ struct HostKeyFingerprint: Equatable {
     init?(sshText text: String) {
         let host = /authenticity of host '([^ ]+) \(([^)]+)\)'/
         let key = /(\w+) key fingerprint is (SHA256|MD5):(\S+)/
-        guard let hostMatch = text.firstMatch(of: host), let keyMatch = text.firstMatch(of: key) else { return nil }
+        guard let hostMatch = text.firstMatch(of: host), let keyMatch = text.firstMatch(of: key) else {
+            return nil
+        }
         hostName = String(hostMatch.1)
         address = String(hostMatch.2)
         keyType = String(keyMatch.1)
@@ -54,7 +58,9 @@ enum HostKeyConfirmation {
     /// Sets the text and the accessory view of `alert`. Returns false if the
     /// SSH text has no fingerprint: the alert then shows the SSH text.
     static func configure(_ alert: NSAlert, sshText: String) -> Bool {
-        guard let fingerprint = HostKeyFingerprint(sshText: sshText) else { return false }
+        guard let fingerprint = HostKeyFingerprint(sshText: sshText) else {
+            return false
+        }
         alert.informativeText = "Tecolot has not connected to \(fingerprint.hostName) (\(fingerprint.address)) before. Compare this fingerprint with the one from the server’s administrator."
         alert.accessoryView = HostKeyAccessoryView(fingerprint: fingerprint, sshText: sshText) { [weak alert] in
             alert?.layout()
@@ -113,7 +119,9 @@ final class HostKeyAccessoryView: NSView {
         output.hasVerticalScroller = true
         output.borderType = .bezelBorder
         output.isHidden = true
-        let lineHeight = (text.font.map { NSLayoutManager().defaultLineHeight(for: $0) } ?? 13)
+        let lineHeight = (text.font.map {
+            NSLayoutManager().defaultLineHeight(for: $0)
+        } ?? 13)
         let lines = CGFloat(max(1, sshText.split(whereSeparator: \.isNewline).count))
         let outputHeight = min(120, lines * lineHeight + 8)
 
@@ -148,9 +156,13 @@ final class HostKeyAccessoryView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override var isFlipped: Bool { true }
+    override var isFlipped: Bool {
+        true
+    }
 
-    var isShowingOutput: Bool { !output.isHidden }
+    var isShowingOutput: Bool {
+        !output.isHidden
+    }
 
     private func fitHeight() {
         stack.layoutSubtreeIfNeeded()

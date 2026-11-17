@@ -15,9 +15,13 @@ public enum TecolotShellIntegration {
 
     /// The directory that contains Tecolot's installable shell integration.
     public static var resourcesDirectory: URL? {
-        guard let directory = Bundle.main.resourceURL else { return nil }
+        guard let directory = Bundle.main.resourceURL else {
+            return nil
+        }
         let integration = directory.appendingPathComponent("shell-integration", isDirectory: true)
-        guard FileManager.default.fileExists(atPath: integration.path) else { return nil }
+        guard FileManager.default.fileExists(atPath: integration.path) else {
+            return nil
+        }
         return directory
     }
 
@@ -43,10 +47,14 @@ public enum TecolotShellIntegration {
         set("TERM_PROGRAM_VERSION", terminalProgramVersion, in: &result.environment)
         set("TECOLOT_SHELL_FEATURES", shellFeatures, in: &result.environment)
 
-        guard let resourcesDirectory else { return result }
+        guard let resourcesDirectory else {
+            return result
+        }
         let resourcesPath = resourcesDirectory.standardizedFileURL.path
         set("TECOLOT_RESOURCES_DIR", resourcesPath, in: &result.environment)
-        guard automatic else { return result }
+        guard automatic else {
+            return result
+        }
 
         let shell = URL(fileURLWithPath: result.executable).lastPathComponent
         switch shell {
@@ -90,9 +98,13 @@ public enum TecolotShellIntegration {
         processEnvironment: [String: String]
     ) {
         // Apple's Bash does not load ENV for this POSIX startup sequence.
-        guard parameters.executable != "/bin/bash" else { return }
+        guard parameters.executable != "/bin/bash" else {
+            return
+        }
         let script = resourcesPath + "/shell-integration/bash/tecolot.bash"
-        guard FileManager.default.isReadableFile(atPath: script) else { return }
+        guard FileManager.default.isReadableFile(atPath: script) else {
+            return
+        }
 
         var injectionFlags = ["1"]
         var filteredArguments: [String] = []
@@ -110,7 +122,9 @@ public enum TecolotShellIntegration {
                 injectionFlags.append(argument)
             } else if argument == "--rcfile" || argument == "--init-file" {
                 let valueIndex = parameters.args.index(after: index)
-                guard valueIndex < parameters.args.endIndex else { return }
+                guard valueIndex < parameters.args.endIndex else {
+                    return
+                }
                 set("TECOLOT_BASH_RCFILE", parameters.args[valueIndex], in: &parameters.environment)
                 index = valueIndex
             } else {
@@ -119,7 +133,8 @@ public enum TecolotShellIntegration {
             index = parameters.args.index(after: index)
         }
 
-        if let oldEnvironment = value(for: "ENV", in: parameters.environment)
+        if
+            let oldEnvironment = value(for: "ENV", in: parameters.environment)
             ?? processEnvironment["ENV"] {
             set("TECOLOT_BASH_ENV", oldEnvironment, in: &parameters.environment)
         }
@@ -129,7 +144,8 @@ public enum TecolotShellIntegration {
         if value(for: "HISTFILE", in: parameters.environment) == nil {
             if let historyFile = processEnvironment["HISTFILE"] {
                 set("HISTFILE", historyFile, in: &parameters.environment)
-            } else if let home = value(for: "HOME", in: parameters.environment)
+            } else if
+                let home = value(for: "HOME", in: parameters.environment)
                 ?? processEnvironment["HOME"] {
                 set("HISTFILE", home + "/.bash_history", in: &parameters.environment)
                 set("TECOLOT_BASH_UNEXPORT_HISTFILE", "1", in: &parameters.environment)
@@ -148,8 +164,10 @@ public enum TecolotShellIntegration {
             ?? processEnvironment["XDG_DATA_DIRS"]
             ?? "/usr/local/share:/usr/share"
         let paths = oldValue.split(separator: ":").map(String.init)
-        let newValue = ([integrationPath] + paths.filter { $0 != integrationPath })
-            .joined(separator: ":")
+        let newValue = ([integrationPath] + paths.filter {
+            $0 != integrationPath
+        })
+        .joined(separator: ":")
         set("TECOLOT_SHELL_INTEGRATION_XDG_DIR", integrationPath, in: &environment)
         set("XDG_DATA_DIRS", newValue, in: &environment)
     }
@@ -159,7 +177,8 @@ public enum TecolotShellIntegration {
         resourcesPath: String,
         processEnvironment: [String: String]
     ) {
-        if let oldDirectory = value(for: "ZDOTDIR", in: environment)
+        if
+            let oldDirectory = value(for: "ZDOTDIR", in: environment)
             ?? processEnvironment["ZDOTDIR"] {
             set("TECOLOT_ZSH_ZDOTDIR", oldDirectory, in: &environment)
         }
@@ -168,8 +187,11 @@ public enum TecolotShellIntegration {
 
     private static func supportsNushellInjection(arguments: [String]) -> Bool {
         for argument in arguments {
-            if argument == "-" || argument == "--" { return true }
-            if argument == "--command"
+            if argument == "-" || argument == "--" {
+                return true
+            }
+            if
+                argument == "--command"
                 || argument == "--lsp"
                 || isShortOption(argument, containing: "c") {
                 return false
@@ -186,13 +208,20 @@ public enum TecolotShellIntegration {
 
     private static func value(for name: String, in environment: [String]) -> String? {
         let prefix = name + "="
-        guard let entry = environment.last(where: { $0.hasPrefix(prefix) }) else { return nil }
+        guard
+            let entry = environment.last(where: {
+                $0.hasPrefix(prefix)
+            }) else {
+            return nil
+        }
         return String(entry.dropFirst(prefix.count))
     }
 
     private static func set(_ name: String, _ value: String, in environment: inout [String]) {
         let prefix = name + "="
-        environment.removeAll { $0.hasPrefix(prefix) }
+        environment.removeAll {
+            $0.hasPrefix(prefix)
+        }
         environment.append(prefix + value)
     }
 }

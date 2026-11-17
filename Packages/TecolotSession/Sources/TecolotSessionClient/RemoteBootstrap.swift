@@ -7,9 +7,12 @@ public enum RemoteBootstrapError: Error, CustomStringConvertible, Sendable {
 
     public var description: String {
         switch self {
-        case .invalidComponent(let value): return "Invalid bootstrap value: \(value)"
-        case .invalidResponse(let value): return value
-        case .unsupportedBinary(let value): return "This host is not supported (\(value))."
+        case .invalidComponent(let value):
+            return "Invalid bootstrap value: \(value)"
+        case .invalidResponse(let value):
+            return value
+        case .unsupportedBinary(let value):
+            return "This host is not supported (\(value))."
         }
     }
 }
@@ -20,7 +23,9 @@ public struct RemoteLayout: Hashable, Sendable {
 
     public init(baseDirectory: String = ".tecolot", runtimeDirectory: String? = nil) throws {
         try RemoteBootstrap.validatePath(baseDirectory, absolute: false)
-        if let runtimeDirectory { try RemoteBootstrap.validatePath(runtimeDirectory, absolute: true) }
+        if let runtimeDirectory {
+            try RemoteBootstrap.validatePath(runtimeDirectory, absolute: true)
+        }
         self.baseDirectory = baseDirectory
         self.runtimeDirectory = runtimeDirectory
     }
@@ -28,21 +33,59 @@ public struct RemoteLayout: Hashable, Sendable {
 
 public struct RemoteProbeResult: Hashable, Sendable {
     public let fields: [String: String]
-    public var os: String { fields["os"] ?? "" }
-    public var arch: String { fields["arch"] ?? "" }
-    public var binaryID: String? { fields["binary"].flatMap { $0 == "unsupported" ? nil : $0 } }
-    public var release: String { fields["release"] ?? "" }
-    public var installedHash: String? { fields["installed"].flatMap { $0 == "none" ? nil : $0 } }
-    public var runs: Bool { fields["runs"] == "1" }
-    public var homeOK: Bool { fields["home-ok"] == "1" }
-    public var runtimeOK: Bool { fields["runtime-ok"] == "1" }
-    public var runtimeDirectory: String { fields["runtime"] ?? "" }
-    public var hasGzip: Bool { fields["gzip"] == "1" }
-    public var hasHashTool: Bool { fields["hash-tool"] == "1" }
-    public var receiverReady: Bool { fields["receiver"] == "1" }
-    public var receivePath: String? { fields["receive"].flatMap { $0.isEmpty ? nil : $0 } }
-    public var expectedHash: String? { fields["expected"].flatMap { $0 == "none" ? nil : $0 } }
-    public var needsUpload: Bool { installedHash != expectedHash || !runs }
+    public var os: String {
+        fields["os"] ?? ""
+    }
+    public var arch: String {
+        fields["arch"] ?? ""
+    }
+    public var binaryID: String? {
+        fields["binary"].flatMap {
+            $0 == "unsupported" ? nil : $0
+        }
+    }
+    public var release: String {
+        fields["release"] ?? ""
+    }
+    public var installedHash: String? {
+        fields["installed"].flatMap {
+            $0 == "none" ? nil : $0
+        }
+    }
+    public var runs: Bool {
+        fields["runs"] == "1"
+    }
+    public var homeOK: Bool {
+        fields["home-ok"] == "1"
+    }
+    public var runtimeOK: Bool {
+        fields["runtime-ok"] == "1"
+    }
+    public var runtimeDirectory: String {
+        fields["runtime"] ?? ""
+    }
+    public var hasGzip: Bool {
+        fields["gzip"] == "1"
+    }
+    public var hasHashTool: Bool {
+        fields["hash-tool"] == "1"
+    }
+    public var receiverReady: Bool {
+        fields["receiver"] == "1"
+    }
+    public var receivePath: String? {
+        fields["receive"].flatMap {
+            $0.isEmpty ? nil : $0
+        }
+    }
+    public var expectedHash: String? {
+        fields["expected"].flatMap {
+            $0 == "none" ? nil : $0
+        }
+    }
+    public var needsUpload: Bool {
+        installedHash != expectedHash || !runs
+    }
 }
 
 public typealias ProbeResult = RemoteProbeResult
@@ -65,7 +108,10 @@ public struct RemoteBootstrap: Sendable {
             guard item.uncompressedSize >= 0 else {
                 throw RemoteBootstrapError.invalidResponse("The helper size is invalid")
             }
-            guard item.sha256.count == 64, item.sha256.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
+            guard
+                item.sha256.count == 64, item.sha256.utf8.allSatisfy({
+                    (48...57).contains($0) || (97...102).contains($0)
+                }) else {
                 throw RemoteBootstrapError.invalidComponent(item.sha256)
             }
             guard ["linux-x86_64", "linux-aarch64", "darwin-universal"].contains(item.binaryID) else {
@@ -80,15 +126,22 @@ public struct RemoteBootstrap: Sendable {
     }
 
     public static func validateComponent(_ value: String) throws {
-        guard !value.isEmpty, value.utf8.allSatisfy({
-            (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || [45, 46, 95].contains($0)
-        }), value != ".", value != ".." else { throw RemoteBootstrapError.invalidComponent(value) }
+        guard
+            !value.isEmpty, value.utf8.allSatisfy({
+                (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || [45, 46, 95].contains($0)
+            }), value != ".", value != ".." else {
+            throw RemoteBootstrapError.invalidComponent(value)
+        }
     }
 
     static func validatePath(_ value: String, absolute: Bool) throws {
-        guard value.hasPrefix("/") == absolute else { throw RemoteBootstrapError.invalidComponent(value) }
+        guard value.hasPrefix("/") == absolute else {
+            throw RemoteBootstrapError.invalidComponent(value)
+        }
         let parts = (absolute ? String(value.dropFirst()) : value).split(separator: "/", omittingEmptySubsequences: false)
-        for part in parts { try validateComponent(String(part)) }
+        for part in parts {
+            try validateComponent(String(part))
+        }
     }
 
     public func receiverCommand(nonce: String) throws -> String {
@@ -104,7 +157,9 @@ public struct RemoteBootstrap: Sendable {
 
     public func bridgeCommand(probe: RemoteProbeResult, nonce: String) throws -> String {
         try Self.validateComponent(nonce)
-        guard let binary = probe.binaryID else { throw RemoteBootstrapError.unsupportedBinary("\(probe.os), \(probe.arch)") }
+        guard let binary = probe.binaryID else {
+            throw RemoteBootstrapError.unsupportedBinary("\(probe.os), \(probe.arch)")
+        }
         try Self.validateComponent(binary)
         try Self.validateComponent(probe.release)
         try Self.validatePath(probe.runtimeDirectory, absolute: true)
@@ -119,15 +174,28 @@ public struct RemoteBootstrap: Sendable {
         var inside = false
         for rawLine in output.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = rawLine.hasSuffix("\r") ? rawLine.dropLast() : rawLine[...]
-            if line == begin { fields.removeAll(); inside = true; continue }
+            if line == begin {
+                fields.removeAll()
+                inside = true
+                continue
+            }
             if line == end, inside {
                 let required = ["os", "arch", "binary", "installed", "runs", "home-ok", "runtime", "runtime-ok", "gzip", "receiver", "expected", "release"]
-                guard required.allSatisfy({ fields[$0] != nil }) else { throw RemoteBootstrapError.invalidResponse("The host sent an incomplete probe result") }
+                guard
+                    required.allSatisfy({
+                        fields[$0] != nil
+                    }) else {
+                    throw RemoteBootstrapError.invalidResponse("The host sent an incomplete probe result")
+                }
                 return RemoteProbeResult(fields: fields)
             }
-            guard inside, let equals = line.firstIndex(of: "=") else { continue }
+            guard inside, let equals = line.firstIndex(of: "=") else {
+                continue
+            }
             let key = String(line[..<equals])
-            guard fields[key] == nil else { throw RemoteBootstrapError.invalidResponse("The host sent a duplicate probe field") }
+            guard fields[key] == nil else {
+                throw RemoteBootstrapError.invalidResponse("The host sent a duplicate probe field")
+            }
             fields[key] = String(line[line.index(after: equals)...])
         }
         throw RemoteBootstrapError.invalidResponse("The host did not send a complete probe result")
@@ -137,18 +205,29 @@ public struct RemoteBootstrap: Sendable {
         try Self.validateComponent(nonce)
         let prefix = "TECOLOT-STEP \(nonce) "
         return output.split(separator: "\n").compactMap { line in
-            guard line.hasPrefix(prefix) else { return nil }
+            guard line.hasPrefix(prefix) else {
+                return nil
+            }
             let values = line.dropFirst(prefix.count).split(separator: " ", maxSplits: 2)
-            guard values.count >= 2, values[1] == "ok" || values[1] == "fail" else { return nil }
-            return RemoteUploadStep(step: String(values[0]), succeeded: values[1] == "ok",
-                                    detail: values.count == 3 ? String(values[2]) : "")
+            guard values.count >= 2, values[1] == "ok" || values[1] == "fail" else {
+                return nil
+            }
+            return RemoteUploadStep(
+                step: String(values[0]),
+                succeeded: values[1] == "ok",
+                detail: values.count == 3 ? String(values[2]) : ""
+            )
         }
     }
 
     public func probeScript(nonce: String) throws -> String {
         try Self.validateComponent(nonce)
-        let choices = metadata.map { "\($0.binaryID)) expected='\($0.sha256)'; release='\($0.release)' ;;" }.joined(separator: "\n")
-        let runtime = layout.runtimeDirectory.map { "runtime='\($0)'" } ?? "runtime=\"/tmp/tecolot-$uid\""
+        let choices = metadata.map {
+            "\($0.binaryID)) expected='\($0.sha256)'; release='\($0.release)' ;;"
+        }.joined(separator: "\n")
+        let runtime = layout.runtimeDirectory.map {
+            "runtime='\($0)'"
+        } ?? "runtime=\"/tmp/tecolot-$uid\""
         let receiver = receiverScript()
         return #"""
         #!/bin/sh

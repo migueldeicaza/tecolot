@@ -30,9 +30,15 @@ final class RemoteFindBar: NSVisualEffectView, NSSearchFieldDelegate {
         get { field.stringValue }
         set { field.stringValue = newValue }
     }
-    var caseSensitive: Bool { caseButton.state == .on }
-    var regularExpression: Bool { regexButton.state == .on }
-    var wholeWord: Bool { wordButton.state == .on }
+    var caseSensitive: Bool {
+        caseButton.state == .on
+    }
+    var regularExpression: Bool {
+        regexButton.state == .on
+    }
+    var wholeWord: Bool {
+        wordButton.state == .on
+    }
 
     init() {
         super.init(frame: .zero)
@@ -64,8 +70,16 @@ final class RemoteFindBar: NSVisualEffectView, NSSearchFieldDelegate {
         status.textColor = .secondaryLabelColor
         status.isHidden = true
 
-        let stack = NSStackView(views: [field, status, previousButton, nextButton,
-                                        caseButton, regexButton, wordButton, closeButton])
+        let stack = NSStackView(views: [
+            field,
+            status,
+            previousButton,
+            nextButton,
+            caseButton,
+            regexButton,
+            wordButton,
+            closeButton
+        ])
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 6
@@ -107,10 +121,18 @@ final class RemoteFindBar: NSVisualEffectView, NSSearchFieldDelegate {
         window?.makeFirstResponder(field)
     }
 
-    @objc private func previousTapped() { onSearch?(true) }
-    @objc private func nextTapped() { onSearch?(false) }
-    @objc private func closeTapped() { onClose?() }
-    @objc private func optionChanged() { onQueryChange?() }
+    @objc private func previousTapped() {
+        onSearch?(true)
+    }
+    @objc private func nextTapped() {
+        onSearch?(false)
+    }
+    @objc private func closeTapped() {
+        onClose?()
+    }
+    @objc private func optionChanged() {
+        onQueryChange?()
+    }
 
     func controlTextDidChange(_ notification: Notification) {
         onQueryChange?()

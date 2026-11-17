@@ -10,6 +10,7 @@ import Darwin
 import Observation
 import SwiftTerm
 import SwiftUI
+import TecolotSessionHost
 import TecolotSessionClient
 import TecolotSessionDirectory
 import TecolotTransport
@@ -20,11 +21,15 @@ enum TerminalWindowTransparency {
     @MainActor
     static func apply(to window: NSWindow, isEnabled: Bool) {
         if isEnabled {
-            guard window.isOpaque || window.backgroundColor != .clear else { return }
+            guard window.isOpaque || window.backgroundColor != .clear else {
+                return
+            }
             window.isOpaque = false
             window.backgroundColor = .clear
         } else {
-            guard !window.isOpaque || window.backgroundColor == .clear else { return }
+            guard !window.isOpaque || window.backgroundColor == .clear else {
+                return
+            }
             window.isOpaque = true
             window.backgroundColor = nil
         }
@@ -36,14 +41,24 @@ struct PanePresentation: Equatable {
     var directory: String?
     var executablePath: String?
     var hasActivity = false
+    var status = TabStatus.none
 }
 
 @Observable
 final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegate {
+    nonisolated static let useMetalRendererKey = "useMetalRenderer"
+    nonisolated static let useMetalRendererDefault = true
+    nonisolated static let logHostOutputKey = "LogHostOutput"
+    nonisolated static let logHostOutputDefault = false
+
     /// Stays the same when the pane is restored after a relaunch.
     let id: UUID
+    let programStatus: PaneProgramStatus
+    @ObservationIgnored private var notifiedProgramReports: [String: WireProgramStatus] = [:]
+    @ObservationIgnored private var remoteOutputSerial: UInt64?
     @ObservationIgnored private let startsProcess: Bool
     @ObservationIgnored private var didStartProcess = false
+    @ObservationIgnored private var isTerminated = false
     @ObservationIgnored private var pendingFocus = false
     @ObservationIgnored private var pendingStart = false
     @ObservationIgnored private var postedTitle: String = ""
@@ -52,7 +67,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     private var postedDirectory: String?
     @ObservationIgnored private var zoomGesture: NSMagnificationGestureRecognizer?
     @ObservationIgnored private var keyEventMonitor: Any?
-    private var logging = false
+    private var logging = TerminalSessionController.logHostOutputDefault
 
     @ObservationIgnored private(set) var terminal: LocalProcessTerminalView?
     /// The view of a persistent pane; its shell runs in tecolot-sessiond.
@@ -99,6 +114,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     var showThemePicker = false
     private(set) var displayedWindowTitle = "Tecolot"
     private(set) var panePresentation = PanePresentation()
+    /// Metadata followed by the window structure, excluding high-frequency activity.
+    private(set) var windowPresentation = PanePresentation()
     @ObservationIgnored var launchDirectory: String?
     @ObservationIgnored private var didResolveLaunch = false
     /// The directory reports of the shell, for restoration and new tabs.
@@ -120,7 +137,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored private(set) var presetRestoration: PaneRestoration?
     /// The saved text file of a restored local pane, until its shell starts.
     @ObservationIgnored var restoredTextFile: Data?
-    var hasStartedShell: Bool { didStartProcess }
+    var hasStartedShell: Bool {
+        didStartProcess
+    }
     /// The session of a restored remote pane. When it ended, the bridge
     /// starts a new session from its saved state.
     @ObservationIgnored var remoteRestoreSessionID: String?
@@ -141,14 +160,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// It stays when the pane reconnects; a profile change resets it, as
     /// in a local pane.
     @ObservationIgnored private var persistentFontSize: CGFloat?
-    /// The text of an older `.terminalSession` file, shown in the pane that
-    /// opens the file.
-    @ObservationIgnored private var legacyDocumentText: String?
-
     private(set) var hasActivity = false
 
     /// The terminal view of this pane, local or persistent.
-    var surface: (NSView & TerminalPaneSurface)? {
+    var surface: (NSView & TerminalSurface)? {
         terminal ?? persistentView
     }
 
@@ -157,10 +172,19 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         persistentView != nil || wantsPersistentSession
     }
 
-    init(startsProcess: Bool = true, id: UUID = UUID()) {
+    @ObservationIgnored private let resumeRemotePrompts: @MainActor () -> Void
+    init(startsProcess: Bool = true, id: UUID = UUID(), resumeRemotePrompts: @escaping @MainActor () -> Void = {
+        RemoteHosts.shared.resumePendingPrompts()
+    }) {
         self.startsProcess = startsProcess
         self.id = id
+        self.resumeRemotePrompts = resumeRemotePrompts
+        programStatus = PaneProgramStatus(paneID: id)
         super.init()
+        ProgramActivityCenter.shared.start()
+        programStatus.onChange = { [weak self] in
+            self?.programActivityChanged()
+        }
     }
 
     deinit {
@@ -179,49 +203,67 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         titleUpdateTask?.cancel()
     }
 
-    /// Consumes the pending LaunchSpec exactly once, from the first view
-    /// attach; discarded controller instances never reach this point
+    /// Resolves launch parameters once, before building the pane's view.
     @MainActor
-    func resolveLaunchIfNeeded(document: TerminalDocument) {
-        guard !didResolveLaunch else { return }
+    func resolveLaunchIfNeeded(spec: LaunchSpec = LaunchSpec()) {
+        guard !didResolveLaunch else {
+            return
+        }
         didResolveLaunch = true
-        let spec = AppModel.shared.takePendingLaunch()
-        if let profileID = spec?.profileID ?? document.profileID,
-           let storedProfile = AppModel.shared.profiles.profile(withID: profileID) {
+        if
+            let profileID = spec.profileID,
+            let storedProfile = AppModel.shared.profiles.profile(withID: profileID) {
             profile = storedProfile
         } else {
             profile = AppModel.shared.profiles.defaultProfile
         }
-        themeOverride = spec?.themeOverride ?? document.themeOverride
-        launchDirectory = spec?.workingDirectory
-        // A file from an older version has the text of its terminal: show it
-        // above the new shell, as those versions did.
-        legacyDocumentText = document.legacyContent.flatMap {
-            TerminalSessionDocumentCodec.replayText(for: $0, limit: RestoreStore.restoredRowsLimit)
-        }
+        themeOverride = spec.themeOverride
+        launchDirectory = spec.workingDirectory
         wantsPersistentSession = Self.startsPersistentSession(spec: spec, profile: profile)
-        attachSessionID = spec?.attachSessionID
-        remoteDestination = spec?.remoteDestination
+        attachSessionID = spec.attachSessionID
+        remoteDestination = spec.remoteDestination
     }
 
     /// New Persistent Tab and Attach to Session always use the helper; other
     /// new panes follow the profile.
     static func startsPersistentSession(spec: LaunchSpec?, profile: TerminalProfile) -> Bool {
-        spec?.remoteDestination != nil || spec?.persistent == true || spec?.attachSessionID != nil || profile.sessionPersistence == .persistent
+        spec?.remoteDestination != nil || spec?.persistent == true || spec?.attachSessionID != nil
+            || profile.sessionPersistence == .persistent
     }
 
     /// Sets up a pane of a restored layout. The pane keeps its kind: a local
     /// shell, a persistent session, or a remote session.
     @MainActor
     func presetRestore(_ restoration: PaneRestoration) {
-        guard !didResolveLaunch else { return }
+        guard !didResolveLaunch else {
+            return
+        }
         didResolveLaunch = true
         presetRestoration = restoration
         let pane = restoration.pane
-        profile = pane.profileID.flatMap { AppModel.shared.profiles.profile(withID: $0) }
+        profile =
+            pane.profileID.flatMap {
+                AppModel.shared.profiles.profile(withID: $0)
+            }
             ?? AppModel.shared.profiles.defaultProfile
         themeOverride = pane.themeOverride
         directoryTracker = PaneDirectoryTracker(launch: pane.directory?.path)
+        remoteDestination = pane.kind == .remote ? pane.remoteDestination : nil
+        if restoration.startsFresh {
+            if pane.kind == .remote {
+                // The helper resolves its own directory; never check it on the Mac.
+                launchDirectory = pane.directory?.path
+                wantsPersistentSession = true
+                return
+            }
+            wantsPersistentSession = pane.kind != .local
+            if wantsPersistentSession {
+                pendingSessionRestore = restoration
+            } else {
+                beginLocalRestore(restoration)
+            }
+            return
+        }
         switch pane.kind {
         case .remote:
             remoteDestination = pane.remoteDestination
@@ -248,13 +290,48 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     @MainActor
     func prepareForSplit(from source: TerminalSessionController) {
-        guard !didResolveLaunch else { return }
+        guard !didResolveLaunch else {
+            return
+        }
         didResolveLaunch = true
         profile = source.profile
         themeOverride = source.themeOverride
         remoteDestination = source.remoteDestination
-        launchDirectory = remoteDestination == nil ? source.currentWorkingDirectory : nil
+        launchDirectory = source.currentWorkingDirectory
         wantsPersistentSession = source.isPersistent
+    }
+
+    var reservedPersistentSessionIDs: [String] {
+        [
+            persistentSessionID,
+            attachSessionID,
+            remoteRestoreSessionID,
+            remotePendingRestore,
+            pendingSessionRestore?.pane.sessionID
+        ].compactMap {
+            $0
+        }
+    }
+
+    /// Startup is complete after replay and shell launch, or a reply after attach.
+    /// Failed/declined connections have reached a stable, retryable pane state.
+    var hasCompletedRestorationStartup: Bool {
+        if !startsProcess || isTerminated {
+            return true
+        }
+        if isPersistent {
+            return persistentView.map {
+                Self.persistentStartupHasCompleted($0.session.state)
+            } == true
+                || persistentView?.session.state.exitStatus != nil
+                || remoteOpenFailed || remoteInstallDeclined
+        }
+        return didStartProcess && !awaitingRestore && replayText == nil
+    }
+
+    static func persistentStartupHasCompleted(_ state: RemoteSessionState) -> Bool {
+        // Hello precedes Attach. Hidden panes may receive info without frames.
+        state.connected && (state.lastFrameSequence > 0 || state.info != nil)
     }
 
     /// The last directory that the shell reported on the pane's host. A
@@ -285,6 +362,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// keyboard, scrollback); shell settings only affect future launches
     @MainActor
     func applyProfile(_ newProfile: TerminalProfile) {
+        if profile.screenChecksumReports != newProfile.screenChecksumReports {
+            persistentView?.session.setScreenChecksumReports(newProfile.screenChecksumReports)
+        }
         profile = newProfile
         previewBackgroundOpacity = nil
         applyAppearance()
@@ -329,26 +409,34 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     private func applyAppearance(colorsOnly: Bool) {
         if let persistentView {
             // A profile change resets Bigger/Smaller Font, as in a local pane.
-            if !colorsOnly { persistentFontSize = nil }
+            if !colorsOnly {
+                persistentFontSize = nil
+            }
             applyPersistentAppearance(to: persistentView, colorsOnly: colorsOnly)
             return
         }
-        guard let terminal else { return }
+        guard let terminal else {
+            return
+        }
         if effectiveBackgroundOpacity < 1.0 {
             updateWindowTransparency()
         }
         if colorsOnly {
-            ProfileApplier.apply(theme: effectiveTheme,
-                                 opacity: effectiveBackgroundOpacity,
-                                 to: terminal)
+            ProfileApplier.apply(
+                theme: effectiveTheme,
+                opacity: effectiveBackgroundOpacity,
+                to: terminal
+            )
         } else {
             var appearanceProfile = profile
             appearanceProfile.backgroundOpacity = effectiveBackgroundOpacity
-            ProfileApplier.apply(profile: appearanceProfile,
-                                 themeStore: AppModel.shared.themes,
-                                 sessionThemeOverride: themeOverride,
-                                 isDark: AppModel.shared.systemAppearance.isDark,
-                                 to: terminal)
+            ProfileApplier.apply(
+                profile: appearanceProfile,
+                themeStore: AppModel.shared.themes,
+                sessionThemeOverride: themeOverride,
+                isDark: AppModel.shared.systemAppearance.isDark,
+                to: terminal
+            )
         }
         (terminal.superview as? TerminalSessionContainerView)?.updatePaddingColor()
         terminal.requestRedraw()
@@ -365,7 +453,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         let oldOpacity = effectiveBackgroundOpacity
         previewBackgroundOpacity = opacity
         let newOpacity = effectiveBackgroundOpacity
-        guard oldOpacity != newOpacity else { return }
+        guard oldOpacity != newOpacity else {
+            return
+        }
         guard let surface else {
             updateWindowTransparency()
             return
@@ -376,7 +466,11 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if newOpacity < 1.0 {
             updateWindowTransparency()
         }
-        surface.backgroundOpacity = CGFloat(newOpacity)
+        if let terminal {
+            terminal.backgroundOpacity = CGFloat(newOpacity)
+        } else {
+            persistentView?.backgroundOpacity = CGFloat(newOpacity)
+        }
         (surface.superview as? TerminalSessionContainerView)?.updatePaddingColor()
         surface.requestRedraw()
         if newOpacity >= 1.0 {
@@ -397,7 +491,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             workspace.updateWindowTransparency()
             return
         }
-        guard let window = surface?.window else { return }
+        guard let window = surface?.window else {
+            return
+        }
         TerminalWindowTransparency.apply(
             to: window,
             isEnabled: effectiveBackgroundOpacity < 1.0
@@ -420,7 +516,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     @MainActor
-    func makeTerminalView(document: TerminalDocument) -> NSView & TerminalPaneSurface {
+    func makeTerminalView() -> NSView & TerminalSurface {
         if let terminal {
             terminal.removeFromSuperview()
             attach(to: terminal)
@@ -432,7 +528,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return persistentView
         }
 
-        resolveLaunchIfNeeded(document: document)
+        resolveLaunchIfNeeded()
         if wantsPersistentSession, let view = makePersistentView() {
             return view
         }
@@ -447,11 +543,29 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         terminal.glyphFallbackProvider = NerdFontFallbackProvider.shared
         // SwiftTerm does not show notifications; the helper does the same
         // for persistent panes.
-        oscObservation = terminal.observeOscEvents(codes: [9, 777]) { [weak self] event in
-            guard let message = NotificationMessage(oscCode: event.code, payload: event.payload) else { return }
-            Task { @MainActor in
-                guard let self else { return }
-                TerminalNotifier.shared.notify(title: message.title, body: message.body, from: self)
+        oscObservation = terminal.observeOscEvents(codes: [9, 777, 133, 7501]) { [weak self] event in
+            Task { @MainActor [weak self] in
+                guard let self, let terminal = self.terminal as? AppTerminalView else {
+                    return
+                }
+                if event.code == 133, event.payload.first == 65 {
+                    terminal.programStatusTracker.dropTransient()
+                    if self.programStatus.uses7501 {
+                        self.programStatus.receive(terminal.programStatusTracker.snapshot)
+                    }
+                    self.programStatus.dropTransient()
+                } else if event.code == 7501 {
+                    if
+                        terminal.programStatusTracker.observeReport(
+                            event.payload, records: terminal.programStatusRecords
+                        ) {
+                        self.programStatus.receive(terminal.programStatusTracker.snapshot)
+                    }
+                } else if event.code == 9, let progress = Self.oscProgress(event.payload) {
+                    self.programStatus.receiveProgress(progress)
+                } else if let message = NotificationMessage(oscCode: event.code, payload: event.payload) {
+                    TerminalNotifier.shared.notify(title: message.title, body: message.body, from: self)
+                }
             }
         }
         attach(to: terminal)
@@ -462,16 +576,25 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     func didBecomeFocused() {
-        guard let window = surface?.window else { return }
+        guard let window = surface?.window else {
+            return
+        }
         workspace?.markFocused(self)
-        TerminalSessionRegistry.shared.focus(controller: self, for: window)
-        setHasActivity(false)
+        if workspace?.participatesInWindow != false {
+            TerminalSessionRegistry.shared.focus(controller: self, for: window)
+        }
+        if NSApp.isActive, window.isKeyWindow, surface?.isHiddenOrHasHiddenAncestor == false {
+            markProgramActivitySeenIfVisible()
+        }
         updateWindowTitle()
     }
 
     /// Brings the window of this pane to the front and focuses the pane.
     func reveal() {
-        guard let surface, let window = surface.window else { return }
+        (workspace?.windowManager ?? .shared).reveal(self)
+        guard let surface, let window = surface.window else {
+            return
+        }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(surface)
@@ -527,7 +650,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         // Show them as data, never as instructions.
         alert.informativeText =
             "\(who) asks to \(verb) these clipboard types:\n\n"
-            + request.mimeTypes.joined(separator: ", ")
+                + request.mimeTypes.joined(separator: ", ")
         alert.addButton(withTitle: "Allow")
         alert.addButton(withTitle: "Deny")
         if request.canRememberPassword {
@@ -542,15 +665,139 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         return .allow(rememberPassword: remember)
     }
 
-    func noteBell() {
-        noteOutputActivity()
-        guard !NSApp.isActive else { return }
-        BellBadge.noteBell()
+    @ObservationIgnored private var lastVisualBell: TimeInterval?
+    @ObservationIgnored private var lastBellStyle: BellStyle?
+
+    /// Preserves local native bell visuals and the pre-M4 persistent bell policy.
+    /// Sound and inactive-app attention share the per-tab limits with program status.
+    func noteBell(now: Date = Date()) {
+        let style = TerminalNotificationPreferences.bellStyle(defaults: TerminalNotifier.shared.defaults)
+        let policy = ProgramActivityBell.policy(style: style, local: terminal != nil)
+        if owningTab?.isMuted != true {
+            if policy.sound {
+                TerminalNotifier.shared.playBell(from: self, now: now)
+            }
+            if style != lastBellStyle {
+                lastVisualBell = nil
+                lastBellStyle = style
+            }
+            if
+                policy.visual, let surface,
+                lastVisualBell.map({
+                    now.timeIntervalSince1970 - $0 >= 0.1
+                }) ?? true {
+                lastVisualBell = now.timeIntervalSince1970
+                ProgramActivityBell.flash(on: surface, color: surface.nativeForegroundColor)
+            }
+            TerminalNotifier.shared.requestAttention(from: self, now: now)
+        }
+        programStatus.noteNotification(isSeen: isProgramActivityVisible)
     }
 
+    /// Parses the OSC 9;4 legacy fallback without treating notifications as progress.
+    static func oscProgress(_ payload: [UInt8]) -> WireProgress? {
+        let parts = String(decoding: payload, as: UTF8.self).split(separator: ";", omittingEmptySubsequences: false)
+        guard parts.count >= 2, parts[0] == "4", let state = UInt8(parts[1]), state <= 3 else {
+            return nil
+        }
+        let progress = parts.count > 2 ? UInt8(parts[2]).map {
+            min(100, $0)
+        } : nil
+        return WireProgress(state: state, progress: progress)
+    }
+
+    var owningTab: TerminalTab? {
+        workspace?.owningTab
+    }
+
+    var isProgramActivityVisible: Bool {
+        NSApp.isActive && isProgramTabShown && surface?.window?.isKeyWindow == true
+    }
+    var isProgramTabShown: Bool {
+        if let tab = owningTab, let group = tab.group {
+            let manager = workspace?.windowManager ?? .shared
+            return group.selection == tab.id && manager.window(showing: group) != nil
+        }
+        return surface?.isHiddenOrHasHiddenAncestor == false && surface?.window != nil
+    }
+
+    /// Marks reports seen only while the pane belongs to the active key tab.
+    func markProgramActivitySeenIfVisible() {
+        guard isProgramActivityVisible else {
+            return
+        }
+        programStatus.markSeen()
+        setHasActivity(false)
+        updateWindowTitle()
+    }
+
+    /// Refreshes tab presentation and emits notifications for newly changed reports.
+    func programActivityChanged() {
+        markProgramActivitySeenIfVisible()
+        updateWindowTitle()
+        for record in programStatus.records {
+            let previous = notifiedProgramReports[record.id]
+            notifiedProgramReports[record.id] = record
+            guard
+                previous?.state != record.state || previous?.kind != record.kind || previous?.message != record.message
+            else {
+                continue
+            }
+            TerminalNotifier.shared.notifyProgramStatus(record, from: self)
+        }
+        let ids = Set(programStatus.records.map(\.id))
+        notifiedProgramReports = notifiedProgramReports.filter {
+            ids.contains($0.key)
+        }
+        NotificationCenter.default.post(name: .programActivityDidChange, object: self)
+    }
+
+    /// Wraps the native local store in the shared host policy before presentation.
+    func programStatusChanged(source: TerminalView, records: [TerminalProgramStatus]) {
+        guard let view = terminal as? AppTerminalView else {
+            return
+        }
+        view.programStatusTracker.receive(records, isReport: false)
+        programStatus.receive(view.programStatusTracker.snapshot)
+    }
+
+    /// Applies the tracker reset serial so legacy progress can resume after RIS.
+    func programStatusDidReset() {
+        guard let view = terminal as? AppTerminalView else {
+            return
+        }
+        programStatus.receive(view.programStatusTracker.snapshot)
+    }
+
+    /// Conditionally clears seen completion versions locally or on the helper.
+    func noteProgramKeypress() {
+        let removed = programStatus.keypress()
+        guard !removed.isEmpty else {
+            return
+        }
+        (terminal as? AppTerminalView)?.programStatusTracker.clearSeen(removed)
+        persistentView?.session.clearSeenProgramStatus(removed)
+    }
+
+    @ObservationIgnored private var framesVisible: Bool?
+    /// Suspends hidden-pane frames while preserving status and resuming eligible sign-in.
+    func setProgramStatusDrawingVisible(_ visible: Bool) {
+        if framesVisible != visible {
+            framesVisible = visible
+            persistentView?.session.setFramesEnabled(visible)
+            if visible {
+                resumeRemotePrompts()
+                markProgramActivitySeenIfVisible()
+            }
+        }
+    }
+
+    /// Raises quiet attention according to tab visibility and key-window state.
     func noteOutputActivity() {
-        guard surface?.window?.isKeyWindow == false else { return }
-        setHasActivity(true)
+        let shown = isProgramTabShown
+        let key = surface?.window?.isKeyWindow == true
+        programStatus.noteOutput(tabShown: shown, windowKey: key)
+        setHasActivity(programStatus.quiet)
     }
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
@@ -558,6 +805,14 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     func processTerminated(source _: TerminalView?, exitCode: Int32?) {
+        guard !isTerminated else {
+            return
+        }
+        if let terminal {
+            terminal.programStatusProcessExited()
+            (terminal as? AppTerminalView)?.programStatusTracker.processExited()
+        }
+        programStatus.dropTransient()
         let exitedCleanly = (exitCode ?? 0) == 0
         switch profile.whenShellExits {
         case .closeWindow:
@@ -575,16 +830,29 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     private func closePaneOrWindow() {
         if let workspace {
-            if workspace.close(self) { return }
+            if workspace.close(self) {
+                return
+            }
             // After a close, the card of this pane can stay in the window
             // while it shrinks. Close the window only for its last pane.
-            guard workspace.contains(self) else { return }
+            guard workspace.contains(self) else {
+                return
+            }
         }
-        surface?.window?.close()
+        let manager = workspace?.windowManager ?? .shared
+        if
+            let group = manager.group(containing: self),
+            let tab = group.tabs.first(where: {
+                $0.loadedWorkspace?.contains(self) == true
+            }) {
+            manager.closeTab(tab, in: group)
+        }
     }
 
     private func showCompletionBanner(exitCode: Int32?) {
-        let status = exitCode.map { String($0) } ?? "?"
+        let status = exitCode.map {
+            String($0)
+        } ?? "?"
         if let persistentView {
             persistentView.showBanner("Process completed — exit \(status)", actionTitle: "Close") { [weak self] in
                 self?.persistentView?.session.detach()
@@ -596,22 +864,53 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     func exportBuffer() {
-        surface?.bufferText { [weak self] text in
-            self?.saveData { Data(text.utf8) }
+        if let persistentView {
+            persistentView.bufferText { [weak self] text in
+                self?.saveData {
+                    Data(text.utf8)
+                }
+            }
+            return
+        }
+        saveData {
+            self.terminal?.getBufferAsData() ?? Data()
         }
     }
 
     func exportSelection() {
-        surface?.selectedText { [weak self] text in
-            guard let text else { return }
-            self?.saveData { Data(text.utf8) }
+        if let persistentView {
+            persistentView.selectedText { [weak self] text in
+                guard let text else {
+                    return
+                }
+                self?.saveData {
+                    Data(text.utf8)
+                }
+            }
+            return
+        }
+        saveData {
+            guard let selection = self.terminal?.getSelection() else {
+                return Data()
+            }
+            return selection.data(using: .utf8) ?? Data()
         }
     }
 
     func printBuffer() {
-        surface?.bufferText { [weak self] text in
-            self?.printText(text)
+        if let persistentView {
+            persistentView.bufferText { [weak self] text in
+                self?.printText(text)
+            }
+            return
         }
+        guard
+            let data = terminal?.getBufferAsData(),
+            let text = String(data: data, encoding: .utf8)
+        else {
+            return
+        }
+        printText(text)
     }
 
     private func printText(_ text: String) {
@@ -640,66 +939,139 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     private func scrollToPrompt(searchingUpward: Bool) -> Bool {
-        surface?.jumpToPrompt(upward: searchingUpward) ?? false
+        if let persistentView {
+            // The helper has the prompt marks; the scroll happens when it answers.
+            persistentView.scrollToPrompt(upward: searchingUpward)
+            return true
+        }
+        guard let view = terminal else {
+            return false
+        }
+        let row =
+            searchingUpward
+                ? view.previousSemanticPromptRow()
+                : view.nextSemanticPromptRow()
+        guard let row else {
+            return false
+        }
+        view.scrollTo(row: row)
+        return true
     }
 
     func softReset() {
-        surface?.applyReset(.soft)
+        if let persistentView {
+            persistentView.session.reset(.soft)
+            return
+        }
+        terminal?.softReset()
     }
 
     func hardReset() {
-        surface?.applyReset(.hard)
+        if let persistentView {
+            persistentView.session.reset(.hard)
+            return
+        }
+        terminal?.resetToInitialState()
     }
 
     /// Clears the screen and the scrollback without sending data to the program.
     func clearToStart() {
-        surface?.applyReset(.clearToStart)
+        if let persistentView {
+            persistentView.session.reset(.clearToStart)
+            return
+        }
+        guard let terminal else {
+            return
+        }
+        TerminalClearAction.perform(on: terminal)
     }
 
     /// Runs a Find menu action in this pane.
     func performFind(_ action: NSTextFinder.Action) {
-        surface?.runFindAction(action)
+        if let persistentView {
+            persistentView.performFind(action)
+            return
+        }
+        let item = NSMenuItem()
+        item.tag = action.rawValue
+        terminal?.performTextFinderAction(item)
     }
 
     /// Sends text to the program as if the user typed it.
     func sendLiteralText(_ text: String) {
-        surface?.sendTypedText(text)
+        if let persistentView {
+            guard persistentView.remoteInputEnabled else {
+                return
+            }
+            persistentView.session.send(bytes: Array(text.utf8))
+            return
+        }
+        terminal?.send(txt: text)
     }
 
     var allowMouseReporting: Bool {
-        get { surface?.allowMouseReporting ?? false }
-        set { surface?.allowMouseReporting = newValue }
+        get { terminal?.allowMouseReporting ?? persistentView?.allowMouseReporting ?? false }
+        set {
+            if let persistentView {
+                persistentView.allowMouseReporting = newValue
+                return
+            }
+            terminal?.allowMouseReporting = newValue
+        }
     }
 
     var optionAsMetaKey: Bool {
-        get { surface?.optionAsMetaKey ?? false }
-        set { surface?.optionAsMetaKey = newValue }
+        get { terminal?.optionAsMetaKey ?? persistentView?.optionAsMetaKey ?? false }
+        set {
+            if let persistentView {
+                persistentView.optionAsMetaKey = newValue
+                return
+            }
+            terminal?.optionAsMetaKey = newValue
+        }
     }
 
     var useMetalRenderer: Bool {
-        get { surface?.isUsingMetalRenderer ?? false }
+        get { persistentView?.isUsingMetalRenderer ?? terminal?.isUsingMetalRenderer ?? false }
         set {
-            UserDefaults.standard.set(newValue, forKey: "useMetalRenderer")
+            UserDefaults.standard.set(newValue, forKey: TerminalSessionController.useMetalRendererKey)
             TerminalSessionRegistry.shared.setUseMetalRenderer(newValue)
         }
     }
 
     func setUseMetalRenderer(_ enabled: Bool) {
-        guard let surface else { return }
+        if let persistentView {
+            do {
+                try persistentView.setUseMetal(enabled)
+            } catch {
+                print("METAL TOGGLE FAILED: \(error)")
+            }
+            persistentView.requestRedraw()
+            return
+        }
+        guard let terminal else {
+            return
+        }
         do {
-            try surface.setUseMetal(enabled)
+            try terminal.setUseMetal(enabled)
         } catch {
             print("METAL TOGGLE FAILED: \(error)")
         }
-        surface.requestRedraw()
+        terminal.requestRedraw()
     }
 
     var usePerFrameMetalBuffering: Bool {
-        get { surface?.metalBufferingMode == .perFrameAggregated }
+        get { (persistentView?.metalBufferingMode ?? terminal?.metalBufferingMode) == .perFrameAggregated }
         set {
-            guard let surface else { return }
-            surface.metalBufferingMode = newValue ? .perFrameAggregated : .perRowPersistent
-            surface.requestRedraw()
+            if let persistentView {
+                persistentView.metalBufferingMode = newValue ? .perFrameAggregated : .perRowPersistent
+                return
+            }
+            guard let terminal else {
+                return
+            }
+            terminal.metalBufferingMode = newValue ? .perFrameAggregated : .perRowPersistent
+            terminal.requestRedraw()
         }
     }
 
@@ -715,13 +1087,22 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         surface?.selectionActive ?? false
     }
 
+    /// The font of the pane's view, local or persistent.
+    private var surfaceFont: NSFont? {
+        terminal?.font ?? persistentView?.font
+    }
+
     func biggerFont() {
-        guard let size = surface?.font.pointSize, size < 72 else { return }
+        guard let size = surfaceFont?.pointSize, size < 72 else {
+            return
+        }
         setFontSize(size + 1)
     }
 
     func smallerFont() {
-        guard let size = surface?.font.pointSize, size > 5 else { return }
+        guard let size = surfaceFont?.pointSize, size > 5 else {
+            return
+        }
         setFontSize(size - 1)
     }
 
@@ -733,9 +1114,15 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// Changes only the size, keeping the profile's font family. A
     /// persistent view sends its new grid size to the helper.
     private func setFontSize(_ size: CGFloat) {
-        guard let surface else { return }
-        if persistentView != nil, size != CGFloat(profile.fontSize) { persistentFontSize = size }
-        surface.font = Self.font(surface.font, size: size)
+        if let persistentView {
+            persistentFontSize = size == CGFloat(profile.fontSize) ? nil : size
+            persistentView.font = Self.font(persistentView.font, size: size)
+            return
+        }
+        guard let terminal else {
+            return
+        }
+        terminal.font = Self.font(terminal.font, size: size)
     }
 
     private static func font(_ font: NSFont, size: CGFloat) -> NSFont {
@@ -746,12 +1133,19 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// Ends a local shell. A persistent pane detaches instead: closing a pane
     /// or a window never ends a persistent session.
     func terminate() {
+        guard !isTerminated else {
+            return
+        }
+        isTerminated = true
+        persistentDetached = true
+        TerminalSessionRegistry.shared.unregister(controller: self)
         if let persistentView {
-            persistentDetached = true
             stopWaitingForVisibleWindow()
             persistentView.session.detach()
             if let hostLink {
-                Task { @MainActor in RemoteHosts.shared.removeObserver(link: hostLink, observer: self.id) }
+                Task { @MainActor in
+                    RemoteHosts.shared.removeObserver(link: hostLink, observer: self.id)
+                }
                 self.hostLink = nil
             }
             return
@@ -762,10 +1156,14 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     /// Ends the persistent session that this pane shows after the user
     /// confirms.
     func terminateSession() {
-        guard persistentView != nil else { return }
+        guard persistentView != nil else {
+            return
+        }
         let sessions = [SessionRef(id: persistentSessionID ?? "", destination: remoteDestination)]
         Task { @MainActor [weak self] in
-            guard await SessionTermination.confirm(sessions, in: self?.surface?.window) else { return }
+            guard await SessionTermination.confirm(sessions, in: self?.surface?.window) else {
+                return
+            }
             self?.terminateSessionNow()
         }
     }
@@ -776,11 +1174,19 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     func requestClose() {
-        guard let window = surface?.window else { return }
+        guard let window = surface?.window else {
+            return
+        }
         // A pane that the workspace removed is closed already.
-        if let workspace, !workspace.contains(self) { return }
+        if let workspace, !workspace.contains(self) {
+            return
+        }
         guard let workspace, workspace.paneCount > 1 else {
-            window.performClose(nil)
+            if
+                let owner = (workspace?.windowManager ?? .shared).controller(for: window),
+                let tab = owner.group.selectedTab {
+                owner.requestCloseTab(tab)
+            }
             return
         }
 
@@ -789,14 +1195,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return
         }
 
-        let alert = NSAlert()
-        alert.messageText = "Close this pane?"
-        alert.informativeText = "A process is still running."
-        alert.addButton(withTitle: "Close")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.hasDestructiveAction = true
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn, let self else { return }
+        TabCloseConfirmation.present(required: true, title: "Close this pane?", in: window) { [weak self] in
+            guard let self else {
+                return
+            }
             self.workspace?.close(self)
         }
     }
@@ -811,7 +1213,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     private func configureTerminal(_ terminal: LocalProcessTerminalView) {
         terminal.metalBufferingMode = .perFrameAggregated
-        setUseMetalRenderer(UserDefaults.standard.object(forKey: "useMetalRenderer") as? Bool ?? true)
+        setUseMetalRenderer(UserDefaults.standard.object(forKey: TerminalSessionController.useMetalRendererKey) as? Bool ?? TerminalSessionController.useMetalRendererDefault)
         applyAppearance()
         terminal.processDelegate = self
         // Tecolot uses Command keys for its menus and profile bindings.
@@ -819,8 +1221,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         // to programs that use the enhanced keyboard protocol.
         terminal.shouldSendCommandKeyToTerminal = { [weak terminal] event in
             let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
-            guard modifiers == [.command],
-                  event.charactersIgnoringModifiers?.lowercased() == "c" else {
+            guard
+                modifiers == [.command],
+                event.charactersIgnoringModifiers?.lowercased() == "c"
+            else {
                 return false
             }
             return terminal?.selectionActive == false
@@ -838,27 +1242,31 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             }
         }
 
-        logging = NSUserDefaultsController.shared.defaults.bool(forKey: "LogHostOutput")
+        logging = NSUserDefaultsController.shared.defaults.bool(forKey: TerminalSessionController.logHostOutputKey)
         updateLogging()
     }
 
     private func handleKeyBinding(_ event: NSEvent) -> Bool {
-        guard let surface,
-              event.window === surface.window,
-              surface.window?.firstResponder === surface else {
+        guard
+            let surface,
+            event.window === surface.window,
+            surface.window?.firstResponder === surface
+        else {
             return false
         }
 
+        noteProgramKeypress()
         if profile.hidePointerWhileTyping {
             NSCursor.setHiddenUntilMouseMoves(true)
         }
 
         let key = normalizedKey(for: event)
         let modifiers = terminalModifiers(for: event.modifierFlags)
-        guard let keyBinding = profile.keyBindings.first(where: {
-            $0.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == key &&
-            $0.modifiers == modifiers
-        }) else {
+        guard
+            let keyBinding = profile.keyBindings.first(where: {
+                $0.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == key && $0.modifiers == modifiers
+            })
+        else {
             return false
         }
 
@@ -880,58 +1288,114 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     private func sendBindingText(_ text: String) {
-        surface?.sendTypedText(text)
+        if let persistentView {
+            guard persistentView.remoteInputEnabled else {
+                return
+            }
+            persistentView.session.send(bytes: Array(text.utf8))
+        } else {
+            terminal?.send(txt: text)
+        }
     }
 
     private func scroll(by rows: Int) {
-        surface?.scrollRows(by: rows)
+        if let persistentView {
+            persistentView.session.scroll(by: rows)
+            return
+        }
+        guard let terminal else {
+            return
+        }
+        let state = terminal.terminalStateSnapshot()
+        terminal.scrollTo(row: max(0, state.viewportRow + rows))
     }
 
     private func terminalModifiers(for flags: NSEvent.ModifierFlags) -> TerminalKeyModifiers {
         var result: TerminalKeyModifiers = []
         let flags = flags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.command) { result.insert(.command) }
-        if flags.contains(.shift) { result.insert(.shift) }
-        if flags.contains(.option) { result.insert(.option) }
-        if flags.contains(.control) { result.insert(.control) }
+        if flags.contains(.command) {
+            result.insert(.command)
+        }
+        if flags.contains(.shift) {
+            result.insert(.shift)
+        }
+        if flags.contains(.option) {
+            result.insert(.option)
+        }
+        if flags.contains(.control) {
+            result.insert(.control)
+        }
         return result
     }
 
     private func normalizedKey(for event: NSEvent) -> String {
         switch event.keyCode {
-        case 122: return "f1"
-        case 120: return "f2"
-        case 99: return "f3"
-        case 118: return "f4"
-        case 96: return "f5"
-        case 97: return "f6"
-        case 98: return "f7"
-        case 100: return "f8"
-        case 101: return "f9"
-        case 109: return "f10"
-        case 103: return "f11"
-        case 111: return "f12"
-        case 105: return "f13"
-        case 107: return "f14"
-        case 113: return "f15"
-        case 106: return "f16"
-        case 64: return "f17"
-        case 79: return "f18"
-        case 80: return "f19"
-        case 90: return "f20"
-        case 36: return "return"
-        case 48: return "tab"
-        case 51: return "delete"
-        case 53: return "escape"
-        case 115: return "home"
-        case 116: return "pageup"
-        case 117: return "forwarddelete"
-        case 119: return "end"
-        case 121: return "pagedown"
-        case 123: return "left"
-        case 124: return "right"
-        case 125: return "down"
-        case 126: return "up"
+        case 122:
+            return "f1"
+        case 120:
+            return "f2"
+        case 99:
+            return "f3"
+        case 118:
+            return "f4"
+        case 96:
+            return "f5"
+        case 97:
+            return "f6"
+        case 98:
+            return "f7"
+        case 100:
+            return "f8"
+        case 101:
+            return "f9"
+        case 109:
+            return "f10"
+        case 103:
+            return "f11"
+        case 111:
+            return "f12"
+        case 105:
+            return "f13"
+        case 107:
+            return "f14"
+        case 113:
+            return "f15"
+        case 106:
+            return "f16"
+        case 64:
+            return "f17"
+        case 79:
+            return "f18"
+        case 80:
+            return "f19"
+        case 90:
+            return "f20"
+        case 36:
+            return "return"
+        case 48:
+            return "tab"
+        case 51:
+            return "delete"
+        case 53:
+            return "escape"
+        case 115:
+            return "home"
+        case 116:
+            return "pageup"
+        case 117:
+            return "forwarddelete"
+        case 119:
+            return "end"
+        case 121:
+            return "pagedown"
+        case 123:
+            return "left"
+        case 124:
+            return "right"
+        case 125:
+            return "down"
+        case 126:
+            return "up"
         default:
             return event.charactersIgnoringModifiers?.lowercased() ?? ""
         }
@@ -946,11 +1410,16 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
                 continue
             }
             switch escaped {
-            case "e": result.append("\u{1b}")
-            case "n": result.append("\n")
-            case "r": result.append("\r")
-            case "t": result.append("\t")
-            case "\\": result.append("\\")
+            case "e":
+                result.append("\u{1b}")
+            case "n":
+                result.append("\n")
+            case "r":
+                result.append("\r")
+            case "t":
+                result.append("\t")
+            case "\\":
+                result.append("\\")
             default:
                 result.append("\\")
                 result.append(escaped)
@@ -960,32 +1429,74 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     private func scheduleFocusIfNeeded() {
-        guard !didRequestFocus, !pendingFocus else { return }
+        guard !didRequestFocus, !pendingFocus else {
+            return
+        }
         pendingFocus = true
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             self.pendingFocus = false
             self.focusIfNeeded()
         }
     }
 
+    /// Automatic focus requests preserve editors and keyboard navigation in window chrome.
+    static func canAutomaticallyFocus(from responder: NSResponder?, in window: NSWindow) -> Bool {
+        if let view = responder as? NSView, view.isHiddenOrHasHiddenAncestor {
+            return true
+        }
+        return responder == nil || responder === window || responder is AppTerminalView || responder is RemoteTerminalView
+    }
+
     private func focusIfNeeded() {
-        guard !didRequestFocus, let terminal = surface else { return }
-        guard let window = terminal.window else {
-            scheduleFocusIfNeeded()
+        guard !didRequestFocus, let terminal = surface else {
+            return
+        }
+        guard let window = terminal.window, !terminal.isHiddenOrHasHiddenAncestor else {
             return
         }
         registerWindowIfAvailable()
         // A view update can request focus while the app is in the background.
         // Do not let an internal focus request activate the app or raise a window.
-        guard NSApp.isActive, window.isKeyWindow else { return }
+        guard NSApp.isActive, window.isKeyWindow else {
+            return
+        }
+        guard Self.canAutomaticallyFocus(from: window.firstResponder, in: window) else {
+            return
+        }
         window.makeFirstResponder(terminal)
         didRequestFocus = true
         didBecomeFocused()
     }
 
+    func surfaceDidMoveToWindow() {
+        registerWindowIfAvailable()
+        if surface?.window != nil {
+            scheduleStartIfNeeded()
+            scheduleFocusIfNeeded()
+        }
+    }
+
     private func registerWindowIfAvailable() {
-        guard let window = surface?.window else { return }
+        guard workspace?.participatesInWindow != false else {
+            return
+        }
+        if observedWindow !== surface?.window {
+            if let windowKeyObserver {
+                NotificationCenter.default.removeObserver(windowKeyObserver)
+            }
+            if let windowUpdateObserver {
+                NotificationCenter.default.removeObserver(windowUpdateObserver)
+            }
+            windowKeyObserver = nil
+            windowUpdateObserver = nil
+            observedWindow = nil
+        }
+        guard let window = surface?.window else {
+            return
+        }
         TerminalSessionRegistry.shared.register(controller: self, workspace: workspace, for: window)
         // RestoreStore brings the terminal windows back. AppKit restoration
         // would bring them back a second time, without their panes.
@@ -994,8 +1505,11 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         updateWindowTransparency()
     }
 
+    @ObservationIgnored private var lastObservedResponder: ObjectIdentifier?
     private func observeWindowKeyState(for window: NSWindow) {
-        guard observedWindow !== window else { return }
+        guard observedWindow !== window else {
+            return
+        }
         if let windowKeyObserver {
             NotificationCenter.default.removeObserver(windowKeyObserver)
         }
@@ -1003,16 +1517,21 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             NotificationCenter.default.removeObserver(windowUpdateObserver)
         }
         observedWindow = window
+        lastObservedResponder = nil
         windowKeyObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
             queue: .main
         ) { [weak self, weak window] _ in
             Task { @MainActor [weak self, weak window] in
-                self?.setHasActivity(false)
-                if let window {
-                    TerminalWindowAppearance.scheduleChromeRefresh(for: window)
+                guard
+                    let self, let window, self.observedWindow === window,
+                    self.surface?.window === window,
+                    self.surface?.isHiddenOrHasHiddenAncestor == false
+                else {
+                    return
                 }
+                self.setHasActivity(false)
             }
         }
         windowUpdateObserver = NotificationCenter.default.addObserver(
@@ -1023,36 +1542,47 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             // didUpdate posts on nearly every pass of the event loop, once per
             // pane. Test the responder before spending a task on it.
             MainActor.assumeIsolated {
-                guard let self, let window, window.isKeyWindow, let surface = self.surface,
-                      window.firstResponder === surface else { return }
+                guard let self, let window else {
+                    return
+                }
+                let responder = window.firstResponder.map(ObjectIdentifier.init)
+                let changed = self.lastObservedResponder != responder
+                self.lastObservedResponder = responder
+                guard changed, window.isKeyWindow, let surface = self.surface, window.firstResponder === surface else {
+                    return
+                }
                 self.didBecomeFocused()
             }
         }
-        if window.isKeyWindow {
+        if window.isKeyWindow, surface?.isHiddenOrHasHiddenAncestor == false {
             setHasActivity(false)
         }
     }
 
     private func setHasActivity(_ hasActivity: Bool) {
-        guard self.hasActivity != hasActivity else { return }
+        guard self.hasActivity != hasActivity else {
+            return
+        }
         self.hasActivity = hasActivity
         updateWindowTitle()
     }
 
     func scheduleStartIfNeeded() {
-        guard startsProcess, !didStartProcess, !pendingStart, !awaitingRestore else { return }
+        guard !isTerminated, startsProcess, !didStartProcess, !pendingStart, !awaitingRestore else {
+            return
+        }
         pendingStart = true
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             self.pendingStart = false
             self.startShellIfReady()
         }
     }
 
     private func startShellIfReady() {
-        guard !didStartProcess, !awaitingRestore, let terminal else { return }
-        guard terminal.window != nil else {
-            scheduleStartIfNeeded()
+        guard !isTerminated, !didStartProcess, !awaitingRestore, let terminal else {
             return
         }
         terminal.layoutSubtreeIfNeeded()
@@ -1068,14 +1598,18 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
         let params = ProfileApplier.launchParameters(for: profile, initialDirectory: launchDirectory)
         directoryTracker.launch = params.currentDirectory
-        terminal.startProcess(executable: params.executable,
-                              args: params.args,
-                              environment: params.environment,
-                              execName: params.execName,
-                              currentDirectory: params.currentDirectory)
-        terminal.sizeChanged(source: terminal,
-                             newCols: dimensions.cols,
-                             newRows: dimensions.rows)
+        terminal.startProcess(
+            executable: params.executable,
+            args: params.args,
+            environment: params.environment,
+            execName: params.execName,
+            currentDirectory: params.currentDirectory
+        )
+        terminal.sizeChanged(
+            source: terminal,
+            newCols: dimensions.cols,
+            newRows: dimensions.rows
+        )
     }
 
     private func restoreBufferIfNeeded(on terminal: LocalProcessTerminalView) {
@@ -1085,9 +1619,6 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             if (try? ScrollbackFile.validate(replayText)) != nil {
                 terminal.feed(text: ScrollbackFile.terminalBytes(replayText))
             }
-        } else if let legacyDocumentText {
-            self.legacyDocumentText = nil
-            terminal.feed(text: ScrollbackFile.terminalBytes(legacyDocumentText))
         }
     }
 
@@ -1099,7 +1630,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             } catch {
                 return
             }
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled, let self else {
+                return
+            }
             self.titleUpdateTask = nil
             self.displayedTerminalTitle = self.postedTitle
             self.updateWindowTitle()
@@ -1107,75 +1640,72 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     private func updateWindowTitle() {
-        guard let terminal = surface else { return }
+        guard let terminal = surface else {
+            return
+        }
         let dimensions = terminal.gridDimensions
         var components: [String] = []
 
-        func appendIfPresent (_ value: String?) {
-            guard let value, !value.isEmpty else { return }
-            components.append (value)
+        func appendIfPresent(_ value: String?) {
+            guard let value, !value.isEmpty else {
+                return
+            }
+            components.append(value)
         }
 
-        appendIfPresent (profile.titleOverride)
-        if profile.titleComponents.contains (.activeTitle) {
-            appendIfPresent (displayedTerminalTitle)
+        appendIfPresent(profile.titleOverride)
+        if profile.titleComponents.contains(.activeTitle) {
+            appendIfPresent(displayedTerminalTitle)
         }
-        if profile.titleComponents.contains (.dimensions) {
-            appendIfPresent ("\(dimensions.cols) x \(dimensions.rows)")
+        if profile.titleComponents.contains(.dimensions) {
+            appendIfPresent("\(dimensions.cols) x \(dimensions.rows)")
         }
         if let directory = displayedDirectory {
-            if profile.titleComponents.contains (.fullPath) {
-                appendIfPresent (directory)
-            } else if profile.titleComponents.contains (.workingDirectory) {
-                appendIfPresent (URL (fileURLWithPath: directory).lastPathComponent)
+            if profile.titleComponents.contains(.fullPath) {
+                appendIfPresent(directory)
+            } else if profile.titleComponents.contains(.workingDirectory) {
+                appendIfPresent(URL(fileURLWithPath: directory).lastPathComponent)
             }
         }
-        if profile.titleComponents.contains (.profileName) {
-            appendIfPresent (profile.name)
+        if profile.titleComponents.contains(.profileName) {
+            appendIfPresent(profile.name)
         }
 
-        let newTitle = components.joined (separator: " — ")
+        let newTitle = components.joined(separator: " — ")
         var presentation = panePresentation
         presentation.title = newTitle.isEmpty ? "Terminal" : newTitle
         presentation.directory = displayedDirectory ?? launchDirectory
-        presentation.hasActivity = hasActivity
+        presentation.hasActivity = programStatus.quiet
+        presentation.status = programStatus.tabStatus
         if presentation != panePresentation {
             panePresentation = presentation
+        }
+        var metadata = presentation
+        metadata.hasActivity = false
+        metadata.status = .none
+        if metadata != windowPresentation {
+            windowPresentation = metadata
         }
         if let focused = workspace?.focusedController, focused !== self {
             focused.updateWindowTitle()
             return
         }
-        guard let window = terminal.window else { return }
-        let document = window.windowController?.document as? NSDocument
-        let documentName = document?.displayName ?? ""
-        let title = newTitle.isEmpty ? documentName : newTitle
-        let hasPaneActivity = workspace?.controllers.contains(where: \.hasActivity)
-            ?? hasActivity
-        let effectiveTitle = hasPaneActivity ? "● \(title)" : title
-        window.title = effectiveTitle
+        let effectiveTitle = newTitle.isEmpty ? "Terminal" : newTitle
         if displayedWindowTitle != effectiveTitle {
             displayedWindowTitle = effectiveTitle
-        }
-
-        if !newTitle.isEmpty {
-            document?.displayName = newTitle
-        }
-        if let workspace {
-            TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
         }
     }
 
     func updatePaneExecutablePath(_ path: String?) {
-        guard panePresentation.executablePath != path else { return }
-        panePresentation.executablePath = path
-        if let workspace, let window = surface?.window ?? workspace.focusedController?.surface?.window {
-            TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
+        guard panePresentation.executablePath != path else {
+            return
         }
+        panePresentation.executablePath = path
+        windowPresentation.executablePath = path
     }
 
     private func updateLogging() {
-        NSUserDefaultsController.shared.defaults.set(logging, forKey: "LogHostOutput")
+        NSUserDefaultsController.shared.defaults.set(logging, forKey: TerminalSessionController.logHostOutputKey)
         let path = logging ? "\(FileManager.default.homeDirectoryForCurrentUser.path)/Downloads/Logs" : nil
         terminal?.setHostLogging(directory: path)
     }
@@ -1212,7 +1742,9 @@ extension TerminalSessionController {
     /// nil, and the pane falls back to a local shell, when that fails.
     @MainActor
     func makePersistentView() -> RemoteTerminalView? {
-        if let remoteDestination { return makeHostPersistentView(destination: remoteDestination) }
+        if let remoteDestination {
+            return makeHostPersistentView(destination: remoteDestination)
+        }
         let font = ProfileApplier.font(for: profile)
         if let restoration = pendingSessionRestore {
             // The session ended (the Mac restarted). The pane shows at once;
@@ -1247,9 +1779,12 @@ extension TerminalSessionController {
             persistentView = view
             persistentSessionID = sessionID
             attachSessionID = nil
-            session.start(size: WireGridSize(columns: profile.columns, rows: profile.rows),
-                          focused: false,
-                          scale: Int(((NSScreen.main?.backingScaleFactor ?? 2) * 100).rounded()))
+            session.start(
+                size: WireGridSize(columns: profile.columns, rows: profile.rows),
+                focused: false,
+                scale: Int(((NSScreen.main?.backingScaleFactor ?? 2) * 100).rounded()),
+                screenChecksumReports: profile.screenChecksumReports, framesEnabled: framesVisible != false
+            )
             attachPersistentView()
             return view
         } catch {
@@ -1257,7 +1792,9 @@ extension TerminalSessionController {
             let alert = NSAlert()
             alert.messageText = "Could not start a persistent session"
             alert.informativeText = error.localizedDescription
-            DispatchQueue.main.async { alert.runModal() }
+            DispatchQueue.main.async {
+                alert.runModal()
+            }
             return nil
         }
     }
@@ -1269,13 +1806,11 @@ extension TerminalSessionController {
             showReplacementError(PersistentSessionError.helperMissing)
             return
         }
-        var launch = PersistentSessions.makeLaunch(profile: profile, workingDirectory: launchDirectory,
-                                                   columns: profile.columns, rows: profile.rows,
-                                                   cellWidth: 0, cellHeight: 0)
-        if let text = legacyDocumentText {
-            legacyDocumentText = nil
-            launch.replay = text
-        }
+        let launch = PersistentSessions.makeLaunch(
+            profile: profile, workingDirectory: launchDirectory,
+            columns: profile.columns, rows: profile.rows,
+            cellWidth: 0, cellHeight: 0
+        )
         createSession(launch, helperPath: helperPath)
     }
 
@@ -1283,14 +1818,27 @@ extension TerminalSessionController {
     /// session in this pane. When the pane closes before the helper is
     /// ready, the new session ends. `created` runs before the attach.
     @MainActor
-    func createSession(_ launch: SessionLaunch, helperPath: String,
-                       created: @escaping @MainActor () -> Void = {}) {
+    @discardableResult
+    func createSession(
+        _ launch: SessionLaunch, helperPath: String,
+        created: @escaping @MainActor () -> Void = {}
+    ) -> Task<Void, Never> {
         Task { [weak self] in
-            let result = await Task.detached(priority: .userInitiated) {
-                Result { try PersistentSessions.directory().create(launch, helperPath: helperPath) }
-            }.value
+            let result: Result<SessionRecord, Error>
+            do {
+                let directory = try PersistentSessions.directory()
+                result = await Task.detached(priority: .userInitiated) {
+                    Result {
+                        try directory.create(launch, helperPath: helperPath)
+                    }
+                }.value
+            } catch {
+                result = .failure(error)
+            }
             guard let self, !self.persistentDetached else {
-                if case .success(let record) = result { try? PersistentSessions.directory().terminate(record.id) }
+                if case .success(let record) = result {
+                    try? PersistentSessions.directory().terminate(record.id)
+                }
                 return
             }
             switch result {
@@ -1317,7 +1865,11 @@ extension TerminalSessionController {
         attachPersistentView()
         updateRemoteBanner(state: .resolving)
         showRestoredRows()
-        if connectsWhenVisible { connectRemoteHostWhenVisible() } else { connectRemoteHost() }
+        if connectsWhenVisible {
+            connectRemoteHostWhenVisible()
+        } else {
+            connectRemoteHost()
+        }
         return view
     }
 
@@ -1334,21 +1886,29 @@ extension TerminalSessionController {
     /// pane's window is observed.
     @MainActor
     func connectIfWindowVisible() {
-        guard waitsForVisibleWindow else { return }
+        guard waitsForVisibleWindow else {
+            return
+        }
         let window = persistentView?.window
         if let window, window.occlusionState.contains(.visible) {
             stopWaitingForVisibleWindow()
             connectRemoteHost()
             return
         }
-        guard window !== visibilityWindow || visibilityObserver == nil else { return }
+        guard window !== visibilityWindow || visibilityObserver == nil else {
+            return
+        }
         removeVisibilityObserver()
-        guard let window else { return }
+        guard let window else {
+            return
+        }
         visibilityWindow = window
         visibilityObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.connectIfWindowVisible() }
+            MainActor.assumeIsolated {
+                self?.connectIfWindowVisible()
+            }
         }
     }
 
@@ -1360,7 +1920,9 @@ extension TerminalSessionController {
 
     @MainActor
     private func removeVisibilityObserver() {
-        if let visibilityObserver { NotificationCenter.default.removeObserver(visibilityObserver) }
+        if let visibilityObserver {
+            NotificationCenter.default.removeObserver(visibilityObserver)
+        }
         visibilityObserver = nil
         visibilityWindow = nil
     }
@@ -1368,7 +1930,9 @@ extension TerminalSessionController {
     /// Shows the new session that replaces an ended one in this pane.
     @MainActor
     func attachReplacementSession(_ id: String) {
-        guard let view = persistentView, !persistentDetached else { return }
+        guard let view = persistentView, !persistentDetached else {
+            return
+        }
         do {
             let socket = try PersistentSessions.directory().connect(id)
             let session = makeRemoteSession(socket: socket)
@@ -1376,8 +1940,12 @@ extension TerminalSessionController {
             persistentSessionID = id
             // A view that is not laid out yet starts with the profile's size.
             let grid = view.wireGridSize
-            let size = grid.columns > 1 && grid.rows > 1 ? grid : WireGridSize(columns: profile.columns, rows: profile.rows)
-            session.start(size: size, focused: view.hasFocus, scale: view.displayScale)
+            let size =
+                grid.columns > 1 && grid.rows > 1 ? grid : WireGridSize(columns: profile.columns, rows: profile.rows)
+            session.start(
+                size: size, focused: view.hasFocus, scale: view.displayScale,
+                screenChecksumReports: profile.screenChecksumReports, framesEnabled: framesVisible != false
+            )
             // The new session needs the theme; the view keeps its other settings.
             applyPersistentAppearance(to: view, colorsOnly: true)
         } catch {
@@ -1387,32 +1955,52 @@ extension TerminalSessionController {
 
     @MainActor
     func showReplacementError(_ error: Error) {
-        guard !persistentDetached else { return }
-        persistentView?.showBanner("Could not start a persistent session: \(error.localizedDescription)",
-                                   actionTitle: "Close") { [weak self] in
+        guard !persistentDetached else {
+            return
+        }
+        persistentView?.showBanner(
+            "Could not start a persistent session: \(error.localizedDescription)",
+            actionTitle: "Close"
+        ) { [weak self] in
             self?.closePaneOrWindow()
         }
     }
 
     @MainActor
     private func connectRemoteHost() {
-        guard let destination = remoteDestination, !persistentDetached, !remoteLinking else { return }
+        guard let destination = remoteDestination, !persistentDetached, !remoteLinking else {
+            return
+        }
         remoteLinking = true
         RemoteHosts.shared.link(destination: destination) { [weak self] result in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             self.remoteLinking = false
-            guard !self.persistentDetached else { return }
+            guard !self.persistentDetached else {
+                return
+            }
             switch result {
             case .success(let link):
                 self.hostLink = link
                 // The state callback can open the pane first; openRemotePane opens it only once.
-                RemoteHosts.shared.observe(link: link, observer: self.id,
-                    state: { [weak self] state in self?.remoteLinkChanged(state) },
+                RemoteHosts.shared.observe(
+                    link: link, observer: self.id,
+                    state: { [weak self] state in
+                        self?.remoteLinkChanged(state)
+                    },
                     notice: { [weak self, weak link] notice in
                         self?.remoteNotice = notice
-                        if let link { self?.updateRemoteBanner(state: link.state) }
-                    }, window: { [weak self] in self?.surface?.window },
-                    install: { [weak self] prompt in self?.showRemoteInstall(prompt) })
+                        if let link {
+                            self?.updateRemoteBanner(state: link.state)
+                        }
+                    }, window: { [weak self] in
+                        self?.surface?.window
+                    },
+                    install: { [weak self] prompt in
+                        self?.showRemoteInstall(prompt)
+                    }
+                )
                 self.openRemotePane(link: link, sessionID: self.persistentSessionID)
             case .failure(let error):
                 self.showRemoteError(error)
@@ -1424,25 +2012,36 @@ extension TerminalSessionController {
     /// bridge starts the new session from its saved state.
     @MainActor
     private func openRemotePane(link: HostLink, sessionID: String?, restoring: String? = nil) {
-        guard let view = persistentView, !persistentDetached, !remoteOpening, !remoteSessionEnded else { return }
+        guard let view = persistentView, !persistentDetached, !remoteOpening, !remoteSessionEnded else {
+            return
+        }
         remoteOpening = true
         remoteOpenFailed = false
         let restoring = restoring ?? (sessionID == nil ? remotePendingRestore : nil)
-        var launch = PersistentSessions.makeRemoteLaunch(profile: profile, destination: remoteDestination ?? link.destination)
+        var launch = PersistentSessions.makeRemoteLaunch(
+            profile: profile, destination: remoteDestination ?? link.destination,
+            workingDirectory: restoring != nil ? directoryTracker.launch : launchDirectory
+        )
         launch.restoreSessionID = restoring
-        if restoring != nil { launch.workingDirectory = directoryTracker.launch }
-        let socket = link.openPane(sessionID: sessionID, launch: sessionID == nil ? launch : nil, created: { [weak self] id in
-            // Keep the ID also when the attach fails, so that a retry does not create another session.
-            DispatchQueue.main.async { [weak self] in
-                guard let self, !self.persistentDetached else { return }
-                self.persistentSessionID = id
-                self.attachSessionID = nil
-                self.remotePendingRestore = nil
+        let socket = link.openPane(
+            sessionID: sessionID, launch: sessionID == nil ? launch : nil,
+            created: { [weak self] id in
+                // Keep the ID also when the attach fails, so that a retry does not create another session.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, !self.persistentDetached else {
+                        return
+                    }
+                    self.persistentSessionID = id
+                    self.attachSessionID = nil
+                    self.remotePendingRestore = nil
+                }
             }
-        }) { [weak self, weak link] result in
+        ) { [weak self, weak link] result in
             let generation = link?.connectionGeneration ?? 0
             DispatchQueue.main.async { [weak self, weak link] in
-                guard let self, let link, !self.persistentDetached else { return }
+                guard let self, let link, !self.persistentDetached else {
+                    return
+                }
                 self.remoteOpening = false
                 switch result {
                 case .success(let id):
@@ -1459,45 +2058,69 @@ extension TerminalSessionController {
                     } else if let sessionID, case .connected = link.state {
                         link.listSessions { [weak self] records in
                             DispatchQueue.main.async { [weak self] in
-                                guard let self, !self.persistentDetached else { return }
-                                if case .success(let records) = records, !records.contains(where: { $0.id == sessionID }),
-                                   self.remoteRestoreSessionID == sessionID {
+                                guard let self, !self.persistentDetached else {
+                                    return
+                                }
+                                if
+                                    case .success(let records) = records,
+                                    !records.contains(where: {
+                                        $0.id == sessionID
+                                    }),
+                                    self.remoteRestoreSessionID == sessionID {
                                     // A restored pane whose session ended (the host
                                     // restarted): start a new session in its place.
                                     self.remoteRestoreSessionID = nil
                                     self.remotePendingRestore = sessionID
                                     self.persistentSessionID = nil
                                     self.openRemotePane(link: link, sessionID: nil)
-                                } else if case .success(let records) = records, !records.contains(where: { $0.id == sessionID }) {
+                                } else if
+                                    case .success(let records) = records,
+                                    !records.contains(where: {
+                                        $0.id == sessionID
+                                    }) {
                                     self.remoteSessionEnded = true
                                     self.persistentView?.remoteInputEnabled = false
-                                    self.persistentView?.showBanner("The session ended.", actionTitle: "Close") { [weak self] in
+                                    self.persistentView?.showBanner("The session ended.", actionTitle: "Close") {
+                                        [weak self] in
                                         self?.closePaneOrWindow()
                                     }
-                                } else { self.showRemoteError(error) }
+                                } else {
+                                    self.showRemoteError(error)
+                                }
                             }
                         }
-                    } else { self.showRemoteError(error) }
+                    } else {
+                        self.showRemoteError(error)
+                    }
                 }
             }
         }
-        guard socket >= 0 else { remoteOpening = false; return }
+        guard socket >= 0 else {
+            remoteOpening = false
+            return
+        }
         let session = makeRemoteSession(socket: socket)
         // Before the start: the preload must come before the first frame.
         preloadRestoredRows(in: session)
         view.replaceSession(session)
         view.remoteInputEnabled = false
         updateRemoteBanner(state: link.state)
-        session.start(size: view.wireGridSize, focused: view.hasFocus, scale: view.displayScale)
+        session.start(
+            size: view.wireGridSize, focused: view.hasFocus, scale: view.displayScale,
+            screenChecksumReports: profile.screenChecksumReports, framesEnabled: framesVisible != false
+        )
         applyPersistentAppearance(to: view, colorsOnly: true)
     }
 
     @MainActor
     private func remoteLinkChanged(_ state: HostLinkState) {
-        guard !persistentDetached, !remoteSessionEnded, persistentView?.session.state.exitStatus == nil else { return }
+        guard !persistentDetached, !remoteSessionEnded, persistentView?.session.state.exitStatus == nil else {
+            return
+        }
         updateRemoteBanner(state: state)
-        if case .connected(_, let generation) = state, let link = hostLink,
-           generation > remoteGeneration, !remoteOpening {
+        if
+            case .connected(_, let generation) = state, let link = hostLink,
+            generation > remoteGeneration, !remoteOpening {
             openRemotePane(link: link, sessionID: persistentSessionID)
         }
     }
@@ -1505,21 +2128,35 @@ extension TerminalSessionController {
     /// Shows the install question above the terminal, or removes it.
     @MainActor
     private func showRemoteInstall(_ prompt: RemoteInstallPrompt?) {
-        guard let container = persistentView?.superview as? TerminalSessionContainerView else { return }
+        guard let container = persistentView?.superview as? TerminalSessionContainerView else {
+            return
+        }
         if let prompt {
-            if (container.topBanner as? RemoteInstallBanner)?.prompt == prompt { return }
-            let banner = RemoteInstallBanner(prompt: prompt, isActive: { [weak self] in
-                guard let view = self?.persistentView else { return false }
-                return view.window?.firstResponder === view
-            }, answer: { [weak self] accepted in
-                if !accepted { self?.remoteInstallDeclined = true }
-                RemoteHosts.shared.answerInstall(id: prompt.id, accepted: accepted)
-            })
+            if (container.topBanner as? RemoteInstallBanner)?.prompt == prompt {
+                return
+            }
+            let banner = RemoteInstallBanner(
+                prompt: prompt,
+                isActive: { [weak self] in
+                    guard let view = self?.persistentView else {
+                        return false
+                    }
+                    return view.window?.firstResponder === view
+                },
+                answer: { [weak self] accepted in
+                    if !accepted {
+                        self?.remoteInstallDeclined = true
+                    }
+                    RemoteHosts.shared.answerInstall(id: prompt.id, accepted: accepted)
+                }
+            )
             container.setTopBanner(banner)
         } else if container.topBanner is RemoteInstallBanner {
             container.setTopBanner(nil)
         }
-        if let hostLink { updateRemoteBanner(state: hostLink.state) }
+        if let hostLink {
+            updateRemoteBanner(state: hostLink.state)
+        }
     }
 
     private var isShowingRemoteInstall: Bool {
@@ -1529,45 +2166,76 @@ extension TerminalSessionController {
     /// After Not Now, the pane tells that no session started.
     @MainActor
     private func showRemoteInstallDeclined() {
-        persistentView?.showBanner("Helper not installed. The session was not started.", actionTitle: "Retry",
-            action: { [weak self] in self?.reconnectPersistentSession() }, secondaryActionTitle: "Close",
-            secondaryAction: { [weak self] in self?.closePaneOrWindow() })
+        persistentView?.showBanner(
+            "Helper not installed. The session was not started.", actionTitle: "Retry",
+            action: { [weak self] in
+                self?.reconnectPersistentSession()
+            }, secondaryActionTitle: "Close",
+            secondaryAction: { [weak self] in
+                self?.closePaneOrWindow()
+            }
+        )
     }
 
     @MainActor
     private func updateRemoteBanner(state: HostLinkState) {
-        guard let view = persistentView, let destination = remoteDestination, !remoteSessionEnded,
-              view.session.state.exitStatus == nil else { return }
-        if case .connected = state {
-            if remoteOpenFailed { return }
-            view.remoteInputEnabled = !remoteOpening && view.session.state.connected
+        guard
+            let view = persistentView, let destination = remoteDestination, !remoteSessionEnded,
+            view.session.state.exitStatus == nil
+        else {
+            return
         }
-        else { view.remoteInputEnabled = false }
+        if case .connected = state {
+            if remoteOpenFailed {
+                return
+            }
+            view.remoteInputEnabled = !remoteOpening && view.session.state.connected
+        } else {
+            view.remoteInputEnabled = false
+        }
         if isShowingRemoteInstall {
             // The question above the terminal tells what happens.
             view.hideBanner()
         } else if remoteInstallDeclined, case .failed = state {
             showRemoteInstallDeclined()
         } else if let remoteNotice {
-            view.showBanner(remoteNotice, actionTitle: "Cancel") { [weak self] in self?.closePaneOrWindow() }
+            view.showBanner(remoteNotice, actionTitle: "Cancel") { [weak self] in
+                self?.closePaneOrWindow()
+            }
         } else if let content = RemoteBannerContent.make(state: state, destination: destination) {
-            view.showBanner(content.text, actionTitle: content.primary?.title,
-                action: content.primary.map { button in { [weak self] in self?.performRemoteAction(button.action) } },
+            view.showBanner(
+                content.text, actionTitle: content.primary?.title,
+                action: content.primary.map { button in
+                    { [weak self] in
+                        self?.performRemoteAction(button.action)
+                    }
+                },
                 secondaryActionTitle: content.secondary?.title,
-                secondaryAction: content.secondary.map { button in { [weak self] in self?.performRemoteAction(button.action) } })
-        } else { view.hideBanner() }
+                secondaryAction: content.secondary.map { button in
+                    { [weak self] in
+                        self?.performRemoteAction(button.action)
+                    }
+                }
+            )
+        } else {
+            view.hideBanner()
+        }
     }
 
     @MainActor
     func refreshRemoteConnectionDisplay() {
-        if let hostLink, remoteDestination != nil { updateRemoteBanner(state: hostLink.state) }
+        if let hostLink, remoteDestination != nil {
+            updateRemoteBanner(state: hostLink.state)
+        }
     }
 
     @MainActor
     private func performRemoteAction(_ action: RemoteBannerAction) {
         switch action {
-        case .close: closePaneOrWindow()
-        case .reconnect, .signIn, .retry: reconnectPersistentSession()
+        case .close:
+            closePaneOrWindow()
+        case .reconnect, .signIn, .retry:
+            reconnectPersistentSession()
         }
     }
 
@@ -1575,18 +2243,33 @@ extension TerminalSessionController {
     private func showRemoteError(_ error: Error) {
         remoteOpenFailed = true
         persistentView?.remoteInputEnabled = false
-        if remoteInstallDeclined { showRemoteInstallDeclined(); return }
-        persistentView?.showBanner((error as? SSHError)?.message ?? String(describing: error), actionTitle: "Retry",
-            action: { [weak self] in self?.reconnectPersistentSession() }, secondaryActionTitle: "Close",
-            secondaryAction: { [weak self] in self?.closePaneOrWindow() })
+        if remoteInstallDeclined {
+            showRemoteInstallDeclined()
+            return
+        }
+        persistentView?.showBanner(
+            (error as? SSHError)?.message ?? String(describing: error), actionTitle: "Retry",
+            action: { [weak self] in
+                self?.reconnectPersistentSession()
+            }, secondaryActionTitle: "Close",
+            secondaryAction: { [weak self] in
+                self?.closePaneOrWindow()
+            }
+        )
     }
 
     func makeRemoteSession(socket: Int32) -> RemoteSession {
+        // The first snapshot of a new attachment includes output already seen on the old connection.
+        remoteOutputSerial = nil
         let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
-        let session = RemoteSession(socket: socket, clientName: "Tecolot", build: version, clientInstance: clientInstance)
+        let session = RemoteSession(
+            socket: socket, clientName: "Tecolot", build: version, clientInstance: clientInstance
+        )
         session.onEvent = { [weak self, weak session] event in
             DispatchQueue.main.async { [weak self, weak session] in
-                guard let self, self.persistentView?.session === session else { return }
+                guard let self, self.persistentView?.session === session else {
+                    return
+                }
                 self.handlePersistentEvent(event)
             }
         }
@@ -1598,18 +2281,29 @@ extension TerminalSessionController {
     func reconnectPersistentSession() {
         if remoteDestination != nil {
             remoteInstallDeclined = false
-            guard let hostLink else { connectRemoteHost(); return }
-            if case .connected = hostLink.state { openRemotePane(link: hostLink, sessionID: persistentSessionID) }
-            else { hostLink.reconnectNow() }
+            guard let hostLink else {
+                connectRemoteHost()
+                return
+            }
+            if case .connected = hostLink.state {
+                openRemotePane(link: hostLink, sessionID: persistentSessionID)
+            } else {
+                hostLink.reconnectNow()
+            }
             return
         }
-        guard let persistentView, let sessionID = persistentSessionID else { return }
+        guard let persistentView, let sessionID = persistentSessionID else {
+            return
+        }
         do {
             let socket = try PersistentSessions.directory().connect(sessionID)
             let session = makeRemoteSession(socket: socket)
             persistentView.replaceSession(session)
-            session.start(size: persistentView.wireGridSize, focused: persistentView.hasFocus,
-                          scale: persistentView.displayScale)
+            session.start(
+                size: persistentView.wireGridSize, focused: persistentView.hasFocus,
+                scale: persistentView.displayScale, screenChecksumReports: profile.screenChecksumReports,
+                framesEnabled: framesVisible != false
+            )
             applyPersistentAppearance(to: persistentView, colorsOnly: true)
         } catch {
             persistentView.showBanner("The session is no longer running.", actionTitle: "Close") { [weak self] in
@@ -1620,18 +2314,22 @@ extension TerminalSessionController {
 
     @MainActor
     func attachPersistentView() {
-        guard let persistentView else { return }
+        guard let persistentView else {
+            return
+        }
         registerWindowIfAvailable()
         if !isConfigured {
             isConfigured = true
             // The same renderer settings as local panes (configureTerminal).
             persistentView.metalBufferingMode = .perFrameAggregated
-            setUseMetalRenderer(UserDefaults.standard.object(forKey: "useMetalRenderer") as? Bool ?? true)
+            setUseMetalRenderer(UserDefaults.standard.object(forKey: TerminalSessionController.useMetalRendererKey) as? Bool ?? TerminalSessionController.useMetalRendererDefault)
             applyAppearance()
             persistentView.shouldSendCommandKeyToTerminal = { [weak persistentView] event in
                 let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
-                guard modifiers == [.command],
-                      event.charactersIgnoringModifiers?.lowercased() == "c" else {
+                guard
+                    modifiers == [.command],
+                    event.charactersIgnoringModifiers?.lowercased() == "c"
+                else {
                     return false
                 }
                 return persistentView?.selectionActive == false
@@ -1659,10 +2357,12 @@ extension TerminalSessionController {
             let ansi = theme.ansi.map(\.terminalColor)
             // The view applies the default colors that a program set, reverse
             // video, and the opacity over these.
-            view.setThemeColors(foreground: theme.foreground.terminalColor,
-                                background: theme.background.terminalColor,
-                                cursor: ProfileApplier.nativeColor(theme.effectiveCursor),
-                                opacity: CGFloat(effectiveBackgroundOpacity))
+            view.setThemeColors(
+                foreground: theme.foreground.terminalColor,
+                background: theme.background.terminalColor,
+                cursor: ProfileApplier.nativeColor(theme.effectiveCursor),
+                opacity: CGFloat(effectiveBackgroundOpacity)
+            )
             view.caretTextColor = ProfileApplier.nativeColor(theme.effectiveCursorText)
             var selection = theme.foreground
             view.effectiveAppearance.performAsCurrentDrawingAppearance {
@@ -1675,14 +2375,22 @@ extension TerminalSessionController {
                 WireRGB(red: color.red, green: color.green, blue: color.blue)
             }
             // The helper answers color queries (OSC 4/10/11) from this theme.
-            view.session.setTheme(SetThemeMessage(palette: ansi.map(rgb),
-                                                  foreground: rgb(theme.foreground.terminalColor),
-                                                  background: rgb(theme.background.terminalColor),
-                                                  cursor: theme.cursor.map { rgb($0.terminalColor) }))
+            view.session.setTheme(
+                SetThemeMessage(
+                    palette: ansi.map(rgb),
+                    foreground: rgb(theme.foreground.terminalColor),
+                    background: rgb(theme.background.terminalColor),
+                    cursor: theme.cursor.map {
+                        rgb($0.terminalColor)
+                    }
+                )
+            )
         }
         if !colorsOnly {
             let font = ProfileApplier.font(for: profile)
-            view.font = persistentFontSize.map { Self.font(font, size: $0) } ?? font
+            view.font = persistentFontSize.map {
+                Self.font(font, size: $0)
+            } ?? font
             view.fontSmoothing = profile.fontSmoothing
             view.useBrightColors = profile.useBrightColorsForBold
             view.optionAsMetaKey = profile.optionAsMetaKey
@@ -1708,9 +2416,6 @@ extension TerminalSessionController {
             noteDirectoryReport(postedDirectory)
             updateWindowTitle()
         case .bell:
-            if profile.bellStyle != .none {
-                NSSound.beep()
-            }
             noteBell()
         case .clipboardCopy(let data):
             // OSC 52 writes, as the local view does by default.
@@ -1730,29 +2435,50 @@ extension TerminalSessionController {
         case .info(let info):
             persistentShellPID = info.shellPID
             updatePaneExecutablePath(info.foreground?.path)
+        case .programStatus(let snapshot):
+            if let previous = remoteOutputSerial, previous != snapshot.outputSerial {
+                noteOutputActivity()
+            }
+            remoteOutputSerial = snapshot.outputSerial
+            programStatus.receive(snapshot)
         case .progress(let progress):
+            if persistentView?.session.state.helperCapabilities.contains(.programStatus) != true {
+                programStatus.receiveProgress(progress)
+            }
             let state = Terminal.ProgressReportState(rawValue: Int(progress.state)) ?? .remove
             // A report that came before this pane attached shows for the
             // time that is left.
-            persistentView?.showProgress(Terminal.ProgressReport(state: state, progress: progress.progress),
-                                         duration: 15 - Double(progress.age) / 1000)
+            persistentView?.showProgress(
+                Terminal.ProgressReport(state: state, progress: progress.progress),
+                duration: 15 - Double(progress.age) / 1000
+            )
         case .notification(let title, let body):
             TerminalNotifier.shared.notify(title: title, body: body, from: self)
         case .closed:
-            guard !persistentDetached, let persistentView,
-                  persistentView.session.state.exitStatus == nil else { return }
+            guard
+                !persistentDetached, let persistentView,
+                persistentView.session.state.exitStatus == nil
+            else {
+                return
+            }
             if remoteDestination != nil {
-                guard let hostLink else { return }
+                guard let hostLink else {
+                    return
+                }
                 updateRemoteBanner(state: hostLink.state)
                 // A link drop reaches the pane before the link state changes;
                 // the reconnect then reopens the pane. When the link stays up,
                 // the session closed only this connection: reopen it once.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    guard let self, let link = self.hostLink, !self.persistentDetached,
-                          !self.remoteSessionEnded, !self.remoteOpening,
-                          self.persistentView?.session.state.connected == false,
-                          case .connected(_, let current) = link.state,
-                          current == self.remoteGeneration else { return }
+                    guard
+                        let self, let link = self.hostLink, !self.persistentDetached,
+                        !self.remoteSessionEnded, !self.remoteOpening,
+                        self.persistentView?.session.state.connected == false,
+                        case .connected(_, let current) = link.state,
+                        current == self.remoteGeneration
+                    else {
+                        return
+                    }
                     if self.remoteReopenedGeneration == current {
                         self.showRemoteError(SSHError(kind: .other, message: "Disconnected from the session."))
                     } else {
@@ -1762,9 +2488,12 @@ extension TerminalSessionController {
                 }
                 return
             }
-            let alive = persistentSessionID.map { id in
-                PersistentSessions.list().contains { $0.id == id && !$0.exited }
-            } ?? false
+            let alive =
+                persistentSessionID.map { id in
+                    PersistentSessions.list().contains {
+                        $0.id == id && !$0.exited
+                    }
+                } ?? false
             if alive {
                 persistentView.showBanner("Disconnected from the session.", actionTitle: "Reconnect") { [weak self] in
                     self?.reconnectPersistentSession()
@@ -1774,8 +2503,17 @@ extension TerminalSessionController {
                     self?.closePaneOrWindow()
                 }
             }
-        case .error:
-            break
+        case .error(let error):
+            // A helper from an older version cannot turn off DECRQCRA, so
+            // programs in the session can still read the screen.
+            if
+                error.failedKind == .setScreenChecksumReports, error.code == .unsupported,
+                !profile.screenChecksumReports {
+                persistentView?.showBanner(
+                    "This session's helper is older and still lets programs read the screen contents. "
+                        + "Start a new session to apply the setting."
+                )
+            }
         }
     }
 }
@@ -1828,7 +2566,7 @@ final class TerminalSessionContainerView: NSView {
             topPaddingView.heightAnchor.constraint(equalToConstant: top),
             leftPaddingView.widthAnchor.constraint(equalToConstant: padding),
             rightPaddingView.widthAnchor.constraint(equalToConstant: padding),
-            bottomPaddingView.heightAnchor.constraint(equalToConstant: padding)
+            bottomPaddingView.heightAnchor.constraint(equalToConstant: padding),
         ]
         terminalTopConstraint = terminal.topAnchor.constraint(equalTo: topPaddingView.bottomAnchor)
         NSLayoutConstraint.activate([
@@ -1885,18 +2623,24 @@ final class TerminalSessionContainerView: NSView {
         resizeObservers.forEach(NotificationCenter.default.removeObserver)
         resizeObservers.removeAll()
 
-        guard let newWindow else { return }
+        guard let newWindow else {
+            return
+        }
         observeLiveResize(of: newWindow)
     }
 
     override func layout() {
         super.layout()
-        guard isShowingResizeFeedback else { return }
+        guard isShowingResizeFeedback else {
+            return
+        }
         updateResizeFeedback()
     }
 
     func setTopBanner(_ banner: NSView?) {
-        guard banner !== topBanner else { return }
+        guard banner !== topBanner else {
+            return
+        }
         NSLayoutConstraint.deactivate(topBannerConstraints)
         topBannerConstraints.removeAll()
         topBanner?.removeFromSuperview()
@@ -1928,7 +2672,9 @@ final class TerminalSessionContainerView: NSView {
     }
 
     func setPadding(_ padding: CGFloat, top: CGFloat) {
-        guard self.padding != padding || topPadding != top else { return }
+        guard self.padding != padding || topPadding != top else {
+            return
+        }
         self.padding = padding
         topPadding = top
         for constraint in paddingConstraints {
@@ -1971,7 +2717,9 @@ final class TerminalSessionContainerView: NSView {
     }
 
     private func updateResizeFeedback() {
-        guard isShowingResizeFeedback else { return }
+        guard isShowingResizeFeedback else {
+            return
+        }
         terminal.layoutSubtreeIfNeeded()
         let dimensions = terminal.gridDimensions
         resizeFeedbackView.show(columns: dimensions.cols, rows: dimensions.rows)
@@ -2024,12 +2772,11 @@ private final class TerminalResizeFeedbackView: NSVisualEffectView {
 
 struct TerminalSessionView: NSViewRepresentable {
     var controller: TerminalSessionController
-    var document: TerminalDocument
 
     func makeNSView(context: Context) -> TerminalSessionContainerView {
         let padding = GlobalAppearanceSettings.storedTerminalPadding
         return TerminalSessionContainerView(
-            terminal: controller.makeTerminalView(document: document),
+            terminal: controller.makeTerminalView(),
             padding: padding.points,
             top: padding.topPoints(cardsEnabled: false)
         )
@@ -2043,188 +2790,203 @@ struct TerminalSessionView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: TerminalSessionContainerView, coordinator: ()) {
-        guard let controller = (nsView.terminal as? AppTerminalView)?.sessionController
-                ?? (nsView.terminal as? RemoteTerminalView)?.sessionController,
-              let window = nsView.window else { return }
+        guard
+            let controller = (nsView.terminal as? AppTerminalView)?.sessionController
+            ?? (nsView.terminal as? RemoteTerminalView)?.sessionController,
+            let window = nsView.window
+        else {
+            return
+        }
         TerminalSessionRegistry.shared.unregister(controller: controller, from: window)
     }
 }
 
-#Preview("Terminal Session") {
+#Preview("Terminal Session"){
     @Previewable @State var controller = TerminalSessionController(startsProcess: false)
 
     TerminalSessionView(
-        controller: controller,
-        document: TerminalDocument()
+        controller: controller
     )
     .frame(width: 720, height: 420)
 }
 
-private enum BellBadge {
-    private static var count = 0
-    private static var didBecomeActiveObserver: NSObjectProtocol?
-
-    static func noteBell() {
-        startObservingIfNeeded()
-        count += 1
-        NSApp.dockTile.badgeLabel = String(count)
-        NSApp.requestUserAttention(.informationalRequest)
-    }
-
-    private static func startObservingIfNeeded() {
-        guard didBecomeActiveObserver == nil else { return }
-        didBecomeActiveObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didBecomeActiveNotification,
-            object: NSApp,
-            queue: .main
-        ) { _ in
-            Self.count = 0
-            NSApp.dockTile.badgeLabel = nil
-        }
-    }
-}
-
+@MainActor
 final class TerminalSessionRegistry {
     static let shared = TerminalSessionRegistry()
-    private final class WindowSessions {
-        final class Entry {
-            weak var controller: TerminalSessionController?
-            weak var workspace: TerminalPaneWorkspace?
+    private struct Key: Hashable {
+        let groupID: UUID
+        let tabID: UUID
+    }
+    private struct Entry {
+        weak var group: TerminalTabGroup?
+        weak var tab: TerminalTab?
+    }
+    private struct UnownedPane {
+        weak var controller: TerminalSessionController?
+    }
+    private var entries: [Key: Entry] = [:]
+    // Standalone pane hosts (previews and tests) have no group yet.
+    private var unownedPanes: [UUID: UnownedPane] = [:]
 
-            init(controller: TerminalSessionController, workspace: TerminalPaneWorkspace?) {
-                self.controller = controller
-                self.workspace = workspace
+    private weak var windowManager: TerminalWindowManager?
+
+    func synchronize(groups: [TerminalTabGroup], manager: TerminalWindowManager) {
+        windowManager = manager
+        for group in groups {
+            for tab in group.tabs {
+                entries[Key(groupID: group.id, tabID: tab.id)] = Entry(group: group, tab: tab)
             }
         }
-
-        var entries: [Entry] = []
-        weak var focusedController: TerminalSessionController?
-        let closeInterceptor: WindowCloseInterceptor
-
-        init(window: NSWindow) {
-            closeInterceptor = WindowCloseInterceptor(window: window)
+        let keys = Set(groups.flatMap { group in
+            group.tabs.map {
+                Key(groupID: group.id, tabID: $0.id)
+            }
+        })
+        entries = entries.filter {
+            keys.contains($0.key)
         }
     }
 
-    private let table = NSMapTable<NSWindow, WindowSessions>(
-        keyOptions: [.weakMemory],
-        valueOptions: [.strongMemory]
-    )
-
-    func register(
-        controller: TerminalSessionController,
-        workspace: TerminalPaneWorkspace?,
-        for window: NSWindow
-    ) {
-        let sessions = table.object(forKey: window) ?? WindowSessions(window: window)
-        let previousController = sessions.focusedController
-            ?? sessions.entries.compactMap(\.controller).first
-        sessions.entries.removeAll { $0.controller == nil }
-        if !sessions.entries.contains(where: { $0.controller === controller }) {
-            sessions.entries.append(WindowSessions.Entry(controller: controller, workspace: workspace))
+    func register(controller: TerminalSessionController, workspace: TerminalPaneWorkspace?, for window: NSWindow) {
+        unownedPanes = unownedPanes.filter {
+            $0.value.controller != nil
         }
-        sessions.focusedController = sessions.focusedController ?? controller
-        table.setObject(sessions, forKey: window)
-        sessions.closeInterceptor.install()
-        let currentController = sessions.focusedController
-            ?? sessions.entries.compactMap(\.controller).first
-        if previousController !== currentController {
-            NotificationCenter.default.post(name: .terminalFocusedPaneDidChange, object: window)
+        if
+            !entries.values.contains(where: {
+                $0.tab?.loadedWorkspace?.contains(controller) == true
+            }) {
+            unownedPanes[controller.id] = UnownedPane(controller: controller)
         }
     }
 
-    func unregister(controller: TerminalSessionController, from window: NSWindow) {
-        guard let sessions = table.object(forKey: window) else { return }
-        let previousController = sessions.focusedController
-            ?? sessions.entries.compactMap(\.controller).first
-        sessions.entries.removeAll { $0.controller == nil || $0.controller === controller }
-        if sessions.focusedController === controller {
-            sessions.focusedController = sessions.entries.compactMap(\.controller).first
+    func unregister(controller: TerminalSessionController, from window: NSWindow? = nil) {
+        unownedPanes.removeValue(forKey: controller.id)
+    }
+
+    func controllers(in group: TerminalTabGroup) -> [TerminalSessionController] {
+        group.tabs.filter {
+            entries[Key(groupID: group.id, tabID: $0.id)]?.tab === $0
         }
-        if sessions.entries.isEmpty {
-            sessions.closeInterceptor.uninstall()
-            table.removeObject(forKey: window)
-            NotificationCenter.default.post(name: .terminalFocusedPaneDidChange, object: window)
-        } else {
-            let currentController = sessions.focusedController
-                ?? sessions.entries.compactMap(\.controller).first
-            if previousController !== currentController {
-                NotificationCenter.default.post(name: .terminalFocusedPaneDidChange, object: window)
+        .flatMap {
+            $0.loadedWorkspace?.controllers ?? []
+        }
+    }
+
+    var allControllers: [TerminalSessionController] {
+        var ids = Set<UUID>()
+        return
+            (entries.values.filter {
+                $0.group != nil
+            }.compactMap(\.tab).flatMap {
+                $0.loadedWorkspace?.controllers ?? []
             }
+                + unownedPanes.values.compactMap(\.controller)).filter {
+                ids.insert($0.id).inserted
+            }
+    }
+
+    func controller(for window: NSWindow?) -> TerminalSessionController? {
+        guard let window else {
+            return nil
+        }
+        if let owner = window.windowController as? TerminalWindowController, owner.isManaged {
+            return owner.group.selectedTab?.loadedWorkspace?.focusedController
+        }
+        let panes = controllers(for: window)
+        return panes.first {
+            $0.surface === window.firstResponder
+        }
+            ?? panes.first?.workspace?.focusedController ?? panes.first
+    }
+
+    func controllers(for window: NSWindow?) -> [TerminalSessionController] {
+        guard let window else {
+            return []
+        }
+        if let owner = window.windowController as? TerminalWindowController, owner.isManaged {
+            return controllers(in: owner.group)
+        }
+        return allControllers.filter {
+            $0.surface?.window === window
         }
     }
 
     func focus(controller: TerminalSessionController, for window: NSWindow) {
-        register(controller: controller, workspace: controller.workspace, for: window)
-        guard table.object(forKey: window)?.focusedController !== controller else { return }
-        table.object(forKey: window)?.focusedController = controller
+        controller.workspace?.markFocused(controller)
         NotificationCenter.default.post(name: .terminalFocusedPaneDidChange, object: window)
     }
 
-    func controller(for window: NSWindow?) -> TerminalSessionController? {
-        guard let window else { return nil }
-        guard let sessions = table.object(forKey: window) else { return nil }
-        return sessions.focusedController ?? sessions.entries.compactMap(\.controller).first
-    }
-
-    func controllers(for window: NSWindow?) -> [TerminalSessionController] {
-        guard let window, let sessions = table.object(forKey: window) else { return [] }
-        sessions.entries.removeAll { $0.controller == nil }
-        return sessions.entries.compactMap(\.controller)
-    }
-
     func setUseMetalRenderer(_ enabled: Bool) {
-        for window in NSApp.windows {
-            for controller in controllers(for: window) {
-                controller.setUseMetalRenderer(enabled)
-            }
+        for controller in allControllers {
+            controller.setUseMetalRenderer(enabled)
         }
     }
 
     func previewBackgroundOpacity(_ opacity: Double?, forProfileID profileID: UUID) {
-        for window in NSApp.windows {
-            for controller in controllers(for: window) where controller.profile.id == profileID {
-                controller.previewBackgroundOpacity(opacity)
-            }
+        for controller in allControllers where controller.profile.id == profileID {
+            controller.previewBackgroundOpacity(opacity)
         }
-    }
-
-    /// The registered panes of `window` and the panes of its workspace.
-    func allControllers(for window: NSWindow?) -> [TerminalSessionController] {
-        let registered = controllers(for: window)
-        let ids = Set(registered.map(ObjectIdentifier.init))
-        let hidden = (workspace(for: window)?.controllers ?? []).filter { !ids.contains(ObjectIdentifier($0)) }
-        return registered + hidden
     }
 
     func workspace(for window: NSWindow?) -> TerminalPaneWorkspace? {
         controller(for: window)?.workspace
     }
 
-    /// The persistent sessions that panes of this app show on this host.
+    /// The persistent sessions that panes of this app show on this host,
+    /// including panes in background groups.
     func shownPersistentSessionIDs(destination: String? = nil) -> Set<String> {
-        Set(NSApp.windows.flatMap { controllers(for: $0) }
-            .filter { $0.remoteDestination == destination }.compactMap(\.persistentSessionID))
+        Set(allControllers.filter {
+            $0.remoteDestination == destination
+        }.compactMap(\.persistentSessionID))
     }
 
     /// The sessions that panes show, and the sessions that restored panes
     /// will use: a pane that waits for its window has not attached yet, and
     /// a pane whose session ended starts again from its saved state.
+    /// Includes panes in background groups.
     func persistentSessionIDsInUse(destination: String? = nil) -> Set<String> {
-        // A hidden pane of a restored zoomed tab has no view, so it is not
-        // registered: read the panes of the workspaces too.
-        Set(NSApp.windows.flatMap { allControllers(for: $0) }
-            .filter { $0.remoteDestination == destination }
-            .flatMap { [$0.persistentSessionID, $0.remoteRestoreSessionID, $0.remotePendingRestore,
-                        $0.unshownRestoreSessionID].compactMap { $0 } })
+        let live = allControllers.filter {
+            $0.remoteDestination == destination
+        }
+        .flatMap(\.reservedPersistentSessionIDs)
+        let dormant = entries.values.flatMap { entry in
+            entry.tab?.savedSpec?.restoredTab?.tab.root.panes.filter {
+                $0.kind != .local && $0.remoteDestination == destination
+            }.compactMap(\.sessionID) ?? []
+        }
+        return Set(live + dormant)
     }
 
-    /// The pane that shows the persistent session `id`, if any.
-    func controller(showingPersistentSession id: String, destination: String? = nil) -> TerminalSessionController? {
-        NSApp.windows.lazy.flatMap { self.controllers(for: $0) }.first {
-            $0.persistentSessionID == id && $0.remoteDestination == destination
+    /// Resolves an explicit Show/notification action, including a dormant owner.
+    /// Loading its existing tab prevents a second attachment in a new tab.
+    func controller(showingPersistentSession id: String, destination: String? = nil, loadDormant: Bool = true) -> TerminalSessionController? {
+        if
+            let controller = allControllers.first(where: {
+                $0.reservedPersistentSessionIDs.contains(id) && $0.remoteDestination == destination
+            }) {
+            return controller
         }
+        guard loadDormant else {
+            return nil
+        }
+        for entry in entries.values {
+            guard
+                let tab = entry.tab, let group = entry.group,
+                let pane = tab.savedSpec?.restoredTab?.tab.root.panes.first(where: {
+                    $0.kind != .local && $0.sessionID == id && $0.remoteDestination == destination
+                }) else {
+                continue
+            }
+            windowManager?.navigate(to: group, tab: tab, in: windowManager?.controller(for: WindowOpener.frontTerminalWindow()))
+            _ = tab.hostView
+            tab.loadedWorkspace?.windowManager = windowManager
+            return tab.loadedWorkspace?.controllers.first {
+                $0.id == pane.id
+            }
+        }
+        return nil
     }
+
 }
 
 extension Notification.Name {
@@ -2235,6 +2997,7 @@ extension Notification.Name {
 final class TerminalCommandState {
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     var controller: TerminalSessionController?
+    var window: NSWindow?
 
     init() {
         startObserving()
@@ -2249,47 +3012,24 @@ final class TerminalCommandState {
     private func startObserving() {
         let center = NotificationCenter.default
         let update: () -> Void = { [weak self] in
-            guard let self else { return }
-            self.controller = TerminalSessionRegistry.shared.controller(
-                for: NSApp.keyWindow ?? NSApp.mainWindow
-            )
+            guard let self else {
+                return
+            }
+            let target = TerminalWindowCommandTarget.resolve(keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow)
+            self.window = target?.window
+            self.controller = TerminalSessionRegistry.shared.controller(for: target?.window)
         }
 
-        observers.append(center.addObserver(
-            forName: .terminalFocusedPaneDidChange,
-            object: nil,
-            queue: .main
-        ) { _ in
-            update()
-        })
-        observers.append(center.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            update()
-        })
-        observers.append(center.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            update()
-        })
-        observers.append(center.addObserver(
-            forName: NSApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            update()
-        })
-        observers.append(center.addObserver(
-            forName: NSApplication.didResignActiveNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            update()
-        })
+        for name in [
+            Notification.Name.terminalFocusedPaneDidChange,
+            NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+            NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
+            NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+        ] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                update()
+            })
+        }
         update()
     }
 }

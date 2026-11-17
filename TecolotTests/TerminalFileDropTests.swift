@@ -39,9 +39,13 @@ struct TerminalFileDropTests {
     @Test(arguments: TerminalShellDialect.allCases)
     func rejectsNULAndNeverEmitsTerminalControls(dialect: TerminalShellDialect) throws {
         #expect(TerminalFileDrop.shellQuotedPath("/tmp/a\0b", dialect: dialect) == nil)
-        let controls = String(String.UnicodeScalarView((1...31).map { Unicode.Scalar($0)! })) + "\u{7f}"
+        let controls = String(String.UnicodeScalarView((1...31).map {
+            Unicode.Scalar($0)!
+        })) + "\u{7f}"
         let quoted = try #require(TerminalFileDrop.shellQuotedPath(controls, dialect: dialect))
-        #expect(!quoted.unicodeScalars.contains { $0.value < 32 || $0.value == 127 })
+        #expect(!quoted.unicodeScalars.contains {
+            $0.value < 32 || $0.value == 127
+        })
         #expect(TerminalFileDrop.shellQuotedPath("/tmp/abc-XYZ_012.txt:dir", dialect: dialect) == "/tmp/abc-XYZ_012.txt:dir")
     }
 
@@ -81,8 +85,10 @@ struct TerminalFileDropTests {
             #"/tmp/$(echo injected);`echo bad`&|<>*?[]{}!#~"#,
             "/tmp/café 🦉.txt", "/tmp/cafe\u{301} 🦉.txt", "/tmp/中文",
             "/tmp/line\nbreak\r\ttab", "/tmp/\u{1b}[200~\u{1b}[201~end",
-        ] + (1...31).map { "/tmp/control" + String(Unicode.Scalar($0)!) + "aF09" }
-          + ["/tmp/control\u{7f}aF09"]
+        ] + (1...31).map {
+            "/tmp/control" + String(Unicode.Scalar($0)!) + "aF09"
+        }
+            + ["/tmp/control\u{7f}aF09"]
         try await assertRoundTrip(paths, shell: shell)
     }
 
@@ -115,7 +121,9 @@ struct TerminalFileDropTests {
         terminal.fileDropShellResolver = TerminalShellResolver(processInspector: inspector)
         let receiver = PasteReceiver()
         terminal.terminalDelegate = receiver
-        terminal.withTerminal { $0.feed(text: bracketed ? "\u{1b}[?2004h" : "\u{1b}[?2004l") }
+        terminal.withTerminal {
+            $0.feed(text: bracketed ? "\u{1b}[?2004h" : "\u{1b}[?2004l")
+        }
         let pasteboard = NSPasteboard.withUniqueName()
         defer { pasteboard.releaseGlobally() }
         let urls = [URL(fileURLWithPath: "/tmp/a'b\\c\n"), URL(fileURLWithPath: "/tmp/second file")]
@@ -127,7 +135,9 @@ struct TerminalFileDropTests {
         #expect(inspector.processIDs == [101])
         let expected = try #require(TerminalFileDrop.text(from: pasteboard, dialect: dialect))
         let framed = bracketed ? "\u{1b}[200~" + expected + "\u{1b}[201~" : expected
-        try await waitUntil("paste was not delivered") { !receiver.data.isEmpty }
+        try await waitUntil("paste was not delivered") {
+            !receiver.data.isEmpty
+        }
         #expect(receiver.data == Data(framed.utf8))
 
         // The next drop must see a changed executable even with the same PID.
@@ -136,7 +146,9 @@ struct TerminalFileDropTests {
         #expect(terminal.insertDroppedFiles(from: pasteboard))
         #expect(inspector.processIDs == [101, 101])
         let next = try #require(TerminalFileDrop.text(from: pasteboard, dialect: .nushell))
-        try await waitUntil("second paste was not delivered") { !receiver.data.isEmpty }
+        try await waitUntil("second paste was not delivered") {
+            !receiver.data.isEmpty
+        }
         #expect(receiver.data == Data((bracketed ? "\u{1b}[200~" + next + "\u{1b}[201~" : next).utf8))
     }
 
@@ -145,14 +157,13 @@ struct TerminalFileDropTests {
         let firstController = try #require(workspace.focusedController)
         workspace.split(firstController, orientation: .vertical)
         let secondController = try #require(workspace.focusedController)
-        let document = TerminalDocument()
-        let hostView = TerminalPaneHostView(workspace: workspace, document: document)
+        let hostView = TerminalPaneHostView(workspace: workspace)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
             styleMask: [.titled], backing: .buffered, defer: false
         )
         window.contentView = hostView
-        hostView.synchronize(revision: workspace.revision, document: document)
+        hostView.synchronize(revision: workspace.revision)
         hostView.layoutSubtreeIfNeeded()
         let firstTerminal = try #require(firstController.terminal as? AppTerminalView)
         let secondTerminal = try #require(secondController.terminal as? AppTerminalView)
@@ -211,9 +222,13 @@ struct TerminalFileDropTests {
         terminal.terminalDelegate = receiver
         let pasteboard = NSPasteboard.withUniqueName()
         defer { pasteboard.releaseGlobally() }
-        let urls = [directory.appendingPathComponent("'; echo INJECTED; #"),
-                    directory.appendingPathComponent("two words ' \\\\ \" 🦉")]
-        for url in urls { try Data().write(to: url) }
+        let urls = [
+            directory.appendingPathComponent("'; echo INJECTED; #"),
+            directory.appendingPathComponent("two words ' \\\\ \" 🦉")
+        ]
+        for url in urls {
+            try Data().write(to: url)
+        }
         pasteboard.writeObjects(urls as [NSURL])
         let expected = Data((urls.map(\.path).joined(separator: "\0") + "\0").utf8)
         let switches: [(String?, TerminalShellDialect)] = [
@@ -226,7 +241,9 @@ struct TerminalFileDropTests {
         ]
         let initialPID = terminal.process.shellPid
         for (index, step) in switches.enumerated() {
-            if let command = step.0 { terminal.send(txt: command + "\n") }
+            if let command = step.0 {
+                terminal.send(txt: command + "\n")
+            }
             try await waitUntil("foreground shell did not become \(step.1)") {
                 terminal.fileDropShellResolver.dialect(for: terminal.process.childfd) == step.1
             }
@@ -254,11 +271,15 @@ struct TerminalFileDropTests {
         let group = try #require(SystemTerminalProcessInspector().foregroundProcessGroup(for: terminal.process.childfd))
         #expect(group == initialPID, "exec must replace the original zsh process")
         terminal.send(txt: "exit\n")
-        try await waitUntil("shell did not exit") { !terminal.process.running }
+        try await waitUntil("shell did not exit") {
+            !terminal.process.running
+        }
     }
 
     private func assertRoundTrip(_ paths: [String], shell: ShellFixture) async throws {
-        let arguments = try paths.map { try #require(TerminalFileDrop.shellQuotedPath($0, dialect: shell.dialect)) }
+        let arguments = try paths.map {
+            try #require(TerminalFileDrop.shellQuotedPath($0, dialect: shell.dialect))
+        }
         let script = "/usr/bin/printf '%s\\0' " + arguments.joined(separator: " ") + "\n"
         let result = try await shell.run(script: script)
         #expect(result.status == 0, "\(shell): \(result.stderr)")
@@ -280,20 +301,38 @@ private func waitUntil(_ message: String, condition: () -> Bool) async throws {
 private final class FileDraggingInfo: NSObject, NSDraggingInfo {
     let draggingPasteboard: NSPasteboard
     var draggingSourceOperationMask: NSDragOperation = .copy
-    var draggingDestinationWindow: NSWindow? { nil }
-    var draggingLocation: NSPoint { .zero }
-    var draggedImageLocation: NSPoint { .zero }
-    nonisolated var draggedImage: NSImage? { nil }
-    var draggingSource: Any? { nil }
-    var draggingSequenceNumber: Int { 0 }
+    var draggingDestinationWindow: NSWindow? {
+        nil
+    }
+    var draggingLocation: NSPoint {
+        .zero
+    }
+    var draggedImageLocation: NSPoint {
+        .zero
+    }
+    nonisolated var draggedImage: NSImage? {
+        nil
+    }
+    var draggingSource: Any? {
+        nil
+    }
+    var draggingSequenceNumber: Int {
+        0
+    }
     var draggingFormation: NSDraggingFormation = .default
     var animatesToDestination = false
     var numberOfValidItemsForDrop = 0
-    var springLoadingHighlight: NSSpringLoadingHighlight { .none }
+    var springLoadingHighlight: NSSpringLoadingHighlight {
+        .none
+    }
 
-    init(pasteboard: NSPasteboard) { draggingPasteboard = pasteboard }
+    init(pasteboard: NSPasteboard) {
+        draggingPasteboard = pasteboard
+    }
     func slideDraggedImage(to screenPoint: NSPoint) {}
-    nonisolated override func namesOfPromisedFilesDropped(atDestination dropDestination: URL) -> [String]? { nil }
+    nonisolated override func namesOfPromisedFilesDropped(atDestination dropDestination: URL) -> [String]? {
+        nil
+    }
     func resetSpringLoading() {}
     func enumerateDraggingItems(
         options enumOpts: NSDraggingItemEnumerationOptions, for view: NSView?, classes classArray: [AnyClass],
@@ -372,12 +411,18 @@ private final class StubProcessInspector: TerminalProcessInspecting {
 
 private func executablePath(for dialect: TerminalShellDialect) -> String {
     switch dialect {
-    case .bash: "/bin/bash"
-    case .zsh: "/bin/zsh"
-    case .fish: "/opt/homebrew/bin/fish"
-    case .nushell: "/opt/bin/nu"
-    case .elvish: "/usr/local/bin/elvish"
-    case .unknown: "/usr/bin/ssh"
+    case .bash:
+        "/bin/bash"
+    case .zsh:
+        "/bin/zsh"
+    case .fish:
+        "/opt/homebrew/bin/fish"
+    case .nushell:
+        "/opt/bin/nu"
+    case .elvish:
+        "/usr/local/bin/elvish"
+    case .unknown:
+        "/usr/bin/ssh"
     }
 }
 
@@ -419,21 +464,31 @@ enum ShellFixture: String, CaseIterable, Sendable {
 
     var dialect: TerminalShellDialect {
         switch self {
-        case .bash: .bash
-        case .zsh: .zsh
-        case .fish: .fish
-        case .nu: .nushell
-        case .elvish: .elvish
+        case .bash:
+            .bash
+        case .zsh:
+            .zsh
+        case .fish:
+            .fish
+        case .nu:
+            .nushell
+        case .elvish:
+            .elvish
         }
     }
 
     var configurationArguments: [String] {
         switch self {
-        case .bash: ["--noprofile", "--norc"]
-        case .zsh: ["-f"]
-        case .fish: ["--no-config"]
-        case .nu: ["--no-config-file", "--no-history"]
-        case .elvish: ["-norc"]
+        case .bash:
+            ["--noprofile", "--norc"]
+        case .zsh:
+            ["-f"]
+        case .fish:
+            ["--no-config"]
+        case .nu:
+            ["--no-config-file", "--no-history"]
+        case .elvish:
+            ["-norc"]
         }
     }
 
@@ -442,11 +497,19 @@ enum ShellFixture: String, CaseIterable, Sendable {
     }
 
     private var executableURL: URL? {
-        let directories = ["/bin", "/opt/homebrew/bin", "/usr/local/bin",
-                           FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path]
+        let directories = [
+            "/bin",
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path
+        ]
             + (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
-        return directories.map { URL(fileURLWithPath: $0).appendingPathComponent(rawValue) }
-            .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+        return directories.map {
+            URL(fileURLWithPath: $0).appendingPathComponent(rawValue)
+        }
+        .first {
+            FileManager.default.isExecutableFile(atPath: $0.path)
+        }
     }
 
     func run(script: String) async throws -> (status: Int32, stdout: Data, stderr: String) {
@@ -462,7 +525,9 @@ enum ShellFixture: String, CaseIterable, Sendable {
         FileManager.default.createFile(atPath: errorURL.path, contents: nil)
         let output = try FileHandle(forWritingTo: outputURL)
         let errors = try FileHandle(forWritingTo: errorURL)
-        defer { try? output.close(); try? errors.close() }
+        defer { try? output.close()
+            try? errors.close()
+        }
         let process = Process()
         process.executableURL = executable
         process.arguments = configurationArguments + [scriptURL.path]
@@ -472,7 +537,11 @@ enum ShellFixture: String, CaseIterable, Sendable {
         process.standardOutput = output
         process.standardError = errors
         try process.run()
-        defer { if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
+        defer {
+            if process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+            }
+        }
         let deadline = ContinuousClock.now + .seconds(10)
         while process.isRunning && ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))

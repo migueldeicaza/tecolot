@@ -11,11 +11,10 @@ struct TerminalPaneCardTests {
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .down)
         let second = try #require(workspace.focusedController)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let host = TerminalPaneHostView(workspace: workspace)
         host.frame = NSRect(x: 0, y: 0, width: 1500, height: 800)
         let settings = GlobalAppearanceSettings(paneCardsEnabled: true, paneCardsBackdrop: .gradient)
-        host.synchronize(revision: workspace.revision, document: document, settings: settings)
+        host.synchronize(revision: workspace.revision, settings: settings)
         let terminal = try #require(first.terminal)
         var profile = TerminalProfile(name: "Title Width Test")
         profile.titleOverride = nil
@@ -28,13 +27,21 @@ struct TerminalPaneCardTests {
         first.setTerminalTitle(source: terminal, title: text)
         first.hostCurrentDirectoryUpdate(source: terminal, directory: "file://localhost/tmp/pane-one")
         for _ in 0..<30 {
-            if first.panePresentation.title == text { break }
+            if first.panePresentation.title == text {
+                break
+            }
             try await Task.sleep(for: .milliseconds(100))
         }
         #expect(first.panePresentation.title == text)
         host.layoutSubtreeIfNeeded()
-        let split = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
-        let card = try #require(split.arrangedSubviews.compactMap { $0 as? TerminalPaneCardView }.first { $0.controller === first })
+        let split = try #require(host.subviews.compactMap {
+            $0 as? NSSplitView
+        }.first)
+        let card = try #require(split.arrangedSubviews.compactMap {
+            $0 as? TerminalPaneCardView
+        }.first {
+            $0.controller === first
+        })
         card.refreshAppearance()
         card.frame.size.width = 140
         card.needsLayout = true
@@ -43,9 +50,17 @@ struct TerminalPaneCardTests {
         card.needsLayout = true
         card.layoutSubtreeIfNeeded()
         let surface = try #require(card.subviews.first)
-        let labels = surface.subviews.flatMap { $0.subviews }.compactMap { $0 as? NSTextField }
-        let title = try #require(labels.first { $0.stringValue == text })
-        let directory = try #require(labels.first { $0.stringValue == "/tmp/pane-one" })
+        let labels = surface.subviews.flatMap {
+            $0.subviews
+        }.compactMap {
+            $0 as? NSTextField
+        }
+        let title = try #require(labels.first {
+            $0.stringValue == text
+        })
+        let directory = try #require(labels.first {
+            $0.stringValue == "/tmp/pane-one"
+        })
         let font = try #require(title.font)
         let fullTextWidth = (text as NSString).size(withAttributes: [.font: font]).width
         #expect(title.frame.width >= fullTextWidth + 4)
@@ -54,11 +69,13 @@ struct TerminalPaneCardTests {
 
         let header = try #require(title.superview)
         let inactiveColor = try #require(header.layer?.backgroundColor)
+        let inactiveOutline = card.outlineLayer.strokeColor
         #expect(inactiveColor == terminal.nativeBackgroundColor.cgColor)
         workspace.markFocused(first)
         card.refreshAppearance()
         let focusedColor = try #require(header.layer?.backgroundColor)
-        #expect(focusedColor != inactiveColor)
+        #expect(focusedColor == inactiveColor)
+        #expect(card.outlineLayer.strokeColor != inactiveOutline)
         workspace.markFocused(second)
         card.refreshAppearance()
         #expect(header.layer?.backgroundColor == inactiveColor)
@@ -67,69 +84,58 @@ struct TerminalPaneCardTests {
     @Test func focusedTabIconUpdatesWhenCommandIdentityIsCleared() throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let controller = try #require(workspace.focusedController)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        let host = TerminalPaneHostView(workspace: workspace)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
         window.contentView = host
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         window.title = "Command title"
         controller.updatePaneExecutablePath("/opt/bin/bun")
-        let accessory = try #require(window.tab.accessoryView)
-        let title = try #require(window.tab.attributedTitle)
-        #expect(title.string == "\u{fffc}  Command title")
-        let attachment = try #require(title.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment)
-        let image = try #require(attachment.image)
-        #expect(image.size.width == 30)
-        #expect(image.size.height == 26)
-        #expect(accessory.subviews.compactMap { $0 as? NSImageView }.isEmpty)
+        let image = TerminalTabIconStack.image(workspace: workspace)
+        #expect(image.size == NSSize(width: 24, height: 24))
         controller.updatePaneExecutablePath(nil)
-        let clearedTitle = try #require(window.tab.attributedTitle)
-        let clearedAttachment = try #require(clearedTitle.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment)
-        #expect(clearedAttachment.image?.tiffRepresentation != image.tiffRepresentation)
-        #expect(accessory.intrinsicContentSize.height == 20)
+        #expect(TerminalTabIconStack.image(workspace: workspace).tiffRepresentation != image.tiffRepresentation)
     }
 
     @Test func tabStackTracksInactiveCommandsFocusAndPaneCount() throws {
+        // The widths below are for three icons; the stack reads the count from the app's defaults.
+        let key = TabStripPreferences.iconCountKey
+        let stored = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(3, forKey: key)
+        defer {
+            if let stored {
+                UserDefaults.standard.set(stored, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .right)
         let second = try #require(workspace.focusedController)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = host
-        host.synchronize(revision: workspace.revision, document: document)
+        let host = TerminalPaneHostView(workspace: workspace)
+        host.synchronize(revision: workspace.revision)
         second.updatePaneExecutablePath("/opt/bin/git")
-
-        func tabImage() throws -> NSImage {
-            let title = try #require(window.tab.attributedTitle)
-            let attachment = try #require(title.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment)
-            return try #require(attachment.image)
-        }
-
-        let before = try tabImage()
-        #expect(before.size.width == 36)
+        let before = TerminalTabIconStack.image(workspace: workspace)
+        #expect(before.size.width == 30)
         first.updatePaneExecutablePath("/opt/bin/bun")
-        let after = try tabImage()
+        let after = TerminalTabIconStack.image(workspace: workspace)
         #expect(before.tiffRepresentation != after.tiffRepresentation)
         workspace.markFocused(first)
-        TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
-        #expect(try tabImage().tiffRepresentation != after.tiffRepresentation)
-
+        #expect(TerminalTabIconStack.image(workspace: workspace).tiffRepresentation != after.tiffRepresentation)
         workspace.split(first, direction: .down)
-        TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
-        #expect(try tabImage().size.width == 42)
+        #expect(TerminalTabIconStack.image(workspace: workspace).size.width == 36)
         let third = try #require(workspace.focusedController)
         workspace.split(third, direction: .right)
-        TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
-        #expect(try tabImage().size.width == 42)
+        #expect(TerminalTabIconStack.image(workspace: workspace).size.width == 36)
         for controller in workspace.controllers where controller !== first {
             workspace.close(controller)
         }
-        TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
-        #expect(try tabImage().size.width == 30)
+        #expect(TerminalTabIconStack.image(workspace: workspace).size.width == 24)
     }
 
     @Test(arguments: ["iTerm2 Solarized Light", "Terminal Basic Dark"])
@@ -141,15 +147,20 @@ struct TerminalPaneCardTests {
         workspace.split(first, direction: .down)
         let third = try #require(workspace.focusedController)
         workspace.markFocused(first)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 660),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        let host = TerminalPaneHostView(workspace: workspace)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 660),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
         window.contentView = host
-        host.synchronize(revision: workspace.revision, document: document)
-        for (controller, label, path) in [(first, "Stress-test Snake demo", "/opt/bin/codex"),
-                                          (second, "Node", "/opt/bin/node"),
-                                          (third, "Git Changes", "/opt/bin/git")] {
+        host.synchronize(revision: workspace.revision)
+        for (controller, label, path) in [
+            (first, "Stress-test Snake demo", "/opt/bin/codex"),
+            (second, "Node", "/opt/bin/node"),
+            (third, "Git Changes", "/opt/bin/git")
+        ] {
             var profile = TerminalProfile(name: "Card Preview")
             profile.fontSize = 13
             profile.backgroundOpacity = 1
@@ -167,7 +178,9 @@ struct TerminalPaneCardTests {
             terminal.feed(text: "\u{1b}[32m$\u{1b}[0m tecolot\r\nPane title bars and theme colors\r\n\u{1b}[36mReady.\u{1b}[0m\r\n")
         }
         for _ in 0..<30 {
-            if first.panePresentation.title.contains("Stress-test") { break }
+            if first.panePresentation.title.contains("Stress-test") {
+                break
+            }
             try await Task.sleep(for: .milliseconds(100))
         }
         host.refreshAppearance()
@@ -188,15 +201,20 @@ struct TerminalPaneCardTests {
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .right)
         let second = try #require(workspace.focusedController)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        let host = TerminalPaneHostView(workspace: workspace)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
         window.contentView = host
         let enabled = GlobalAppearanceSettings(paneCardsEnabled: true, paneCardsBackdrop: .gradient)
-        host.synchronize(revision: workspace.revision, document: document, settings: enabled)
+        host.synchronize(revision: workspace.revision, settings: enabled)
         host.layoutSubtreeIfNeeded()
-        let split = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
+        let split = try #require(host.subviews.compactMap {
+            $0 as? NSSplitView
+        }.first)
         let firstCard = try #require(split.arrangedSubviews[0] as? TerminalPaneCardView)
         let firstTerminal = try #require(first.terminal)
         let secondTerminal = try #require(second.terminal)
@@ -206,24 +224,27 @@ struct TerminalPaneCardTests {
         let fraction = split.arrangedSubviews[0].frame.width / (split.bounds.width - split.dividerThickness)
         window.makeFirstResponder(secondTerminal)
 
-        host.synchronize(revision: workspace.revision, document: document,
-                         settings: .init(paneCardsEnabled: false, paneCardsBackdrop: .gradient))
+        host.synchronize(
+            revision: workspace.revision,
+            settings: .init(paneCardsEnabled: false, paneCardsBackdrop: .gradient)
+        )
         host.layoutSubtreeIfNeeded()
         #expect(split.arrangedSubviews[0] === firstCard)
         #expect(first.terminal === firstTerminal)
         #expect(second.terminal === secondTerminal)
         #expect(window.firstResponder === secondTerminal)
-        #expect(split.dividerThickness == 1)
+        #expect(split.dividerThickness == 8)
+        #expect(firstCard.header.isHidden)
         #expect(abs(firstCard.content.frame.height - firstCard.bounds.height) < 0.5)
         #expect(abs(firstTerminal.frame.minX - 2) < 0.5)
         #expect(abs(firstTerminal.frame.minY - 2) < 0.5)
         let disabledFraction = split.arrangedSubviews[0].frame.width / (split.bounds.width - split.dividerThickness)
         #expect(abs(disabledFraction - fraction) < 0.02)
 
-        host.synchronize(revision: workspace.revision, document: document, settings: enabled)
+        host.synchronize(revision: workspace.revision, settings: enabled)
         host.layoutSubtreeIfNeeded()
-        #expect(split.dividerThickness == 12)
-        #expect(abs(firstCard.bounds.height - firstCard.content.frame.height - 32) < 0.5)
+        #expect(split.dividerThickness == 8)
+        #expect(abs(firstCard.bounds.height - firstCard.content.frame.height - 36) < 0.5)
         #expect(firstCard.content.terminal.superview === firstCard.content)
         // Cards use the padding setting too. The default is two points.
         #expect(firstTerminal.frame == firstCard.content.bounds.insetBy(dx: 2, dy: 2))
@@ -235,25 +256,38 @@ struct TerminalPaneCardTests {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .right)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        let host = TerminalPaneHostView(workspace: workspace)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
         window.contentView = host
         for padding in GlobalAppearanceSettings.TerminalPadding.allCases {
-            host.synchronize(revision: workspace.revision, document: document,
-                             settings: .init(paneCardsEnabled: cards, paneCardsBackdrop: .gradient,
-                                             terminalPadding: padding))
+            host.synchronize(
+                revision: workspace.revision,
+                settings: .init(
+                    paneCardsEnabled: cards,
+                    paneCardsBackdrop: .gradient,
+                    terminalPadding: padding
+                )
+            )
             host.layoutSubtreeIfNeeded()
             let terminal = try #require(first.terminal)
-            #expect(host.cardsEnabled == cards)
+            #expect(host.cardsEnabled)
+            #expect(host.showsPaneHeaders == cards)
             let container = try #require(terminal.superview as? TerminalSessionContainerView)
             let side = padding.points
             let top = padding.topPoints(cardsEnabled: cards)
             #expect(container.padding == side)
             #expect(container.topPadding == top)
-            #expect(terminal.frame == NSRect(x: side, y: side, width: container.bounds.width - side * 2,
-                                             height: container.bounds.height - top - side))
+            #expect(terminal.frame == NSRect(
+                x: side,
+                y: side,
+                width: container.bounds.width - side * 2,
+                height: container.bounds.height - top - side
+            ))
         }
     }
 
@@ -261,17 +295,27 @@ struct TerminalPaneCardTests {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .right)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        let host = TerminalPaneHostView(workspace: workspace)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
         window.contentView = host
         func minimum(_ padding: GlobalAppearanceSettings.TerminalPadding) throws -> CGFloat {
-            host.synchronize(revision: workspace.revision, document: document,
-                             settings: .init(paneCardsEnabled: false, paneCardsBackdrop: .gradient,
-                                             terminalPadding: padding))
+            host.synchronize(
+                revision: workspace.revision,
+                settings: .init(
+                    paneCardsEnabled: false,
+                    paneCardsBackdrop: .gradient,
+                    terminalPadding: padding
+                )
+            )
             host.layoutSubtreeIfNeeded()
-            let split = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
+            let split = try #require(host.subviews.compactMap {
+                $0 as? NSSplitView
+            }.first)
             return host.splitView(split, constrainMinCoordinate: 0, ofSubviewAt: 0)
         }
         let off = try minimum(.off)
@@ -284,26 +328,33 @@ struct TerminalPaneCardTests {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .down)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        let host = TerminalPaneHostView(workspace: workspace)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
         window.contentView = host
-        host.synchronize(revision: workspace.revision, document: document,
-                         settings: .init(terminalPadding: .off))
+        host.synchronize(
+            revision: workspace.revision,
+            settings: .init(terminalPadding: .off)
+        )
         host.layoutSubtreeIfNeeded()
         let terminal = try #require(first.terminal)
         let cell = terminal.bounds.height / CGFloat(terminal.terminalDimensions.rows)
         // Three spaces, two title bars and two rows, with 8 points to spare.
         // Spacious padding needs 2 x 24 more points, so the cards do not fit.
-        let height = GlobalAppearanceSettings.cardSpacing * 3 + GlobalAppearanceSettings.cardTitlebarHeight * 2
+        let height = GlobalAppearanceSettings.cardSpacing * 3 + GlobalAppearanceSettings.PaneStyle.comfortable.headerHeight * 2
             + cell * 2 + 8
         window.setContentSize(NSSize(width: 800, height: height.rounded(.up)))
         host.layoutSubtreeIfNeeded()
         #expect(host.cardsEnabled)
 
-        host.synchronize(revision: workspace.revision, document: document,
-                         settings: .init(terminalPadding: .spacious))
+        host.synchronize(
+            revision: workspace.revision,
+            settings: .init(terminalPadding: .spacious)
+        )
         host.layoutSubtreeIfNeeded()
         #expect(!host.cardsEnabled)
     }
@@ -313,10 +364,9 @@ struct TerminalPaneCardTests {
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .right)
         let second = try #require(workspace.focusedController)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let host = TerminalPaneHostView(workspace: workspace)
         host.frame = NSRect(x: 0, y: 0, width: 800, height: 500)
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         let terminal = try #require(first.terminal)
         var profile = TerminalProfile(name: "Pane Title Test")
         profile.titleOverride = nil
@@ -325,7 +375,9 @@ struct TerminalPaneCardTests {
         first.setTerminalTitle(source: terminal, title: "Independent title")
         first.hostCurrentDirectoryUpdate(source: terminal, directory: "file://localhost/tmp/pane-one")
         for _ in 0..<30 {
-            if first.panePresentation.title.contains("Independent title") { break }
+            if first.panePresentation.title.contains("Independent title") {
+                break
+            }
             try await Task.sleep(for: .milliseconds(100))
         }
         #expect(first.panePresentation.title.contains("Independent title"))
@@ -337,11 +389,12 @@ struct TerminalPaneCardTests {
     @Test func paneControlsSelectTheirPaneBeforeSplitAndZoom() throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let host = TerminalPaneHostView(workspace: workspace)
         host.frame = NSRect(x: 0, y: 0, width: 800, height: 500)
-        host.synchronize(revision: workspace.revision, document: document)
-        let card = try #require(host.subviews.compactMap { $0 as? TerminalPaneCardView }.first)
+        host.synchronize(revision: workspace.revision)
+        let card = try #require(host.subviews.compactMap {
+            $0 as? TerminalPaneCardView
+        }.first)
         card.splitRight()
         #expect(workspace.paneCount == 2)
         #expect(workspace.focusedController !== first)
@@ -352,57 +405,76 @@ struct TerminalPaneCardTests {
         #expect(workspace.zoomedControllerID == nil)
     }
 
-    @Test func tabIconsFollowTheWindowSettings() throws {
+    @Test func tabIconsAreIndependentOfPaneCards() throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        let host = TerminalPaneHostView(workspace: workspace)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
         window.contentView = host
-        host.synchronize(revision: workspace.revision, document: document,
-                         settings: .init(paneCardsEnabled: false, paneCardsBackdrop: .gradient))
-        TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
-        #expect(window.tab.attributedTitle == nil)
-        host.synchronize(revision: workspace.revision, document: document, settings: GlobalAppearanceSettings())
-        TerminalSplitZoomTitlebar.configure(window, workspace: workspace)
-        #expect(window.tab.attributedTitle != nil)
+        host.synchronize(
+            revision: workspace.revision,
+            settings: .init(paneCardsEnabled: false, paneCardsBackdrop: .gradient)
+        )
+        let cell = TabItemView(tab: TerminalTab(workspace: workspace), controller: nil)
+        cell.configure(selected: true)
+        #expect(!cell.icon.isHidden)
+        host.synchronize(revision: workspace.revision, settings: GlobalAppearanceSettings())
+        cell.configure(selected: true)
+        #expect(!cell.icon.isHidden)
+        #expect(cell.icon.image != nil)
     }
 
     @Test func splitAppliesCardMetricsOnlyToTheNewTree() throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
+        let host = TerminalPaneHostView(workspace: workspace)
         host.frame = NSRect(x: 0, y: 0, width: 800, height: 500)
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         host.layoutSubtreeIfNeeded()
-        let oldCard = try #require(host.subviews.compactMap { $0 as? TerminalPaneCardView }.first)
-        #expect(!oldCard.cardsEnabled)
+        let oldCard = try #require(host.subviews.compactMap {
+            $0 as? TerminalPaneCardView
+        }.first)
+        #expect(oldCard.cardsEnabled)
 
         workspace.split(first, direction: .right)
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         // The old card must not get the card metrics before the rebuild.
         // That layout would send one more size change to the terminal.
-        #expect(!oldCard.cardsEnabled)
+        #expect(oldCard.cardsEnabled)
         #expect(oldCard.superview == nil)
         #expect(host.cardsEnabled)
-        let split = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
-        #expect(split.arrangedSubviews.allSatisfy { ($0 as? TerminalPaneCardView)?.cardsEnabled == true })
+        let split = try #require(host.subviews.compactMap {
+            $0 as? NSSplitView
+        }.first)
+        #expect(split.arrangedSubviews.allSatisfy {
+            ($0 as? TerminalPaneCardView)?.cardsEnabled == true
+        })
     }
 
     @Test func smallWindowUsesTheCompactLayout() throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .down)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        let host = TerminalPaneHostView(workspace: workspace)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
         window.contentView = host
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         host.layoutSubtreeIfNeeded()
-        let split = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
-        let cards = split.arrangedSubviews.compactMap { $0 as? TerminalPaneCardView }
+        let split = try #require(host.subviews.compactMap {
+            $0 as? NSSplitView
+        }.first)
+        let cards = split.arrangedSubviews.compactMap {
+            $0 as? TerminalPaneCardView
+        }
         #expect(host.cardsEnabled)
         #expect(split.dividerThickness == GlobalAppearanceSettings.cardSpacing)
 
@@ -412,7 +484,9 @@ struct TerminalPaneCardTests {
         #expect(host.bounds.height == 100)
         #expect(!host.cardsEnabled)
         #expect(split.dividerThickness == 1)
-        #expect(cards.allSatisfy { !$0.cardsEnabled })
+        #expect(cards.allSatisfy {
+            !$0.cardsEnabled
+        })
         #expect(split.frame == host.bounds)
         for card in cards {
             #expect(abs(card.content.frame.height - card.bounds.height) < 0.5)
@@ -422,21 +496,28 @@ struct TerminalPaneCardTests {
         host.layoutSubtreeIfNeeded()
         #expect(host.cardsEnabled)
         #expect(split.dividerThickness == GlobalAppearanceSettings.cardSpacing)
-        #expect(cards.allSatisfy { $0.cardsEnabled })
+        #expect(cards.allSatisfy {
+            $0.cardsEnabled
+        })
     }
 
     @Test func dividerIsFreeWhenPanesDoNotFit() throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .right)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        let host = TerminalPaneHostView(workspace: workspace)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
         window.contentView = host
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         host.layoutSubtreeIfNeeded()
-        let split = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
+        let split = try #require(host.subviews.compactMap {
+            $0 as? NSSplitView
+        }.first)
         #expect(host.splitView(split, constrainMinCoordinate: 0, ofSubviewAt: 0) > 0)
         #expect(host.splitView(split, constrainMaxCoordinate: split.bounds.width, ofSubviewAt: 0)
             < split.bounds.width - split.dividerThickness)
@@ -454,17 +535,26 @@ struct TerminalPaneCardTests {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .right)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        let host = TerminalPaneHostView(workspace: workspace)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
         window.contentView = host
         // The desktop blur shows only when the backdrop is visible.
-        host.synchronize(revision: workspace.revision, document: document,
-                         settings: .init(paneCardsBackdrop: .desktopBlur, paneStyle: .compact))
+        host.synchronize(
+            revision: workspace.revision,
+            settings: .init(paneCardsBackdrop: .desktopBlur, paneStyle: .compact)
+        )
         host.layoutSubtreeIfNeeded()
-        let split = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
-        let cards = split.arrangedSubviews.compactMap { $0 as? TerminalPaneCardView }
+        let split = try #require(host.subviews.compactMap {
+            $0 as? NSSplitView
+        }.first)
+        let cards = split.arrangedSubviews.compactMap {
+            $0 as? TerminalPaneCardView
+        }
         #expect(host.cardsEnabled)
         #expect(host.appliedPaneStyle == .compact)
         #expect(split.frame == host.bounds)
@@ -475,13 +565,17 @@ struct TerminalPaneCardTests {
             #expect(card.layer?.shadowOpacity == 0)
             let surface = try #require(card.subviews.first)
             #expect(surface.layer?.cornerRadius == 0)
-            let header = try #require(surface.subviews.first { !($0 is TerminalSessionContainerView) })
+            let header = try #require(surface.subviews.first {
+                !($0 is TerminalSessionContainerView)
+            })
             #expect(!header.isHidden)
-            #expect(header.frame.height == GlobalAppearanceSettings.cardTitlebarHeight)
+            #expect(header.frame.height == GlobalAppearanceSettings.PaneStyle.compact.headerHeight)
         }
 
-        host.synchronize(revision: workspace.revision, document: document,
-                         settings: .init(paneCardsBackdrop: .desktopBlur, paneStyle: .comfortable))
+        host.synchronize(
+            revision: workspace.revision,
+            settings: .init(paneCardsBackdrop: .desktopBlur, paneStyle: .comfortable)
+        )
         host.layoutSubtreeIfNeeded()
         let spacing = GlobalAppearanceSettings.cardSpacing
         #expect(host.appliedPaneStyle == .comfortable)
@@ -492,45 +586,59 @@ struct TerminalPaneCardTests {
         }
         for card in cards {
             #expect(card.layer?.shadowOpacity ?? 0 > 0)
-            #expect(card.subviews.first?.layer?.cornerRadius == 14)
+            #expect(card.subviews.first?.layer?.cornerRadius == 10)
         }
     }
 
-    /// A window on the screen. The transitions run only in a visible window.
-    /// macOS updates the occlusion state some time after the window shows.
-    private func visibleWindow(for host: TerminalPaneHostView) async throws -> NSWindow {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
-                              styleMask: [.titled, .resizable, .closable], backing: .buffered, defer: false)
+    /// Animation geometry is independent of WindowServer occlusion and the
+    /// user's current Space. Model visibility without bringing the app forward.
+    private final class AnimationWindow: NSWindow {
+        override var occlusionState: NSWindow.OcclusionState {
+            [.visible]
+        }
+    }
+
+    private func visibleWindow(for host: TerminalPaneHostView) -> NSWindow {
+        let window = AnimationWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.orderFront(nil)
-        for _ in 0..<40 where !window.occlusionState.contains(.visible) {
-            try await Task.sleep(for: .milliseconds(50))
-        }
         return window
     }
 
-    @Test(.enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion),
-          arguments: [TerminalPaneDirection.right, .left, .down, .up])
+    @Test(
+        .enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion),
+        arguments: [TerminalPaneDirection.right, .left, .down, .up]
+    )
     func newPaneGrowsFromTheEdgeOfItsSplit(direction: TerminalPaneDirection) async throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
-        let window = try await visibleWindow(for: host)
+        let host = TerminalPaneHostView(workspace: workspace)
+        let window = visibleWindow(for: host)
         defer { window.orderOut(nil) }
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         host.layoutSubtreeIfNeeded()
         try #require(host.transitionsAllowed)
 
         workspace.split(first, direction: direction)
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         #expect(workspace.pendingTransition == nil)
         #expect(host.isRunningTransition)
         let second = try #require(workspace.focusedController)
-        let split = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
-        let card = try #require(split.arrangedSubviews.compactMap { $0 as? TerminalPaneCardView }
-            .first { $0.controller === second })
+        let split = try #require(host.subviews.compactMap {
+            $0 as? NSSplitView
+        }.first)
+        let card = try #require(split.arrangedSubviews.compactMap {
+            $0 as? TerminalPaneCardView
+        }
+        .first {
+            $0.controller === second
+        })
         let layer = try #require(card.layer)
         // The animations start in the display pass, not in the layout pass.
         // The test calls viewWillDraw() in place of the display pass.
@@ -556,7 +664,9 @@ struct TerminalPaneCardTests {
         host.cancelTransition()
         #expect(!host.isRunningTransition)
         #expect(!layer.masksToBounds)
-        #expect(!(layer.animationKeys() ?? []).contains { $0.hasPrefix("paneTransition") })
+        #expect(!(layer.animationKeys() ?? []).contains {
+            $0.hasPrefix("paneTransition")
+        })
     }
 
     @Test(.enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion))
@@ -565,20 +675,25 @@ struct TerminalPaneCardTests {
         let first = try #require(workspace.focusedController)
         workspace.split(first, direction: .right)
         let second = try #require(workspace.focusedController)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
-        let window = try await visibleWindow(for: host)
+        let host = TerminalPaneHostView(workspace: workspace)
+        let window = visibleWindow(for: host)
         defer { window.orderOut(nil) }
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         host.layoutSubtreeIfNeeded()
         try #require(host.transitionsAllowed)
-        let split = try #require(host.subviews.compactMap { $0 as? NSSplitView }.first)
-        let closed = try #require(split.arrangedSubviews.compactMap { $0 as? TerminalPaneCardView }
-            .first { $0.controller === second })
+        let split = try #require(host.subviews.compactMap {
+            $0 as? NSSplitView
+        }.first)
+        let closed = try #require(split.arrangedSubviews.compactMap {
+            $0 as? TerminalPaneCardView
+        }
+        .first {
+            $0.controller === second
+        })
         let oldFrame = closed.convert(closed.bounds, to: host)
 
         #expect(workspace.close(second))
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         host.viewWillDraw()
         #expect(host.isRunningTransition)
         // The card of the closed pane stays in the window, in an overlay
@@ -594,13 +709,21 @@ struct TerminalPaneCardTests {
         #expect((bounds.toValue as? NSValue)?.rectValue.width == 0)
         let position = try #require(closed.layer?.animation(forKey: "paneTransition.position") as? CABasicAnimation)
         // The second pane of a vertical split shrinks to its right edge.
-        let end = try #require(host.layerRect(CGRect(x: oldFrame.maxX, y: oldFrame.minY, width: 0,
-                                                     height: oldFrame.height), for: closed))
+        let end = try #require(host.layerRect(CGRect(
+            x: oldFrame.maxX,
+            y: oldFrame.minY,
+            width: 0,
+            height: oldFrame.height
+        ), for: closed))
         #expect((position.toValue as? NSValue)?.pointValue.x == end.minX)
 
         // The pane that stays grows from its old frame.
-        let survivor = try #require(host.subviews.compactMap { $0 as? TerminalPaneCardView }
-            .first { $0.controller === first })
+        let survivor = try #require(host.subviews.compactMap {
+            $0 as? TerminalPaneCardView
+        }
+        .first {
+            $0.controller === first
+        })
         #expect(survivor.layer?.animation(forKey: "paneTransition.bounds") != nil)
 
         // A second close of the same pane, for example when its process
@@ -619,15 +742,18 @@ struct TerminalPaneCardTests {
     @Test func noTransitionInAWindowThatIsNotVisible() throws {
         let workspace = TerminalPaneWorkspace(startsProcesses: false)
         let first = try #require(workspace.focusedController)
-        let document = TerminalDocument()
-        let host = TerminalPaneHostView(workspace: workspace, document: document)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        let host = TerminalPaneHostView(workspace: workspace)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
         window.contentView = host
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         #expect(!host.transitionsAllowed)
         workspace.split(first, direction: .right)
-        host.synchronize(revision: workspace.revision, document: document)
+        host.synchronize(revision: workspace.revision)
         #expect(!host.isRunningTransition)
         let second = try #require(workspace.focusedController)
         #expect(workspace.close(second))

@@ -37,28 +37,45 @@ nonisolated struct TerminalForegroundJobIconResolver {
         let members = Set(snapshot.processes.map(\.identity))
         let continuesJob = self.descriptor == descriptor && processGroup == snapshot.processGroup
             && !previousMembers.isDisjoint(with: members)
-        if !continuesJob { commandPath = nil }
+        if !continuesJob {
+            commandPath = nil
+        }
         self.descriptor = descriptor
         processGroup = snapshot.processGroup
         previousMembers = members
 
-        let processes = snapshot.processes.sorted { $0.processID < $1.processID }
+        let processes = snapshot.processes.sorted {
+            $0.processID < $1.processID
+        }
         let commands = processes.filter { process in
-            guard let identity = TerminalAppIconResolver.identity(forExecutablePath: process.executablePath) else { return false }
+            guard let identity = TerminalAppIconResolver.identity(forExecutablePath: process.executablePath) else {
+                return false
+            }
             return TerminalAppIconResolver.isRecognizedCommand(identity)
         }
-        if let command = commands.first(where: { $0.processID == snapshot.processGroup }) ?? commands.first {
+        if
+            let command = commands.first(where: {
+                $0.processID == snapshot.processGroup
+            }) ?? commands.first {
             commandPath = command.executablePath
             return commandPath
         }
         let onlyPagers = processes.allSatisfy {
-            guard let identity = TerminalAppIconResolver.identity(forExecutablePath: $0.executablePath) else { return false }
+            guard let identity = TerminalAppIconResolver.identity(forExecutablePath: $0.executablePath) else {
+                return false
+            }
             return ["less", "more"].contains(identity)
         }
-        if onlyPagers, let commandPath { return commandPath }
+        if onlyPagers, let commandPath {
+            return commandPath
+        }
         commandPath = nil
         // A live member still supplies an icon when the group leader has exited.
-        return (processes.first(where: { $0.processID == snapshot.processGroup && $0.executablePath != nil })
-                ?? processes.first(where: { $0.executablePath != nil }))?.executablePath
+        return (processes.first(where: {
+            $0.processID == snapshot.processGroup && $0.executablePath != nil
+        })
+            ?? processes.first(where: {
+                $0.executablePath != nil
+            }))?.executablePath
     }
 }

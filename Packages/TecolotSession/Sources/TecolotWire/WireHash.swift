@@ -20,14 +20,18 @@ public enum WireHash {
     }
 
     public static func hash64(_ bytes: [UInt8], seed: UInt64 = 0) -> UInt64 {
-        bytes.withUnsafeBufferPointer { hash64($0, seed: seed) }
+        bytes.withUnsafeBufferPointer {
+            hash64($0, seed: seed)
+        }
     }
 
     public static func hash64(_ bytes: UnsafeBufferPointer<UInt8>, seed: UInt64 = 0) -> UInt64 {
         let count = bytes.count
         var hash = seed &+ prime5 &+ UInt64(count)
         var index = 0
-        guard let base = bytes.baseAddress else { return avalanche(hash) }
+        guard let base = bytes.baseAddress else {
+            return avalanche(hash)
+        }
         let raw = UnsafeRawPointer(base)
         while index + 8 <= count {
             let word = UInt64(littleEndian: raw.loadUnaligned(fromByteOffset: index, as: UInt64.self))

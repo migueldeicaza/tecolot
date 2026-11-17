@@ -1,0 +1,8 @@
+# Commits that only reformat code. git blame skips them with
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub's blame view reads this file without any setup.
+
+# Format the Swift files changed on this branch with SwiftFormat
+06faf4b12448a5d5df13d9c1464589ed7a52bcb2
+# Format the remaining Swift files with SwiftFormat
+fded6bb38264da29c2d1020d44e310f594c4a524

@@ -52,23 +52,37 @@ struct BufferNumbering {
     /// Updates the numbering for the current buffer state. Returns true when
     /// the epoch changed. Call with the terminal lock held.
     @discardableResult
-    mutating func update(terminal: Terminal, buffer: Buffer, lineCount: Int, scrollbackRows: Int,
-                         force: Bool) -> Bool {
+    mutating func update(
+        terminal: Terminal,
+        buffer: Buffer,
+        lineCount: Int,
+        scrollbackRows: Int,
+        force: Bool
+    ) -> Bool {
         let trimmed = buffer.totalLinesTrimmed
         let bufferIdentity = ObjectIdentifier(buffer)
         var broken = force
-        if let identity, identity != bufferIdentity { broken = true }
-        if trimmed < lastTrimmed { broken = true }
+        if let identity, identity != bufferIdentity {
+            broken = true
+        }
+        if trimmed < lastTrimmed {
+            broken = true
+        }
         let end = base + Int64(trimmed) + Int64(lineCount)
-        if identity != nil && end < lastEnd { broken = true }
+        if identity != nil && end < lastEnd {
+            broken = true
+        }
         if !broken {
             for sentinel in sentinels {
                 let ring = sentinel.number - base - Int64(trimmed)
-                if ring < 0 { continue }
-                guard ring < Int64(lineCount),
-                      let line = terminal.bufferLine(atRow: Int(ring)),
-                      line === sentinel.line,
-                      line.generation == sentinel.generation else {
+                if ring < 0 {
+                    continue
+                }
+                guard
+                    ring < Int64(lineCount),
+                    let line = terminal.bufferLine(atRow: Int(ring)),
+                    line === sentinel.line,
+                    line.generation == sentinel.generation else {
                     broken = true
                     break
                 }
@@ -88,14 +102,23 @@ struct BufferNumbering {
         lastEnd = base + Int64(trimmed) + Int64(lineCount)
 
         // Drop sentinels that trimming removed; keep up to three in scrollback.
-        sentinels.removeAll { $0.number - base - Int64(trimmed) < 0 }
+        sentinels.removeAll {
+            $0.number - base - Int64(trimmed) < 0
+        }
         if scrollbackRows > 0 && sentinels.count < 3 {
             for ring in [0, scrollbackRows / 2, scrollbackRows - 1] {
                 let lineNumber = base + Int64(trimmed) + Int64(ring)
-                guard !sentinels.contains(where: { $0.number == lineNumber }),
-                      let line = terminal.bufferLine(atRow: ring) else { continue }
+                guard
+                    !sentinels.contains(where: {
+                        $0.number == lineNumber
+                    }),
+                    let line = terminal.bufferLine(atRow: ring) else {
+                    continue
+                }
                 sentinels.append(Sentinel(line: line, generation: line.generation, number: lineNumber))
-                if sentinels.count >= 3 { break }
+                if sentinels.count >= 3 {
+                    break
+                }
             }
         }
         return changed

@@ -53,7 +53,9 @@ final class ThemeProjectionTests {
             mode: .backgroundSpectrum
         )
         func radius(_ name: String) -> Double {
-            let position = points.first { $0.id == name }!.position
+            let position = points.first {
+                $0.id == name
+            }!.position
             return hypot(position.x - 0.5, position.y - 0.5)
         }
 
@@ -65,7 +67,9 @@ final class ThemeProjectionTests {
 
         // The tinted point sits at its hue angle: blue points down-left in
         // OKLab (negative b, slightly negative a) → x < 0.5
-        let tintedPosition = points.first { $0.id == "Tinted Background" }!.position
+        let tintedPosition = points.first {
+            $0.id == "Tinted Background"
+        }!.position
         #expect(tintedPosition.x < 0.5)
     }
 
@@ -87,8 +91,12 @@ final class ThemeProjectionTests {
             mode: .interactionColors
         )
 
-        #expect(points.first { $0.id == "Custom" }?.hasCustomSelection == true)
-        #expect(points.first { $0.id == "System" }?.hasCustomSelection == false)
+        #expect(points.first {
+            $0.id == "Custom"
+        }?.hasCustomSelection == true)
+        #expect(points.first {
+            $0.id == "System"
+        }?.hasCustomSelection == false)
     }
 
     @Test func neutralThemeUsesTheForegroundAsAccent() throws {

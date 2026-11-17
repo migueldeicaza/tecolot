@@ -48,8 +48,15 @@ public struct RemoteRowSnapshot: Sendable, Equatable {
     /// The saved rows, in line order. Lines that the cache did not hold are missing.
     public var savedRows: [Row]
 
-    public init(sessionID: String, savedAt: Date, columns: Int, rows: Int, firstLine: Int64, endLine: Int64,
-                savedRows: [Row]) {
+    public init(
+        sessionID: String,
+        savedAt: Date,
+        columns: Int,
+        rows: Int,
+        firstLine: Int64,
+        endLine: Int64,
+        savedRows: [Row]
+    ) {
         self.sessionID = sessionID
         self.savedAt = savedAt
         self.columns = columns
@@ -76,11 +83,20 @@ public struct RemoteRowSnapshot: Sendable, Equatable {
                 // The images stay on the host; the file has no pixels.
                 header.images = []
                 encoder.begin(header)
-                for cell in row.cells { encoder.append(cell.content, style: cell.style) }
+                for cell in row.cells {
+                    encoder.append(cell.content, style: cell.style)
+                }
                 return Row(line: line, version: row.version, payload: encoder.finish())
             }
-            return RemoteRowSnapshot(sessionID: sessionID, savedAt: savedAt, columns: columns, rows: rows,
-                                     firstLine: firstLine, endLine: endLine, savedRows: saved).encode()
+            return RemoteRowSnapshot(
+                sessionID: sessionID,
+                savedAt: savedAt,
+                columns: columns,
+                rows: rows,
+                firstLine: firstLine,
+                endLine: endLine,
+                savedRows: saved
+            ).encode()
         }
     }
 
@@ -88,15 +104,27 @@ public struct RemoteRowSnapshot: Sendable, Equatable {
     /// the session's lock. Nil when the session has no rows.
     public static func capture(_ session: RemoteSession, sessionID: String, limit: Int) -> Pending? {
         session.withState { state, cache in
-            guard state.endLine > state.firstLine, cache.count > 0 else { return nil }
+            guard state.endLine > state.firstLine, cache.count > 0 else {
+                return nil
+            }
             let start = max(state.firstLine, state.endLine - Int64(state.rows) - Int64(max(0, limit)))
             var cached: [(line: Int64, row: CachedRow)] = []
             for line in start ..< state.endLine {
-                if let row = cache[line] { cached.append((line, row)) }
+                if let row = cache[line] {
+                    cached.append((line, row))
+                }
             }
-            guard !cached.isEmpty else { return nil }
-            return Pending(sessionID: sessionID, columns: state.columns, rows: state.rows,
-                           firstLine: state.firstLine, endLine: state.endLine, cached: cached)
+            guard !cached.isEmpty else {
+                return nil
+            }
+            return Pending(
+                sessionID: sessionID,
+                columns: state.columns,
+                rows: state.rows,
+                firstLine: state.firstLine,
+                endLine: state.endLine,
+                cached: cached
+            )
         }
     }
 
@@ -121,7 +149,9 @@ public struct RemoteRowSnapshot: Sendable, Equatable {
     /// Decodes and checks a file. Each payload must decode as a row.
     public static func decode(_ data: Data) throws -> RemoteRowSnapshot {
         let bytes = [UInt8](data)
-        guard bytes.starts(with: magic) else { throw WireError.invalidValue("not a Tecolot row file") }
+        guard bytes.starts(with: magic) else {
+            throw WireError.invalidValue("not a Tecolot row file")
+        }
         var reader = WireReader(bytes, range: magic.count ..< bytes.count)
         let sessionID = try reader.string(limit: 256)
         let savedAt = Date(timeIntervalSince1970: Double(bitPattern: try reader.u64()))
@@ -138,15 +168,24 @@ public struct RemoteRowSnapshot: Sendable, Equatable {
         var previous = Int64.min
         for _ in 0 ..< count {
             let line = try reader.svarint()
-            guard line > previous, line >= firstLine, line < endLine else { throw WireError.invalidValue("row line") }
+            guard line > previous, line >= firstLine, line < endLine else {
+                throw WireError.invalidValue("row line")
+            }
             previous = line
             let version = try reader.u64()
             let payload = try reader.blob(limit: 4 * 1024 * 1024)
             _ = try RowDecoder.decodeCells(payload)
             saved.append(Row(line: line, version: version, payload: payload))
         }
-        return RemoteRowSnapshot(sessionID: sessionID, savedAt: savedAt, columns: columns, rows: rows,
-                                 firstLine: firstLine, endLine: endLine, savedRows: saved)
+        return RemoteRowSnapshot(
+            sessionID: sessionID,
+            savedAt: savedAt,
+            columns: columns,
+            rows: rows,
+            firstLine: firstLine,
+            endLine: endLine,
+            savedRows: saved
+        )
     }
 }
 
@@ -162,9 +201,13 @@ extension RemoteSession {
             let records = snapshot.savedRows.map {
                 WireRowRecord(line: UInt64($0.line), version: $0.version, payload: $0.payload)
             }
-            guard (try? prepared.store(records)) != nil else { return }
+            guard (try? prepared.store(records)) != nil else {
+                return
+            }
             let stored = withPreloadLock { state, cache -> Bool in
-                guard !state.connected, state.lastFrameSequence == 0 else { return false }
+                guard !state.connected, state.lastFrameSequence == 0 else {
+                    return false
+                }
                 state.buffer = .normal
                 // The file holds only the last rows: the view cannot scroll above them.
                 let first = snapshot.savedRows.first?.line ?? snapshot.endLine
@@ -177,7 +220,9 @@ extension RemoteSession {
                 cache = prepared
                 return true
             }
-            if stored { onChange?([.rows, .geometry]) }
+            if stored {
+                onChange?([.rows, .geometry])
+            }
         }
     }
 }

@@ -1,12 +1,12 @@
 import AppKit
 import Foundation
+import SwiftTerm
 
 private struct PreferencesV0 {
     var newTabsUseCurrentDirectory: Bool?
     var newTabsUseCurrentProfile: Bool?
     var useCommandDigitsForTabs: Bool?
     var restoredRowsLimit: Int?
-    var windowRestoration: String?
     var startupMode: String?
     var startupProfileID: String?
     var startupWindowGroupID: String?
@@ -20,7 +20,6 @@ private struct PreferencesV1 {
     var newTabsUseCurrentProfile: Bool
     var useCommandDigitsForTabs: Bool
     var restoredRowsLimit: Int
-    var windowRestoration: String
     var startupMode: String
     var startupProfileID: String?
     var startupWindowGroupID: String?
@@ -41,17 +40,19 @@ final class PreferenceMigrator {
     private let applySecureKeyboardEntry: @MainActor (Bool) -> Void
 
     private let managedKeys = [
-        "newTabsUseCurrentDirectory",
-        "newTabsUseCurrentProfile",
-        "useCommandDigitsForTabs",
-        "restoredRowsLimit",
-        WindowRestorationPolicy.key,
-        "startupMode",
-        "startupProfileID",
-        "startupWindowGroupID",
-        "SecureKeyboardEntry",
-        "LogHostOutput",
-        "useMetalRenderer"
+        WindowOpener.newTabsUseCurrentDirectoryKey,
+        WindowOpener.newTabsUseCurrentProfileKey,
+        TabSelectionCommands.useCommandDigitsForTabsKey,
+        RestoreStore.restoredRowsLimitKey,
+        StartupGroups.startupModeKey,
+        StartupGroups.startupProfileIDKey,
+        StartupGroups.startupWindowGroupIDKey,
+        StartupGroups.startupGroupIDsKey,
+        SecureKeyboardEntry.enabledKey,
+        TerminalSessionController.logHostOutputKey,
+        TerminalSessionController.useMetalRendererKey,
+        TerminalNotificationPreferences.bellStyleKey,
+        TerminalNotificationPreferences.allowsProgramNotificationsKey
     ]
 
     init(
@@ -70,7 +71,7 @@ final class PreferenceMigrator {
         sourceURL = applicationSupportDirectory.appendingPathComponent("preferences.json")
     }
 
-    func migrate(profiles: ProfileStore, windowGroups: WindowGroupStore) {
+    func migrate(profiles: ProfileStore) {
         let sourceVersion: Int
         do {
             sourceVersion = try readSchemaVersion()
@@ -120,8 +121,9 @@ final class PreferenceMigrator {
         }
 
         let source = readV0()
-        let migrated = migrateV0(source, profiles: profiles, windowGroups: windowGroups)
+        let migrated = migrateV0(source, profiles: profiles)
         apply(migrated)
+        migrateBellPreferences(profiles: profiles)
         defaults.set(Self.currentVersion, forKey: Self.schemaKey)
         if defaults.synchronize() {
             issueCenter.resolve(domain: .preferences, sourceURL: sourceURL)
@@ -154,11 +156,47 @@ final class PreferenceMigrator {
         }
     }
 
-    func reset(profiles: ProfileStore, windowGroups: WindowGroupStore) {
+    func reset(profiles: ProfileStore) {
         for key in managedKeys + [Self.schemaKey] {
             defaults.removeObject(forKey: key)
         }
-        migrate(profiles: profiles, windowGroups: windowGroups)
+        migrate(profiles: profiles)
+    }
+
+    private func migrateBellPreferences(profiles: ProfileStore) {
+        guard
+            !TerminalNotificationPreferences.bellMigrationSeeded(defaults: defaults),
+            !issueCenter.issues.contains(where: {
+                $0.domain == .profiles || $0.domain == .legacyApplicationSupport
+            }) else {
+            return
+        }
+        let profile = profiles.defaultProfile
+        if defaults.object(forKey: TerminalNotificationPreferences.bellStyleKey) == nil {
+            defaults.set(profile.bellStyle.tagName, forKey: TerminalNotificationPreferences.bellStyleKey)
+        }
+        if defaults.object(forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey) == nil {
+            defaults.set(profile.allowsNotifications, forKey: TerminalNotificationPreferences.allowsProgramNotificationsKey)
+        }
+        var differed: [String] = []
+        if
+            profiles.profiles.contains(where: {
+                $0.bellStyle != profile.bellStyle
+            }) {
+            differed.append("bell")
+        }
+        if
+            profiles.profiles.contains(where: {
+                $0.allowsNotifications != profile.allowsNotifications
+            }) {
+            differed.append("notifications")
+        }
+        if !differed.isEmpty {
+            defaults.set(differed, forKey: TerminalNotificationPreferences.bellMigrationDifferedKey)
+        }
+        // UserDefaults can retain an equal numeric value's type when writing a Bool.
+        defaults.removeObject(forKey: TerminalNotificationPreferences.bellMigrationSeededKey)
+        defaults.set(true, forKey: TerminalNotificationPreferences.bellMigrationSeededKey)
     }
 
     private func snapshotData() throws -> Data {
@@ -172,11 +210,14 @@ final class PreferenceMigrator {
     }
 
     private func readSchemaVersion() throws -> Int {
-        guard let rawValue = defaults.object(forKey: Self.schemaKey) else { return 0 }
-        guard let number = rawValue as? NSNumber,
-              CFGetTypeID(number) != CFBooleanGetTypeID(),
-              number.doubleValue == Double(number.intValue),
-              number.intValue >= 0 else {
+        guard let rawValue = defaults.object(forKey: Self.schemaKey) else {
+            return 0
+        }
+        guard
+            let number = rawValue as? NSNumber,
+            CFGetTypeID(number) != CFBooleanGetTypeID(),
+            number.doubleValue == Double(number.intValue),
+            number.intValue >= 0 else {
             throw VersionedPersistenceError.invalidDocument("The preference schema version is not valid.")
         }
         return number.intValue
@@ -184,94 +225,78 @@ final class PreferenceMigrator {
 
     private func readV0() -> PreferencesV0 {
         PreferencesV0(
-            newTabsUseCurrentDirectory: boolean(forKey: "newTabsUseCurrentDirectory"),
-            newTabsUseCurrentProfile: boolean(forKey: "newTabsUseCurrentProfile"),
-            useCommandDigitsForTabs: boolean(forKey: "useCommandDigitsForTabs"),
-            restoredRowsLimit: defaults.object(forKey: "restoredRowsLimit") as? Int,
-            windowRestoration: defaults.string(forKey: WindowRestorationPolicy.key),
-            startupMode: defaults.string(forKey: "startupMode"),
-            startupProfileID: defaults.string(forKey: "startupProfileID"),
-            startupWindowGroupID: defaults.string(forKey: "startupWindowGroupID"),
-            secureKeyboardEntry: boolean(forKey: "SecureKeyboardEntry"),
-            logHostOutput: boolean(forKey: "LogHostOutput"),
-            useMetalRenderer: boolean(forKey: "useMetalRenderer")
+            newTabsUseCurrentDirectory: boolean(forKey: WindowOpener.newTabsUseCurrentDirectoryKey),
+            newTabsUseCurrentProfile: boolean(forKey: WindowOpener.newTabsUseCurrentProfileKey),
+            useCommandDigitsForTabs: boolean(forKey: TabSelectionCommands.useCommandDigitsForTabsKey),
+            restoredRowsLimit: defaults.object(forKey: RestoreStore.restoredRowsLimitKey) as? Int,
+            startupMode: defaults.string(forKey: StartupGroups.startupModeKey),
+            startupProfileID: defaults.string(forKey: StartupGroups.startupProfileIDKey),
+            startupWindowGroupID: defaults.string(forKey: StartupGroups.startupWindowGroupIDKey),
+            secureKeyboardEntry: boolean(forKey: SecureKeyboardEntry.enabledKey),
+            logHostOutput: boolean(forKey: TerminalSessionController.logHostOutputKey),
+            useMetalRenderer: boolean(forKey: TerminalSessionController.useMetalRendererKey)
         )
     }
 
     private func migrateV0(
         _ source: PreferencesV0,
-        profiles: ProfileStore,
-        windowGroups: WindowGroupStore
+        profiles: ProfileStore
     ) -> PreferencesV1 {
-        let validModes = Set(["default", "profile", "windowGroup"])
-        var startupMode = source.startupMode ?? "default"
-        if !validModes.contains(startupMode) { startupMode = "default" }
+        let validModes = Set(["default", "profile", "windowGroup", "groups"])
+        var startupMode = source.startupMode ?? StartupGroups.startupModeDefault
+        if !validModes.contains(startupMode) {
+            startupMode = StartupGroups.startupModeDefault
+        }
 
         var startupProfileID = source.startupProfileID
-        var startupWindowGroupID = source.startupWindowGroupID
+        let startupWindowGroupID = source.startupWindowGroupID
         if startupMode == "profile" {
-            let rawID = startupProfileID ?? ""
+            let rawID = startupProfileID ?? StartupGroups.startupProfileIDDefault
             if let id = UUID(uuidString: rawID) {
                 let profileDataIsIncomplete = issueCenter.issues.contains {
                     $0.domain == .profiles || $0.domain == .legacyApplicationSupport
                 }
                 if profiles.profile(withID: id) == nil, !profileDataIsIncomplete {
                     startupProfileID = nil
-                    startupMode = "default"
+                    startupMode = StartupGroups.startupModeDefault
                 }
             } else {
                 startupProfileID = nil
-                startupMode = "default"
-            }
-        } else if startupMode == "windowGroup" {
-            let rawID = startupWindowGroupID ?? ""
-            if let id = UUID(uuidString: rawID) {
-                let windowGroupDataIsIncomplete = issueCenter.issues.contains {
-                    $0.domain == .windowGroups
-                }
-                if windowGroups.group(withID: id) == nil, !windowGroupDataIsIncomplete {
-                    startupWindowGroupID = nil
-                    startupMode = "default"
-                }
-            } else {
-                startupWindowGroupID = nil
-                startupMode = "default"
+                startupMode = StartupGroups.startupModeDefault
             }
         }
         return PreferencesV1(
-            newTabsUseCurrentDirectory: source.newTabsUseCurrentDirectory ?? true,
-            newTabsUseCurrentProfile: source.newTabsUseCurrentProfile ?? true,
-            useCommandDigitsForTabs: source.useCommandDigitsForTabs ?? true,
-            restoredRowsLimit: min(max(source.restoredRowsLimit ?? 1_000, 0), 100_000),
-            windowRestoration: source.windowRestoration.flatMap(WindowRestorationPolicy.init(rawValue:))?.rawValue
-                ?? WindowRestorationPolicy.system.rawValue,
+            newTabsUseCurrentDirectory: source.newTabsUseCurrentDirectory ?? WindowOpener.newTabsUseCurrentDirectoryDefault,
+            newTabsUseCurrentProfile: source.newTabsUseCurrentProfile ?? WindowOpener.newTabsUseCurrentProfileDefault,
+            useCommandDigitsForTabs: source.useCommandDigitsForTabs ?? TabSelectionCommands.useCommandDigitsForTabsDefault,
+            restoredRowsLimit: min(max(source.restoredRowsLimit ?? RestoreStore.restoredRowsLimitDefault, 0), 100_000),
             startupMode: startupMode,
             startupProfileID: startupProfileID,
             startupWindowGroupID: startupWindowGroupID,
-            secureKeyboardEntry: source.secureKeyboardEntry ?? false,
-            logHostOutput: source.logHostOutput ?? false,
-            useMetalRenderer: source.useMetalRenderer ?? true
+            secureKeyboardEntry: source.secureKeyboardEntry ?? SecureKeyboardEntry.enabledDefault,
+            logHostOutput: source.logHostOutput ?? TerminalSessionController.logHostOutputDefault,
+            useMetalRenderer: source.useMetalRenderer ?? TerminalSessionController.useMetalRendererDefault
         )
     }
 
     private func apply(_ preferences: PreferencesV1) {
-        defaults.set(preferences.newTabsUseCurrentDirectory, forKey: "newTabsUseCurrentDirectory")
-        defaults.set(preferences.newTabsUseCurrentProfile, forKey: "newTabsUseCurrentProfile")
-        defaults.set(preferences.useCommandDigitsForTabs, forKey: "useCommandDigitsForTabs")
-        defaults.set(preferences.restoredRowsLimit, forKey: "restoredRowsLimit")
-        defaults.set(preferences.windowRestoration, forKey: WindowRestorationPolicy.key)
-        defaults.set(preferences.startupMode, forKey: "startupMode")
-        setOptional(preferences.startupProfileID, forKey: "startupProfileID")
-        setOptional(preferences.startupWindowGroupID, forKey: "startupWindowGroupID")
-        defaults.set(preferences.secureKeyboardEntry, forKey: "SecureKeyboardEntry")
-        defaults.set(preferences.logHostOutput, forKey: "LogHostOutput")
-        defaults.set(preferences.useMetalRenderer, forKey: "useMetalRenderer")
+        defaults.set(preferences.newTabsUseCurrentDirectory, forKey: WindowOpener.newTabsUseCurrentDirectoryKey)
+        defaults.set(preferences.newTabsUseCurrentProfile, forKey: WindowOpener.newTabsUseCurrentProfileKey)
+        defaults.set(preferences.useCommandDigitsForTabs, forKey: TabSelectionCommands.useCommandDigitsForTabsKey)
+        defaults.set(preferences.restoredRowsLimit, forKey: RestoreStore.restoredRowsLimitKey)
+        defaults.set(preferences.startupMode, forKey: StartupGroups.startupModeKey)
+        setOptional(preferences.startupProfileID, forKey: StartupGroups.startupProfileIDKey)
+        setOptional(preferences.startupWindowGroupID, forKey: StartupGroups.startupWindowGroupIDKey)
+        defaults.set(preferences.secureKeyboardEntry, forKey: SecureKeyboardEntry.enabledKey)
+        defaults.set(preferences.logHostOutput, forKey: TerminalSessionController.logHostOutputKey)
+        defaults.set(preferences.useMetalRenderer, forKey: TerminalSessionController.useMetalRendererKey)
         applySecureKeyboardEntry(preferences.secureKeyboardEntry)
     }
 
     private func boolean(forKey key: String) -> Bool? {
-        guard let value = defaults.object(forKey: key),
-              CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID() else {
+        guard
+            let value = defaults.object(forKey: key),
+            CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID() else {
             return nil
         }
         return (value as? NSNumber)?.boolValue
@@ -292,7 +317,6 @@ final class DataRecoveryCoordinator {
 
     private let profiles: ProfileStore
     private let themes: ThemeStore
-    private let windowGroups: WindowGroupStore
     private let preferences: PreferenceMigrator
     private let backupDirectory: URL
     private let profileStorageDirectory: URL
@@ -302,7 +326,6 @@ final class DataRecoveryCoordinator {
         issueCenter: PersistenceIssueCenter,
         profiles: ProfileStore,
         themes: ThemeStore,
-        windowGroups: WindowGroupStore,
         preferences: PreferenceMigrator,
         backupDirectory: URL,
         profileStorageDirectory: URL,
@@ -311,7 +334,6 @@ final class DataRecoveryCoordinator {
         self.issueCenter = issueCenter
         self.profiles = profiles
         self.themes = themes
-        self.windowGroups = windowGroups
         self.preferences = preferences
         self.backupDirectory = backupDirectory
         self.profileStorageDirectory = profileStorageDirectory
@@ -337,21 +359,27 @@ final class DataRecoveryCoordinator {
     }
 
     func availableBackup(for issue: PersistenceIssue) -> URL? {
-        if let backupURL = issue.backupURL,
-           FileManager.default.fileExists(atPath: backupURL.path) {
+        if
+            let backupURL = issue.backupURL,
+            FileManager.default.fileExists(atPath: backupURL.path) {
             return backupURL
         }
         let directory = backupDirectory.appendingPathComponent(issue.domain.rawValue)
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil
-        ) else {
+        guard
+            let files = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil
+            ) else {
             return nil
         }
         let prefix = "\(issue.sourceURL.lastPathComponent).v"
         return files
-            .filter { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "backup" }
-            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+            .filter {
+                $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "backup"
+            }
+            .sorted {
+                $0.lastPathComponent > $1.lastPathComponent
+            }
             .first
     }
 
@@ -368,7 +396,7 @@ final class DataRecoveryCoordinator {
     }
 
     func resetPreferences() {
-        preferences.reset(profiles: profiles, windowGroups: windowGroups)
+        preferences.reset(profiles: profiles)
     }
 
     func moveToTrash(_ issue: PersistenceIssue) async throws {
@@ -391,15 +419,16 @@ final class DataRecoveryCoordinator {
         case .userThemes, .themeFavorites:
             themes.reload()
         case .windowGroups:
-            windowGroups.load()
+            RestoreStore.shared.retryWindowGroupsMigration()
         case .preferences:
-            preferences.migrate(profiles: profiles, windowGroups: windowGroups)
+            preferences.migrate(profiles: profiles)
         case .terminalDocument:
             break
         case .legacyApplicationSupport:
             break
         case .windowRestoration:
-            // The file was deleted; the next quit writes a new one.
+            // A retry permits writes only after the file can be loaded.
+            RestoreStore.shared.retryRestorationRecovery()
             break
         }
     }
@@ -411,7 +440,7 @@ final class DataRecoveryCoordinator {
                 backupDirectory: backupDirectory
             )
             if migratePreferences {
-                preferences.migrate(profiles: profiles, windowGroups: windowGroups)
+                preferences.migrate(profiles: profiles)
             }
         } catch {
             issueCenter.report(PersistenceIssue(
@@ -434,7 +463,7 @@ final class DataRecoveryCoordinator {
             migratePreferences: false
         )
         themes.reload()
-        windowGroups.load()
-        preferences.migrate(profiles: profiles, windowGroups: windowGroups)
+        RestoreStore.shared.retryWindowGroupsMigration()
+        preferences.migrate(profiles: profiles)
     }
 }

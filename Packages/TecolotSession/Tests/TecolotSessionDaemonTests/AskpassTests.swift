@@ -4,9 +4,9 @@ import Testing
 import TecolotSessionClient
 import TecolotTransport
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #endif
 
 private enum AskpassTestError: Error { case timeout }
@@ -14,7 +14,9 @@ private enum AskpassTestError: Error { case timeout }
 private func askpassWait(_ predicate: () -> Bool) async throws {
     let deadline = Date().addingTimeInterval(5)
     while Date() < deadline {
-        if predicate() { return }
+        if predicate() {
+            return
+        }
         try await Task.sleep(for: .milliseconds(5))
     }
     throw AskpassTestError.timeout
@@ -26,19 +28,30 @@ private final class AskpassProcess: @unchecked Sendable {
     init(socket: String, token: String, prompt: [String], kind: String = "", wrapper: URL? = nil) throws {
         process.executableURL = try wrapper ?? URL(fileURLWithPath: helperPath())
         process.arguments = (wrapper == nil ? ["askpass"] : []) + prompt
-        process.environment = ["TECOLOT_ASKPASS_SOCKET": socket, "TECOLOT_ASKPASS_TOKEN": token,
-                               "SSH_ASKPASS_PROMPT": kind]
+        process.environment = [
+            "TECOLOT_ASKPASS_SOCKET": socket,
+            "TECOLOT_ASKPASS_TOKEN": token,
+            "SSH_ASKPASS_PROMPT": kind
+        ]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         try process.run()
         try output.fileHandleForWriting.close()
     }
-    deinit { if process.isRunning { process.terminate() } }
+    deinit {
+        if process.isRunning {
+            process.terminate()
+        }
+    }
     func result() async throws -> (Int32, String) {
-        try await askpassWait { !process.isRunning }
-        return (process.terminationStatus,
-                String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
+        try await askpassWait {
+            !process.isRunning
+        }
+        return (
+            process.terminationStatus,
+            String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        )
     }
 }
 
@@ -52,8 +65,12 @@ struct AskpassTests {
         #expect(lstat(server.socketPath, &socketStatus) == 0)
         #expect(socketStatus.st_mode & 0o777 == 0o600)
         let request = Mutex<AskpassRequest?>(nil)
-        let token = server.register(host: "user@server:22", stderr: { (1...30).map(String.init).joined(separator: "\n") + "\nDuo login instructions" }) { value, reply in
-            request.withLock { $0 = value }
+        let token = server.register(host: "user@server:22", stderr: {
+            (1...30).map(String.init).joined(separator: "\n") + "\nDuo login instructions"
+        }) { value, reply in
+            request.withLock {
+                $0 = value
+            }
             reply("a secret with spaces")
         }
         let wrapper = try server.createWrapper(helperPath: helperPath())
@@ -62,12 +79,18 @@ struct AskpassTests {
         #expect(status.st_mode & 0o777 == 0o700)
         #expect(String(decoding: try Data(contentsOf: wrapper), as: UTF8.self)
             == "#!/bin/sh\nexec '\(try helperPath())' askpass \"$@\"\n")
-        let child = try AskpassProcess(socket: server.socketPath, token: token,
-                                      prompt: ["Enter", "passphrase for key:"], wrapper: wrapper)
+        let child = try AskpassProcess(
+            socket: server.socketPath,
+            token: token,
+            prompt: ["Enter", "passphrase for key:"],
+            wrapper: wrapper
+        )
         let (code, output) = try await child.result()
         #expect(code == 0)
         #expect(output == "a secret with spaces\n")
-        let value = try #require(request.withLock { $0 })
+        let value = try #require(request.withLock {
+            $0
+        })
         #expect(value.style == .secret)
         #expect(value.hostKey == "user@server:22")
         #expect(value.stderrLines.count == 20)
@@ -83,7 +106,9 @@ struct AskpassTests {
         defer { server.close() }
         let calls = Mutex(0)
         let token = server.register(host: "server") { _, reply in
-            calls.withLock { $0 += 1 }
+            calls.withLock {
+                $0 += 1
+            }
             reply(nil)
         }
         for value in [token, "unknown-token"] {
@@ -92,7 +117,9 @@ struct AskpassTests {
             #expect(code == 1)
             #expect(output.isEmpty)
         }
-        #expect(calls.withLock { $0 } == 1)
+        #expect(calls.withLock {
+            $0
+        } == 1)
     }
 
     @Test func securityKeyNoticeEndsWhenHelperExits() async throws {
@@ -103,21 +130,47 @@ struct AskpassTests {
         let shown = Mutex<AskpassRequest?>(nil)
         let dismissed = Mutex<UUID?>(nil)
         let token = server.register(host: "server", handler: { request, reply in
-            shown.withLock { $0 = request }
+            shown.withLock {
+                $0 = request
+            }
             reply("must not answer a notice")
-        }, onDismiss: { id in dismissed.withLock { $0 = id } })
-        let child = try AskpassProcess(socket: server.socketPath, token: token,
-                                      prompt: ["Touch your security key"], kind: "none")
-        try await askpassWait { shown.withLock { $0 != nil } }
-        #expect(shown.withLock { $0?.style } == .notice)
+        }, onDismiss: { id in
+            dismissed.withLock {
+                $0 = id
+            }
+        })
+        let child = try AskpassProcess(
+            socket: server.socketPath,
+            token: token,
+            prompt: ["Touch your security key"],
+            kind: "none"
+        )
+        try await askpassWait {
+            shown.withLock {
+                $0 != nil
+            }
+        }
+        #expect(shown.withLock {
+            $0?.style
+        } == .notice)
         try await Task.sleep(for: .milliseconds(30))
         #expect(child.process.isRunning)
-        #expect(dismissed.withLock { $0 } == nil)
+        #expect(dismissed.withLock {
+            $0
+        } == nil)
         child.process.terminate()
         let (_, output) = try await child.result()
-        try await askpassWait { dismissed.withLock { $0 != nil } }
+        try await askpassWait {
+            dismissed.withLock {
+                $0 != nil
+            }
+        }
         #expect(output.isEmpty)
-        #expect(dismissed.withLock { $0 } == shown.withLock { $0?.id })
+        #expect(dismissed.withLock {
+            $0
+        } == shown.withLock {
+            $0?.id
+        })
     }
 
     @Test func serverCloseCancelsPendingPromptAndNotice() async throws {
@@ -128,16 +181,37 @@ struct AskpassTests {
             defer { server.close() }
             let shown = Mutex(false)
             let dismissed = Mutex(false)
-            let token = server.register(host: "server", handler: { _, _ in shown.withLock { $0 = true } },
-                                        onDismiss: { _ in dismissed.withLock { $0 = true } })
-            let child = try AskpassProcess(socket: server.socketPath, token: token,
-                                          prompt: ["Prompt"], kind: kind)
-            try await askpassWait { shown.withLock { $0 } }
+            let token = server.register(
+                host: "server",
+                handler: { _, _ in
+                    shown.withLock {
+                        $0 = true
+                    }
+                },
+                onDismiss: { _ in
+                    dismissed.withLock {
+                        $0 = true
+                    }
+                }
+            )
+            let child = try AskpassProcess(
+                socket: server.socketPath,
+                token: token,
+                prompt: ["Prompt"],
+                kind: kind
+            )
+            try await askpassWait {
+                shown.withLock {
+                    $0
+                }
+            }
             server.close()
             let (code, output) = try await child.result()
             #expect(code == 1)
             #expect(output.isEmpty)
-            #expect(dismissed.withLock { $0 })
+            #expect(dismissed.withLock {
+                $0
+            })
         }
     }
 
@@ -147,9 +221,17 @@ struct AskpassTests {
         let server = try AskpassServer(runtimeDirectory: directory.url)
         defer { server.close() }
         let shown = Mutex(false)
-        let token = server.register(host: "server") { _, _ in shown.withLock { $0 = true } }
+        let token = server.register(host: "server") { _, _ in
+            shown.withLock {
+                $0 = true
+            }
+        }
         let child = try AskpassProcess(socket: server.socketPath, token: token, prompt: ["Password:"])
-        try await askpassWait { shown.withLock { $0 } }
+        try await askpassWait {
+            shown.withLock {
+                $0
+            }
+        }
         server.unregister(token: token)
         let (code, output) = try await child.result()
         #expect(code == 1)
@@ -179,14 +261,21 @@ struct AskpassTests {
         // accept can return a nonblocking socket before the helper writes JSON.
         try await askpassWait {
             let count = recv(fd, &bytes, bytes.count, MSG_DONTWAIT)
-            if count > 0 { request.append(contentsOf: bytes.prefix(count)) }
-            else if count == 0 { Issue.record("The askpass helper closed before its request"); return true }
-            else { #expect(errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) }
+            if count > 0 {
+                request.append(contentsOf: bytes.prefix(count))
+            } else if count == 0 {
+                Issue.record("The askpass helper closed before its request")
+                return true
+            } else {
+                #expect(errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+            }
             return request.contains(10)
         }
         #expect(request.contains(10))
         let reply = Data("{\"ok\":true,\"text\":7}\n".utf8)
-        let sent = reply.withUnsafeBytes { send(fd, $0.baseAddress, $0.count, Int32(MSG_NOSIGNAL)) }
+        let sent = reply.withUnsafeBytes {
+            send(fd, $0.baseAddress, $0.count, Int32(MSG_NOSIGNAL))
+        }
         #expect(sent == reply.count)
         let (code, output) = try await child.result()
         #expect(code == 1)
@@ -200,15 +289,22 @@ struct AskpassTests {
         defer { server.close() }
         let calls = Mutex(0)
         let token = server.register(host: "server") { _, reply in
-            calls.withLock { $0 += 1 }
+            calls.withLock {
+                $0 += 1
+            }
             reply("answer")
         }
-        let child = try AskpassProcess(socket: server.socketPath, token: token,
-                                      prompt: [String(repeating: "a", count: 64 * 1024)])
+        let child = try AskpassProcess(
+            socket: server.socketPath,
+            token: token,
+            prompt: [String(repeating: "a", count: 64 * 1024)]
+        )
         let (code, output) = try await child.result()
         #expect(code == 1)
         #expect(output.isEmpty)
-        #expect(calls.withLock { $0 } == 0)
+        #expect(calls.withLock {
+            $0
+        } == 0)
     }
 
     @Test func serverReleaseDismissesSecurityKeyNotice() async throws {
@@ -217,13 +313,32 @@ struct AskpassTests {
         var server: AskpassServer? = try AskpassServer(runtimeDirectory: directory.url)
         let shown = Mutex(false)
         let dismissed = Mutex(false)
-        let token = server!.register(host: "server", handler: { _, _ in shown.withLock { $0 = true } },
-                                     onDismiss: { _ in dismissed.withLock { $0 = true } })
+        let token = server!.register(
+            host: "server",
+            handler: { _, _ in
+                shown.withLock {
+                    $0 = true
+                }
+            },
+            onDismiss: { _ in
+                dismissed.withLock {
+                    $0 = true
+                }
+            }
+        )
         let child = try AskpassProcess(socket: server!.socketPath, token: token, prompt: ["Touch key"], kind: "none")
-        try await askpassWait { shown.withLock { $0 } }
+        try await askpassWait {
+            shown.withLock {
+                $0
+            }
+        }
         server = nil
         let (code, output) = try await child.result()
-        try await askpassWait { dismissed.withLock { $0 } }
+        try await askpassWait {
+            dismissed.withLock {
+                $0
+            }
+        }
         #expect(code == 1)
         #expect(output.isEmpty)
     }
@@ -260,6 +375,8 @@ struct AskpassTests {
         #expect(changed.st_mode & 0o777 == 0o700)
         #expect(try String(contentsOf: wrapper, encoding: .utf8).contains("/opt/two/tecolot-sessiond"))
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.url.path)
-        #expect(!names.contains { $0.hasPrefix(".askpass-") })
+        #expect(!names.contains {
+            $0.hasPrefix(".askpass-")
+        })
     }
 }

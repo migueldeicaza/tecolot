@@ -7,6 +7,7 @@ import AppKit
 import Foundation
 import os
 import SwiftTerm
+import TecolotSessionHost
 
 enum TerminalClearAction {
     /// Clears the active screen and normal-buffer history without sending data
@@ -35,11 +36,15 @@ nonisolated final class LockedMainActorCallback<Input: Sendable>: Sendable {
 
     func replace(with body: (@MainActor @Sendable (Input) -> Void)?) {
         let next = body.map(Callback.init)
-        callback.withLock { $0 = next }
+        callback.withLock {
+            $0 = next
+        }
     }
 
     var current: (@MainActor @Sendable (Input) -> Void)? {
-        callback.withLock { $0 }?.body
+        callback.withLock {
+            $0
+        }?.body
     }
 }
 
@@ -47,6 +52,7 @@ private final class TerminalSessionEventDelivery: Sendable {
     private enum Event: Sendable {
         case bell
         case output
+        case reset
     }
 
     private let handler = LockedMainActorCallback<Event>()
@@ -60,25 +66,42 @@ private final class TerminalSessionEventDelivery: Sendable {
                 controller?.noteBell()
             case .output:
                 controller?.noteOutputActivity()
+            case .reset:
+                controller?.programStatusDidReset()
             }
         }
     }
 
     nonisolated func sendBell() {
-        guard let handler = handler.current else { return }
+        guard let handler = handler.current else {
+            return
+        }
         Task { @MainActor in
             handler(.bell)
+        }
+    }
+
+    nonisolated func sendReset() {
+        guard let handler = handler.current else {
+            return
+        }
+        Task { @MainActor in
+            handler(.reset)
         }
     }
 
     nonisolated func sendOutput() {
         let shouldNotify = lastOutputNotification.withLock { lastNotification in
             let now = Date()
-            guard now.timeIntervalSince(lastNotification) > 0.25 else { return false }
+            guard now.timeIntervalSince(lastNotification) > 0.25 else {
+                return false
+            }
             lastNotification = now
             return true
         }
-        guard shouldNotify, let handler = handler.current else { return }
+        guard shouldNotify, let handler = handler.current else {
+            return
+        }
         Task { @MainActor in
             handler(.output)
         }
@@ -95,17 +118,40 @@ final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuAction
         }
     }
 
+    nonisolated let programStatusTracker = ProgramStatusTracker()
     nonisolated private let eventDelivery = TerminalSessionEventDelivery()
+
+    nonisolated override func showCursor(source: Terminal) {
+        programStatusTracker.initializeBuffer(source)
+        super.showCursor(source: source)
+    }
+
+    nonisolated override func cursorStyleChanged(source: Terminal, newStyle: CursorStyle) {
+        programStatusTracker.initializeBuffer(source)
+        super.cursorStyleChanged(source: source, newStyle: newStyle)
+    }
+
+    nonisolated override func bufferActivated(source: Terminal) {
+        super.bufferActivated(source: source)
+        if programStatusTracker.bufferActivated(source) {
+            eventDelivery.sendReset()
+        }
+    }
     var fileDropShellResolver = TerminalShellResolver()
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        sessionController?.surfaceDidMoveToWindow()
         registerForDraggedTypes([.fileURL])
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard sender.draggingSourceOperationMask.contains(.copy),
-              TerminalFileDrop.hasFileURLs(in: sender.draggingPasteboard) else { return [] }
+        guard
+            sender.draggingSourceOperationMask.contains(.copy),
+            TerminalFileDrop.hasFileURLs(in: sender.draggingPasteboard)
+        else {
+            return []
+        }
         return .copy
     }
 
@@ -118,15 +164,21 @@ final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuAction
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard sender.draggingSourceOperationMask.contains(.copy) else { return false }
+        guard sender.draggingSourceOperationMask.contains(.copy) else {
+            return false
+        }
         return insertDroppedFiles(from: sender.draggingPasteboard)
     }
 
     @discardableResult
     func insertDroppedFiles(from pasteboard: NSPasteboard) -> Bool {
-        guard TerminalFileDrop.hasFileURLs(in: pasteboard) else { return false }
+        guard TerminalFileDrop.hasFileURLs(in: pasteboard) else {
+            return false
+        }
         let dialect = fileDropShellResolver.dialect(for: process?.childfd)
-        guard let text = TerminalFileDrop.text(from: pasteboard, dialect: dialect) else { return false }
+        guard let text = TerminalFileDrop.text(from: pasteboard, dialect: dialect) else {
+            return false
+        }
         if window?.makeFirstResponder(self) == true {
             sessionController?.didBecomeFocused()
         }
@@ -136,8 +188,11 @@ final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuAction
         return true
     }
 
+    // SwiftTerm's sound delegate is public but not open, so calling super would
+    // bypass the shared per-tab sound limit. The controller preserves its visual
+    // bell using the app-wide preference while delivering sound once.
     nonisolated override func bell(source: Terminal) {
-        super.bell(source: source)
+        programStatusTracker.initializeBuffer(source)
         eventDelivery.sendBell()
     }
 
@@ -152,17 +207,23 @@ final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuAction
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard event.type == .rightMouseDown
-                || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
-              !isReportingMouseEvents else { return nil }
+        guard
+            event.type == .rightMouseDown
+            || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
+            !isReportingMouseEvents
+        else {
+            return nil
+        }
         // Auto Fill uses the active text input client.
         focusTerminal()
         return makeContextMenu()
     }
 
     func makeContextMenu(pasteboard: NSPasteboard = .general) -> NSMenu {
-        TerminalContextMenu.make(target: self, hasSelection: getSelection()?.isEmpty == false,
-                                 pasteboard: pasteboard)
+        TerminalContextMenu.make(
+            target: self, hasSelection: getSelection()?.isEmpty == false,
+            pasteboard: pasteboard
+        )
     }
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
@@ -198,7 +259,9 @@ final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuAction
     }
 
     private func split(in direction: TerminalPaneDirection) {
-        guard let controller = sessionController else { return }
+        guard let controller = sessionController else {
+            return
+        }
         controller.workspace?.split(controller, direction: direction)
     }
 
@@ -207,8 +270,9 @@ final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuAction
     }
 
     private func focusTerminal() {
-        if window?.firstResponder !== self,
-           window?.makeFirstResponder(self) == true {
+        if
+            window?.firstResponder !== self,
+            window?.makeFirstResponder(self) == true {
             sessionController?.didBecomeFocused()
         }
     }
@@ -234,8 +298,10 @@ final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuAction
 /// the splits, and Reset Terminal.
 enum TerminalContextMenu {
     @MainActor
-    static func make(target: NSResponder & TerminalContextMenuActions, hasSelection: Bool,
-                     pasteboard: NSPasteboard) -> NSMenu {
+    static func make(
+        target: NSResponder & TerminalContextMenuActions, hasSelection: Bool,
+        pasteboard: NSPasteboard
+    ) -> NSMenu {
         let menu = NSMenu()
         // AppKit adds system menu items, including Auto Fill.
         menu.allowsContextMenuPlugIns = true

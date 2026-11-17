@@ -61,8 +61,12 @@ final class ThemeCatalogIndexTests {
             let vector = first.metrics[name]!.featureVector
             let centered = zip(vector, statsA.pcaMean).map(-)
             return (
-                x: zip(centered, statsA.pc1).reduce(0) { $0 + $1.0 * $1.1 },
-                y: zip(centered, statsA.pc2).reduce(0) { $0 + $1.0 * $1.1 }
+                x: zip(centered, statsA.pc1).reduce(0) {
+                    $0 + $1.0 * $1.1
+                },
+                y: zip(centered, statsA.pc2).reduce(0) {
+                    $0 + $1.0 * $1.1
+                }
             )
         }
         // The synthetic catalog contains a light, a dark, a warm and a cool
@@ -79,7 +83,9 @@ final class ThemeCatalogIndexTests {
         let basis = try #require(catalog.similarity3D)
 
         func dot(_ left: [Double], _ right: [Double]) -> Double {
-            zip(left, right).reduce(0) { $0 + $1.0 * $1.1 }
+            zip(left, right).reduce(0) {
+                $0 + $1.0 * $1.1
+            }
         }
         func length(_ vector: [Double]) -> Double {
             sqrt(dot(vector, vector))
@@ -109,7 +115,9 @@ final class ThemeCatalogIndexTests {
         let catalog = try #require(index.catalog)
         let expectedP95 = max(
             0.04,
-            ThemeColorMath.quantile(themes.compactMap { index.metrics[$0.name]?.backgroundChroma }, 0.95)
+            ThemeColorMath.quantile(themes.compactMap {
+                index.metrics[$0.name]?.backgroundChroma
+            }, 0.95)
         )
 
         #expect(catalog.backgroundChromaP98 >= catalog.backgroundChromaP95)
@@ -142,7 +150,9 @@ final class ThemeCatalogIndexTests {
         // One absurdly colorful theme joins the catalog
         var outlier = TerminalTheme.fallback
         outlier.name = "Outlier"
-        outlier.ansi = (0..<16).map { _ in ProfileColor(hex: "#ff00ff")! }
+        outlier.ansi = (0..<16).map { _ in
+            ProfileColor(hex: "#ff00ff")!
+        }
         let extended = ThemeCatalogIndex()
         extended.update(themes: catalog + [outlier])
         let extendedStats = try #require(extended.catalog)
@@ -247,10 +257,14 @@ final class ThemeCatalogIndexTests {
         dark.background = ProfileColor(hex: "#000000")!
         var warm = TerminalTheme.fallback
         warm.name = "Warm Extreme"
-        warm.ansi = (0..<16).map { _ in ProfileColor(hex: "#ff8800")! }
+        warm.ansi = (0..<16).map { _ in
+            ProfileColor(hex: "#ff8800")!
+        }
         var cool = TerminalTheme.fallback
         cool.name = "Cool Extreme"
-        cool.ansi = (0..<16).map { _ in ProfileColor(hex: "#3366ff")! }
+        cool.ansi = (0..<16).map { _ in
+            ProfileColor(hex: "#3366ff")!
+        }
         return catalog + [light, dark, warm, cool]
     }
 }

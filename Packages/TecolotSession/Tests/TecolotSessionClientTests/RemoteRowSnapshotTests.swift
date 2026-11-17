@@ -7,14 +7,18 @@ struct RemoteRowSnapshotTests {
     private func payload(_ text: String, columns: Int = 20, wrapped: Bool = false) -> [UInt8] {
         var encoder = RowEncoder()
         encoder.begin(WireRowHeader(columns: columns, isWrapped: wrapped))
-        for byte in text.utf8 { encoder.append(.ascii(byte), style: .plain) }
+        for byte in text.utf8 {
+            encoder.append(.ascii(byte), style: .plain)
+        }
         return encoder.finish()
     }
 
     private func screen(_ session: RemoteSession) -> [String] {
         session.withState { state, cache in
             (state.firstLine ..< state.endLine).compactMap { line in
-                guard let row = cache[line] else { return nil }
+                guard let row = cache[line] else {
+                    return nil
+                }
                 return cache.text(from: (line, 0), to: (line, row.cells.count - 1))?
                     .trimmingCharacters(in: .whitespaces)
             }
@@ -24,7 +28,10 @@ struct RemoteRowSnapshotTests {
     private func waitFor(_ condition: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(5)
         while !condition() {
-            guard Date() < deadline else { Issue.record("timed out"); return }
+            guard Date() < deadline else {
+                Issue.record("timed out")
+                return
+            }
             try await Task.sleep(for: .milliseconds(5))
         }
     }
@@ -32,17 +39,27 @@ struct RemoteRowSnapshotTests {
     /// The app saves the rows at quit and shows them at the next launch,
     /// before the pane attaches.
     @Test func rowsRoundTripThroughTheFileIntoASession() async throws {
-        let saved = RemoteRowSnapshot(sessionID: "abc123", savedAt: Date(timeIntervalSince1970: 1_000), columns: 20,
-                                      rows: 3, firstLine: 10, endLine: 14,
-                                      savedRows: [.init(line: 11, version: 7, payload: payload("first")),
-                                                  .init(line: 12, version: 8, payload: payload("second")),
-                                                  .init(line: 13, version: 9, payload: payload("third"))])
+        let saved = RemoteRowSnapshot(
+            sessionID: "abc123",
+            savedAt: Date(timeIntervalSince1970: 1_000),
+            columns: 20,
+            rows: 3,
+            firstLine: 10,
+            endLine: 14,
+            savedRows: [
+                .init(line: 11, version: 7, payload: payload("first")),
+                .init(line: 12, version: 8, payload: payload("second")),
+                .init(line: 13, version: 9, payload: payload("third"))
+            ]
+        )
         let decoded = try RemoteRowSnapshot.decode(saved.encode())
         #expect(decoded == saved)
 
         let session = RemoteSession(socket: -1, clientName: "test", build: "test")
         session.preload(decoded)
-        try await waitFor { session.state.endLine == 14 }
+        try await waitFor {
+            session.state.endLine == 14
+        }
         #expect(screen(session) == ["first", "second", "third"])
         #expect(!session.state.connected)
 
@@ -58,22 +75,44 @@ struct RemoteRowSnapshotTests {
     /// The file holds only the last rows of a long session. The view cannot
     /// scroll above them, and it does not ask the helper for rows.
     @Test func preloadedViewScrollsOnlyTheSavedRows() async throws {
-        let rows = (45 ..< 50).map { RemoteRowSnapshot.Row(line: Int64($0), version: 1, payload: payload("row \($0)")) }
+        let rows = (45 ..< 50).map {
+            RemoteRowSnapshot.Row(line: Int64($0), version: 1, payload: payload("row \($0)"))
+        }
         let session = RemoteSession(socket: -1, clientName: "test", build: "test")
-        session.preload(RemoteRowSnapshot(sessionID: "a1", savedAt: Date(), columns: 20, rows: 3, firstLine: 0,
-                                          endLine: 50, savedRows: rows))
-        try await waitFor { session.state.endLine == 50 }
+        session.preload(RemoteRowSnapshot(
+            sessionID: "a1",
+            savedAt: Date(),
+            columns: 20,
+            rows: 3,
+            firstLine: 0,
+            endLine: 50,
+            savedRows: rows
+        ))
+        try await waitFor {
+            session.state.endLine == 50
+        }
         #expect(session.state.firstLine == 45)
         #expect(session.scroll(toTop: 0) == 45)
         #expect(screen(session).first == "row 45")
     }
 
     @Test func limitKeepsTheScreenAndTheLastRowsAbove() async throws {
-        let rows = (0 ..< 10).map { RemoteRowSnapshot.Row(line: Int64($0), version: UInt64($0), payload: payload("row \($0)")) }
+        let rows = (0 ..< 10).map {
+            RemoteRowSnapshot.Row(line: Int64($0), version: UInt64($0), payload: payload("row \($0)"))
+        }
         let session = RemoteSession(socket: -1, clientName: "test", build: "test")
-        session.preload(RemoteRowSnapshot(sessionID: "a1", savedAt: Date(), columns: 20, rows: 3, firstLine: 0,
-                                          endLine: 10, savedRows: rows))
-        try await waitFor { session.state.endLine == 10 }
+        session.preload(RemoteRowSnapshot(
+            sessionID: "a1",
+            savedAt: Date(),
+            columns: 20,
+            rows: 3,
+            firstLine: 0,
+            endLine: 10,
+            savedRows: rows
+        ))
+        try await waitFor {
+            session.state.endLine == 10
+        }
         let pending = try #require(RemoteRowSnapshot.capture(session, sessionID: "a1", limit: 2))
         let snapshot = try RemoteRowSnapshot.decode(pending.encode(savedAt: Date()))
         #expect(snapshot.savedRows.map(\.line) == [5, 6, 7, 8, 9])
@@ -85,9 +124,18 @@ struct RemoteRowSnapshotTests {
     }
 
     @Test func damagedFilesAreRejected() {
-        let good = RemoteRowSnapshot(sessionID: "a1", savedAt: Date(), columns: 20, rows: 2, firstLine: 0, endLine: 2,
-                                     savedRows: [.init(line: 0, version: 1, payload: payload("x")),
-                                                 .init(line: 1, version: 2, payload: payload("y"))])
+        let good = RemoteRowSnapshot(
+            sessionID: "a1",
+            savedAt: Date(),
+            columns: 20,
+            rows: 2,
+            firstLine: 0,
+            endLine: 2,
+            savedRows: [
+                .init(line: 0, version: 1, payload: payload("x")),
+                .init(line: 1, version: 2, payload: payload("y"))
+            ]
+        )
         let data = good.encode()
         #expect(throws: (any Error).self) { try RemoteRowSnapshot.decode(Data("not a row file".utf8)) }
         #expect(throws: (any Error).self) { try RemoteRowSnapshot.decode(data.prefix(data.count - 2)) }

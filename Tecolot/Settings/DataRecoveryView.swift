@@ -11,7 +11,9 @@ struct DataRecoveryView: View {
 
     private var sections: [DataRecoverySection] {
         PersistenceDomain.allCases.compactMap { domain in
-            let issues = issueCenter.issues.filter { $0.domain == domain }
+            let issues = issueCenter.issues.filter {
+                $0.domain == domain
+            }
             return issues.isEmpty ? nil : DataRecoverySection(domain: domain, issues: issues)
         }
     }
@@ -83,11 +85,21 @@ struct DataRecoveryView: View {
                             issue: issue,
                             hasBackup: recovery.availableBackup(for: issue) != nil,
                             canMoveToTrash: recovery.canMoveToTrash(issue),
-                            reveal: { recovery.reveal(issue) },
-                            retry: { recovery.retry(issue) },
-                            restore: { restoreIssue = issue },
-                            resetPreferences: { resetIssue = issue },
-                            moveToTrash: { trashIssue = issue }
+                            reveal: {
+                                recovery.reveal(issue)
+                            },
+                            retry: {
+                                recovery.retry(issue)
+                            },
+                            restore: {
+                                restoreIssue = issue
+                            },
+                            resetPreferences: {
+                                resetIssue = issue
+                            },
+                            moveToTrash: {
+                                trashIssue = issue
+                            }
                         )
                     }
                 }
@@ -98,29 +110,53 @@ struct DataRecoveryView: View {
 
     private var errorPresentation: Binding<Bool> {
         Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
+            get: {
+                errorMessage != nil
+            },
+            set: {
+                if !$0 {
+                    errorMessage = nil
+                }
+            }
         )
     }
 
     private var restorePresentation: Binding<Bool> {
         Binding(
-            get: { restoreIssue != nil },
-            set: { if !$0 { restoreIssue = nil } }
+            get: {
+                restoreIssue != nil
+            },
+            set: {
+                if !$0 {
+                    restoreIssue = nil
+                }
+            }
         )
     }
 
     private var trashPresentation: Binding<Bool> {
         Binding(
-            get: { trashIssue != nil },
-            set: { if !$0 { trashIssue = nil } }
+            get: {
+                trashIssue != nil
+            },
+            set: {
+                if !$0 {
+                    trashIssue = nil
+                }
+            }
         )
     }
 
     private var resetPresentation: Binding<Bool> {
         Binding(
-            get: { resetIssue != nil },
-            set: { if !$0 { resetIssue = nil } }
+            get: {
+                resetIssue != nil
+            },
+            set: {
+                if !$0 {
+                    resetIssue = nil
+                }
+            }
         )
     }
 
@@ -146,7 +182,9 @@ struct DataRecoveryView: View {
 }
 
 private struct DataRecoverySection: Identifiable {
-    var id: PersistenceDomain { domain }
+    var id: PersistenceDomain {
+        domain
+    }
     let domain: PersistenceDomain
     let issues: [PersistenceIssue]
 }
@@ -203,13 +241,20 @@ private struct DataRecoveryRow: View {
 private extension PersistenceIssue {
     var kindLabel: String {
         switch kind {
-        case .unreadable: return "Unreadable"
-        case .invalidFormat: return "Invalid Format"
-        case .validationFailed: return "Invalid Data"
-        case .unsupportedVersion: return "Newer Version"
-        case .backupFailed: return "Backup Failed"
-        case .migrationFailed: return "Migration Failed"
-        case .writeFailed: return "Save Failed"
+        case .unreadable:
+            return "Unreadable"
+        case .invalidFormat:
+            return "Invalid Format"
+        case .validationFailed:
+            return "Invalid Data"
+        case .unsupportedVersion:
+            return "Newer Version"
+        case .backupFailed:
+            return "Backup Failed"
+        case .migrationFailed:
+            return "Migration Failed"
+        case .writeFailed:
+            return "Save Failed"
         }
     }
 

@@ -35,7 +35,9 @@ public struct WireWriter: Sendable {
         bytes.reserveCapacity(capacity)
     }
 
-    public var count: Int { bytes.count }
+    public var count: Int {
+        bytes.count
+    }
 
     @inline(__always)
     public mutating func u8(_ value: UInt8) {
@@ -98,7 +100,9 @@ public struct WireWriter: Sendable {
     /// Writes a length-prefixed UTF-8 string.
     public mutating func string(_ value: String) {
         var value = value
-        value.withUTF8 { blob($0) }
+        value.withUTF8 {
+            blob($0)
+        }
     }
 
     public mutating func optionalString(_ value: String?) {
@@ -166,12 +170,18 @@ public struct WireReader: Sendable {
         end = range.upperBound
     }
 
-    public var remaining: Int { end - offset }
-    public var isAtEnd: Bool { offset >= end }
+    public var remaining: Int {
+        end - offset
+    }
+    public var isAtEnd: Bool {
+        offset >= end
+    }
 
     @inline(__always)
     public mutating func u8() throws(WireError) -> UInt8 {
-        guard offset < end else { throw .truncated }
+        guard offset < end else {
+            throw .truncated
+        }
         let value = bytes[offset]
         offset += 1
         return value
@@ -179,21 +189,28 @@ public struct WireReader: Sendable {
 
     public mutating func bool() throws(WireError) -> Bool {
         switch try u8() {
-        case 0: return false
-        case 1: return true
-        case let other: throw .invalidValue("bool \(other)")
+        case 0:
+            return false
+        case 1:
+            return true
+        case let other:
+            throw .invalidValue("bool \(other)")
         }
     }
 
     public mutating func u16() throws(WireError) -> UInt16 {
-        guard remaining >= 2 else { throw .truncated }
+        guard remaining >= 2 else {
+            throw .truncated
+        }
         let value = UInt16(bytes[offset]) | UInt16(bytes[offset + 1]) << 8
         offset += 2
         return value
     }
 
     public mutating func u32() throws(WireError) -> UInt32 {
-        guard remaining >= 4 else { throw .truncated }
+        guard remaining >= 4 else {
+            throw .truncated
+        }
         var value: UInt32 = 0
         for index in 0 ..< 4 {
             value |= UInt32(bytes[offset + index]) << UInt32(index * 8)
@@ -203,7 +220,9 @@ public struct WireReader: Sendable {
     }
 
     public mutating func u64() throws(WireError) -> UInt64 {
-        guard remaining >= 8 else { throw .truncated }
+        guard remaining >= 8 else {
+            throw .truncated
+        }
         var value: UInt64 = 0
         for index in 0 ..< 8 {
             value |= UInt64(bytes[offset + index]) << UInt64(index * 8)
@@ -218,27 +237,39 @@ public struct WireReader: Sendable {
         var result: UInt64 = 0
         var shift: UInt64 = 0
         while true {
-            guard offset < end else { throw .truncated }
+            guard offset < end else {
+                throw .truncated
+            }
             let byte = bytes[offset]
             offset += 1
-            if shift == 63 && byte > 1 { throw .malformedVarint }
+            if shift == 63 && byte > 1 {
+                throw .malformedVarint
+            }
             result |= UInt64(byte & 0x7f) << shift
-            if byte & 0x80 == 0 { return result }
+            if byte & 0x80 == 0 {
+                return result
+            }
             shift += 7
-            if shift > 63 { throw .malformedVarint }
+            if shift > 63 {
+                throw .malformedVarint
+            }
         }
     }
 
     /// Reads a varint that must fit in a non-negative `Int` no larger than `limit`.
     public mutating func count(limit: Int = WireReader.defaultMaximumLength) throws(WireError) -> Int {
         let value = try varint()
-        guard value <= UInt64(limit) else { throw .lengthTooLarge(Int(clamping: value)) }
+        guard value <= UInt64(limit) else {
+            throw .lengthTooLarge(Int(clamping: value))
+        }
         return Int(value)
     }
 
     public mutating func varint32() throws(WireError) -> UInt32 {
         let value = try varint()
-        guard value <= UInt64(UInt32.max) else { throw .invalidValue("u32 varint \(value)") }
+        guard value <= UInt64(UInt32.max) else {
+            throw .invalidValue("u32 varint \(value)")
+        }
         return UInt32(value)
     }
 
@@ -250,7 +281,9 @@ public struct WireReader: Sendable {
     /// Reads a length prefix and returns the range of the bytes it covers.
     public mutating func blobRange(limit: Int = WireReader.defaultMaximumLength) throws(WireError) -> Range<Int> {
         let length = try count(limit: limit)
-        guard length <= remaining else { throw .truncated }
+        guard length <= remaining else {
+            throw .truncated
+        }
         let range = offset ..< offset + length
         offset += length
         return range
@@ -280,7 +313,9 @@ public struct WireReader: Sendable {
     }
 
     public mutating func skip(_ count: Int) throws(WireError) {
-        guard count >= 0, count <= remaining else { throw .truncated }
+        guard count >= 0, count <= remaining else {
+            throw .truncated
+        }
         offset += count
     }
 }

@@ -22,7 +22,9 @@ struct ThemeLibrary {
     func save(_ theme: TerminalTheme, replacing oldName: String?) throws {
         var changedProfiles: [TerminalProfile] = []
         if let oldName, oldName != theme.name {
-            changedProfiles = try profiles.replaceThemeName(oldName) { _ in theme.name }
+            changedProfiles = try profiles.replaceThemeName(oldName) { _ in
+                theme.name
+            }
         }
         do {
             try themes.saveUserTheme(theme, replacing: oldName)
@@ -35,7 +37,10 @@ struct ThemeLibrary {
     /// Deletes a user theme. Each profile slot that used it changes to
     /// `replacementName(forDeleted:isDark:)`.
     func delete(named name: String) throws {
-        guard let theme = themes.themes.first(where: { $0.name == name }), !theme.isBuiltIn else {
+        guard
+            let theme = themes.themes.first(where: {
+                $0.name == name
+            }), !theme.isBuiltIn else {
             throw ProfilesError.themeIsBuiltIn
         }
         let changedProfiles = try profiles.replaceThemeName(name) { isDark in
@@ -53,10 +58,13 @@ struct ThemeLibrary {
     /// deleted theme if it exists and agrees with the mode of the slot,
     /// else the default theme of the mode.
     func replacementName(forDeleted theme: TerminalTheme, isDark: Bool) -> String {
-        if let baseName = theme.baseThemeName,
-           let base = themes.themes.first(where: { $0.name == baseName }),
-           base.name != theme.name,
-           base.isDark == isDark {
+        if
+            let baseName = theme.baseThemeName,
+            let base = themes.themes.first(where: {
+                $0.name == baseName
+            }),
+            base.name != theme.name,
+            base.isDark == isDark {
             return base.name
         }
         return TerminalProfile.defaultThemeName(isDark: isDark)

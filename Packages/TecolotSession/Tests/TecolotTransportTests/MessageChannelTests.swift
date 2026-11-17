@@ -9,16 +9,34 @@ final class Inbox: @unchecked Sendable {
     private var envelopes: [Envelope] = []
     private var closed = false
 
-    func add(_ envelope: Envelope) { lock.withLock { envelopes.append(envelope) } }
-    func markClosed() { lock.withLock { closed = true } }
-    var isClosed: Bool { lock.withLock { closed } }
-    var all: [Envelope] { lock.withLock { envelopes } }
+    func add(_ envelope: Envelope) {
+        lock.withLock {
+            envelopes.append(envelope)
+        }
+    }
+    func markClosed() {
+        lock.withLock {
+            closed = true
+        }
+    }
+    var isClosed: Bool {
+        lock.withLock {
+            closed
+        }
+    }
+    var all: [Envelope] {
+        lock.withLock {
+            envelopes
+        }
+    }
 
     func wait(for count: Int, timeout: TimeInterval = 5) async throws -> [Envelope] {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             let current = all
-            if current.count >= count { return current }
+            if current.count >= count {
+                return current
+            }
             try await Task.sleep(nanoseconds: 2_000_000)
         }
         Issue.record("timed out waiting for \(count) messages, got \(all.count)")
@@ -28,7 +46,9 @@ final class Inbox: @unchecked Sendable {
     func waitClosed(timeout: TimeInterval = 5) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if isClosed { return }
+            if isClosed {
+                return
+            }
             try await Task.sleep(nanoseconds: 2_000_000)
         }
         Issue.record("timed out waiting for close")
@@ -38,16 +58,22 @@ final class Inbox: @unchecked Sendable {
 func makePair() throws -> (MessageChannel, Inbox, MessageChannel, Inbox) {
     var fds: [Int32] = [0, 0]
     #if canImport(Darwin)
-    let result = socketpair(AF_UNIX, SOCK_STREAM, 0, &fds)
+        let result = socketpair(AF_UNIX, SOCK_STREAM, 0, &fds)
     #else
-    let result = socketpair(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0, &fds)
+        let result = socketpair(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0, &fds)
     #endif
-    guard result == 0 else { throw TransportError("socketpair") }
+    guard result == 0 else {
+        throw TransportError("socketpair")
+    }
     func make(_ fd: Int32) -> (MessageChannel, Inbox) {
         let channel = MessageChannel(socket: fd)
         let inbox = Inbox()
-        channel.onMessage = { inbox.add($0) }
-        channel.onClose = { _ in inbox.markClosed() }
+        channel.onMessage = {
+            inbox.add($0)
+        }
+        channel.onClose = { _ in
+            inbox.markClosed()
+        }
         channel.start()
         return (channel, inbox)
     }
@@ -73,7 +99,9 @@ struct MessageChannelTests {
 
     @Test func largeMessagesArriveIntact() async throws {
         let (a, _, b, inboxB) = try makePair()
-        let payload = (0 ..< 3_000_000).map { UInt8(truncatingIfNeeded: $0 &* 31) }
+        let payload = (0 ..< 3_000_000).map {
+            UInt8(truncatingIfNeeded: $0 &* 31)
+        }
         a.send(InputMessage(bytes: payload))
         a.send(PingMessage(nonce: 1))
         let received = try await inboxB.wait(for: 2, timeout: 10)
@@ -87,7 +115,9 @@ struct MessageChannelTests {
         let (a, _, b, inboxB) = try makePair()
         // Queue everything in one turn of the channel queue, before any flush.
         let gate = DispatchSemaphore(value: 0)
-        a.queue.async { gate.wait() }
+        a.queue.async {
+            gate.wait()
+        }
         for index in 0 ..< 5 {
             a.send(PingMessage(nonce: UInt64(index)), priority: .bulk)
         }
@@ -96,7 +126,9 @@ struct MessageChannelTests {
         let received = try await inboxB.wait(for: 6)
         // The channel writes as soon as it can, so the first bulk message may
         // already be on the wire; the interactive one must beat the rest.
-        let position = try #require(received.firstIndex { $0.kind == .text })
+        let position = try #require(received.firstIndex {
+            $0.kind == .text
+        })
         #expect(position <= 1)
         a.close()
         b.close()
@@ -106,7 +138,9 @@ struct MessageChannelTests {
         let (a, _, b, _) = try makePair()
         let drained = Inbox()
         a.queue.sync {
-            a.onDrained = { drained.markClosed() }
+            a.onDrained = {
+                drained.markClosed()
+            }
         }
         a.send(PingMessage(nonce: 3), priority: .bulk)
         try await drained.waitClosed()
@@ -117,13 +151,15 @@ struct MessageChannelTests {
     @Test func malformedInputClosesTheChannel() async throws {
         var fds: [Int32] = [0, 0]
         #if canImport(Darwin)
-        _ = socketpair(AF_UNIX, SOCK_STREAM, 0, &fds)
+            _ = socketpair(AF_UNIX, SOCK_STREAM, 0, &fds)
         #else
-        _ = socketpair(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0, &fds)
+            _ = socketpair(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0, &fds)
         #endif
         let channel = MessageChannel(socket: fds[0], maximumMessageSize: 1024)
         let inbox = Inbox()
-        channel.onClose = { _ in inbox.markClosed() }
+        channel.onClose = { _ in
+            inbox.markClosed()
+        }
         channel.start()
         // A length prefix far above the maximum.
         var bytes: [UInt8] = [0xff, 0xff, 0xff, 0x7f, 1, 0]
@@ -156,7 +192,9 @@ struct MessageChannelTests {
         source.resume()
         let gate = DispatchSemaphore(value: 0)
         // The cancel handler cannot run until the gate opens.
-        queue.async { gate.wait() }
+        queue.async {
+            gate.wait()
+        }
         source.cancel()
         owner.close(on: queue)
         // A write to the pipe works only while its read end is open.
@@ -167,7 +205,9 @@ struct MessageChannelTests {
         var closed = false
         while !closed && Date() < deadline {
             closed = write(fds[1], &byte, 1) < 0 && errno == EPIPE
-            if !closed { try await Task.sleep(nanoseconds: 2_000_000) }
+            if !closed {
+                try await Task.sleep(nanoseconds: 2_000_000)
+            }
         }
         #expect(closed)
     }
@@ -190,7 +230,9 @@ struct SocketTests {
                 accepted.add(envelope)
                 channel.send(PongMessage(nonce: 9))
             }
-            channels.withLock { serverChannels.append(channel) }
+            channels.withLock {
+                serverChannels.append(channel)
+            }
             channel.start()
         }
         listener.start()
@@ -199,7 +241,9 @@ struct SocketTests {
         #expect(UnixSocket.peerUID(fd) == getuid())
         let client = MessageChannel(socket: fd)
         let replies = Inbox()
-        client.onMessage = { replies.add($0) }
+        client.onMessage = {
+            replies.add($0)
+        }
         client.start()
         client.send(PingMessage(nonce: 9))
         _ = try await accepted.wait(for: 1)
@@ -240,13 +284,19 @@ struct SocketTests {
     @Test func writingToAClosedPeerClosesWithoutSignal() async throws {
         var fds: [Int32] = [0, 0]
         #if canImport(Darwin)
-        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else { throw TransportError("socketpair") }
+            guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
+                throw TransportError("socketpair")
+            }
         #else
-        guard socketpair(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0, &fds) == 0 else { throw TransportError("socketpair") }
+            guard socketpair(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0, &fds) == 0 else {
+                throw TransportError("socketpair")
+            }
         #endif
         let channel = MessageChannel(socket: fds[0])
         let inbox = Inbox()
-        channel.onClose = { _ in inbox.markClosed() }
+        channel.onClose = { _ in
+            inbox.markClosed()
+        }
         channel.start()
         // The peer closes after the channel started (Darwin refuses
         // SO_NOSIGPIPE on a socket whose peer closed), and in the same turn

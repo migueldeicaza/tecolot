@@ -7,17 +7,27 @@ import TecolotWire
 
 struct RemoteBannerTests {
     @Test func connectedHasNoBanner() {
-        let info = HelperInfoMessage(build: "test", os: "linux", arch: "arm64",
-                                     machineID: "machine", hostName: "host",
-                                     runtimeDirectory: "/tmp", home: "/home/test",
-                                     shell: "/bin/sh", receiveWindow: 1024)
-        #expect(RemoteBannerContent.make(state: .connected(info, connectionGeneration: 1),
-                                        destination: "host") == nil)
+        let info = HelperInfoMessage(
+            build: "test",
+            os: "linux",
+            arch: "arm64",
+            machineID: "machine",
+            hostName: "host",
+            runtimeDirectory: "/tmp",
+            home: "/home/test",
+            shell: "/bin/sh",
+            receiveWindow: 1024
+        )
+        #expect(RemoteBannerContent.make(
+            state: .connected(info, connectionGeneration: 1),
+            destination: "host"
+        ) == nil)
     }
 
     @Test func reconnectOffersImmediateRetryAndClose() throws {
         let banner = try #require(RemoteBannerContent.make(
-            state: .reconnecting(attempt: 3, nextRetry: Date()), destination: "host"))
+            state: .reconnecting(attempt: 3, nextRetry: Date()), destination: "host"
+        ))
         #expect(banner.text == "Connection lost. Reconnecting… (attempt 3)")
         #expect(banner.primary?.title == "Reconnect Now")
         #expect(banner.primary?.action == .reconnect)
@@ -33,8 +43,11 @@ struct RemoteBannerTests {
     }
 
     @Test func failureShowsThePlainMessage() throws {
-        let error = SSHError(kind: .hostKeyChanged, message: "Check the host key.",
-                             stderrLines: ["REMOTE HOST IDENTIFICATION HAS CHANGED"])
+        let error = SSHError(
+            kind: .hostKeyChanged,
+            message: "Check the host key.",
+            stderrLines: ["REMOTE HOST IDENTIFICATION HAS CHANGED"]
+        )
         let banner = try #require(RemoteBannerContent.make(state: .failed(error), destination: "server"))
         #expect(banner.text == error.message)
         #expect(banner.primary?.action == .retry)
@@ -50,16 +63,25 @@ struct RemoteBannerTests {
     }
 
     @Test func pendingStatesOfferCancelAndUnsupportedOffersClose() throws {
-        for state: HostLinkState in [.idle, .resolving, .connecting, .authenticating, .probing,
-                                    .confirmInstall(12_000_000), .startingBridge] {
+        for state: HostLinkState in [
+            .idle,
+            .resolving,
+            .connecting,
+            .authenticating,
+            .probing,
+            .confirmInstall(12_000_000),
+            .startingBridge
+        ] {
             let banner = try #require(RemoteBannerContent.make(state: state, destination: "host"))
             #expect(banner.text.contains("host"))
             #expect(banner.primary?.title == "Cancel")
             #expect(banner.primary?.action == .close)
             #expect(banner.secondary?.action == nil)
         }
-        let banner = try #require(RemoteBannerContent.make(state: .unsupported(os: "other", arch: "cpu"),
-                                                          destination: "host"))
+        let banner = try #require(RemoteBannerContent.make(
+            state: .unsupported(os: "other", arch: "cpu"),
+            destination: "host"
+        ))
         #expect(banner.primary?.title == "Close")
         #expect(banner.primary?.action == .close)
         #expect(banner.text == "This host is not supported (other cpu).")
@@ -80,15 +102,32 @@ struct RemoteBannerTests {
         defer { session.close() }
         var primary = 0
         var secondary = 0
-        view.showBanner("One action", actionTitle: "Close") { primary += 1 }
-        let banner = try #require(view.subviews.compactMap { $0 as? RemoteSessionBanner }.first)
-        let stack = try #require(banner.subviews.compactMap { $0 as? NSStackView }.first)
-        let buttons = stack.views.compactMap { $0 as? NSButton }
+        view.showBanner("One action", actionTitle: "Close") {
+            primary += 1
+        }
+        let banner = try #require(view.subviews.compactMap {
+            $0 as? RemoteSessionBanner
+        }.first)
+        let stack = try #require(banner.subviews.compactMap {
+            $0 as? NSStackView
+        }.first)
+        let buttons = stack.views.compactMap {
+            $0 as? NSButton
+        }
         let first = try #require(buttons.first)
         first.performClick(nil)
         #expect(primary == 1)
-        view.showBanner("Two actions", actionTitle: "Retry", action: { primary += 1 },
-                        secondaryActionTitle: "Close", secondaryAction: { secondary += 1 })
+        view.showBanner(
+            "Two actions",
+            actionTitle: "Retry",
+            action: {
+                primary += 1
+            },
+            secondaryActionTitle: "Close",
+            secondaryAction: {
+                secondary += 1
+            }
+        )
         first.performClick(nil)
         try #require(buttons.last).performClick(nil)
         #expect(primary == 2)

@@ -63,12 +63,22 @@ struct ThemeBrowserSections: Equatable {
         page: ThemeBrowserPage?,
         order: (([TerminalTheme]) -> [TerminalTheme])?
     ) -> ThemeBrowserSections {
-        let matching = themes.filter { matches($0.name, query: query) }
-        let sort = order ?? { $0.sorted(by: alphabetically) }
-        let favoriteThemes = sort(matching.filter { favorites.contains($0.name) })
-        var otherThemes = matching.filter { !favorites.contains($0.name) }
+        let matching = themes.filter {
+            matches($0.name, query: query)
+        }
+        let sort = order ?? {
+            $0.sorted(by: alphabetically)
+        }
+        let favoriteThemes = sort(matching.filter {
+            favorites.contains($0.name)
+        })
+        var otherThemes = matching.filter {
+            !favorites.contains($0.name)
+        }
         if let page {
-            otherThemes = otherThemes.filter { page.contains($0.name) }
+            otherThemes = otherThemes.filter {
+                page.contains($0.name)
+            }
         }
         return ThemeBrowserSections(
             favorites: favoriteThemes,
@@ -146,14 +156,18 @@ struct ThemeBrowserView: View {
             favorites: themes.favorites,
             query: query,
             page: style == .paged ? page : nil,
-            order: mode == .name ? nil : { themeIndex.sorted($0, by: mode) }
+            order: mode == .name ? nil : {
+                themeIndex.sorted($0, by: mode)
+            }
         )
     }
 
     private var othersTitle: String {
         switch style {
-        case .paged: page.title
-        case .all: "All Themes"
+        case .paged:
+            page.title
+        case .all:
+            "All Themes"
         }
     }
 
@@ -221,25 +235,37 @@ struct ThemeBrowserView: View {
             UserDefaults.standard.set(newValue.rawValue, forKey: plotModeDefaultsKey)
         }
         .onChange(of: resolvedSimilaritySpaceAvailable) { _, available in
-            guard available == false, plotMode == .similaritySpace3D else { return }
+            guard available == false, plotMode == .similaritySpace3D else {
+                return
+            }
             plotMode = .colorSpace3D
         }
         .onAppear {
             normalizePlot(for: displayMode)
         }
         .sheet(item: $editorPresentation) { presentation in
-            ThemeEditorView(theme: presentation.theme,
-                            themes: themes,
-                            profiles: profiles,
-                            existingUserThemeName: presentation.existingUserThemeName,
-                            onSave: { onSelect($0) })
+            ThemeEditorView(
+                theme: presentation.theme,
+                themes: themes,
+                profiles: profiles,
+                existingUserThemeName: presentation.existingUserThemeName,
+                onSave: {
+                    onSelect($0)
+                }
+            )
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: importTypes) { result in
             importTheme(result)
         }
         .alert("Theme Operation Failed", isPresented: Binding(
-            get: { importError != nil },
-            set: { if !$0 { importError = nil } }
+            get: {
+                importError != nil
+            },
+            set: {
+                if !$0 {
+                    importError = nil
+                }
+            }
         )) {
             Button("OK", role: .cancel) {
                 importError = nil
@@ -327,7 +353,9 @@ struct ThemeBrowserView: View {
     /// Similarity Space needs a stable three-component basis. Keep a stored
     /// selection while indexing is in progress so the picker does not jump.
     private var resolvedSimilaritySpaceAvailable: Bool? {
-        guard let catalog = themeIndex.catalog else { return nil }
+        guard let catalog = themeIndex.catalog else {
+            return nil
+        }
         return catalog.similarity3D != nil
     }
 
@@ -335,7 +363,8 @@ struct ThemeBrowserView: View {
     /// after the catalog has its third PCA component.
     private var availableThreeDimensionalModes: [ThemePlotMode] {
         var modes: [ThemePlotMode] = [.colorSpace3D, .paletteSpace3D]
-        if resolvedSimilaritySpaceAvailable == true
+        if
+            resolvedSimilaritySpaceAvailable == true
             || (resolvedSimilaritySpaceAvailable == nil && plotMode == .similaritySpace3D) {
             modes.append(.similaritySpace3D)
         }
@@ -346,7 +375,9 @@ struct ThemeBrowserView: View {
     /// keeps its natural paired plot when possible.
     private var displayModeSelection: Binding<ThemeBrowserDisplayMode> {
         Binding(
-            get: { displayMode },
+            get: {
+                displayMode
+            },
             set: { newMode in
                 displayMode = newMode
                 normalizePlot(for: newMode)
@@ -365,9 +396,13 @@ struct ThemeBrowserView: View {
                 plotMode = .brightnessAndColorfulness
             }
         case .threeDimensional:
-            guard !plotMode.isThreeDimensional else { return }
+            guard !plotMode.isThreeDimensional else {
+                return
+            }
             let pairedMode = plotMode.paired3DMode
-            plotMode = pairedMode.flatMap { availableThreeDimensionalModes.contains($0) ? $0 : nil }
+            plotMode = pairedMode.flatMap {
+                availableThreeDimensionalModes.contains($0) ? $0 : nil
+            }
                 ?? .colorSpace3D
         }
     }
@@ -404,7 +439,9 @@ struct ThemeBrowserView: View {
                 pinnedThemeName: $pinnedThemeName,
                 cameraByMode: $cameraByMode,
                 onSelect: onSelect,
-                onShowSimilar: { showSimilarThemes(to: $0) }
+                onShowSimilar: {
+                    showSimilarThemes(to: $0)
+                }
             )
         } else {
             ThemeMapView(
@@ -416,7 +453,9 @@ struct ThemeBrowserView: View {
                 selectedThemeName: selectedThemeName,
                 pinnedThemeName: $pinnedThemeName,
                 onSelect: onSelect,
-                onShowSimilar: { showSimilarThemes(to: $0) }
+                onShowSimilar: {
+                    showSimilarThemes(to: $0)
+                }
             )
         }
     }
@@ -435,8 +474,12 @@ struct ThemeBrowserView: View {
             isSelected: theme.name == selectedThemeName,
             isFavorite: themes.isFavorite(theme.name),
             samplePage: samplePage,
-            onSelect: { onSelect(theme) },
-            onToggleFavorite: { toggleFavorite(theme.name) }
+            onSelect: {
+                onSelect(theme)
+            },
+            onToggleFavorite: {
+                toggleFavorite(theme.name)
+            }
         )
         .contextMenu {
             Button(themes.isFavorite(theme.name) ? "Remove from Favorites" : "Add to Favorites") {
@@ -467,8 +510,10 @@ struct ThemeBrowserView: View {
     private func presentEditor(for theme: TerminalTheme) {
         if theme.isBuiltIn {
             // duplicate(of:) records the built-in as the copy's base theme
-            editorPresentation = ThemeEditorPresentation(theme: themes.duplicate(of: theme),
-                                                         existingUserThemeName: nil)
+            editorPresentation = ThemeEditorPresentation(
+                theme: themes.duplicate(of: theme),
+                existingUserThemeName: nil
+            )
         } else {
             editorPresentation = ThemeEditorPresentation(theme: theme, existingUserThemeName: theme.name)
         }
@@ -483,7 +528,9 @@ struct ThemeBrowserView: View {
     }
 
     private func importTheme(_ result: Result<URL, Error>) {
-        guard case .success(let url) = result else { return }
+        guard case .success(let url) = result else {
+            return
+        }
         let gotAccess = url.startAccessingSecurityScopedResource()
         defer {
             if gotAccess {
@@ -528,12 +575,16 @@ enum ThemeBrowserPage: CaseIterable, Identifiable {
         "TokyoNight"
     ]
 
-    var id: Self { self }
+    var id: Self {
+        self
+    }
 
     var title: String {
         switch self {
-        case .popular: return "Popular"
-        case .more: return "More"
+        case .popular:
+            return "Popular"
+        case .more:
+            return "More"
         }
     }
 

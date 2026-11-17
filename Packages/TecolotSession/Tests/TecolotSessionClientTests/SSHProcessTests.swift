@@ -7,8 +7,12 @@ import Testing
 private final class SSHCompletionQueueProbe: @unchecked Sendable {
     private let key = DispatchSpecificKey<Bool>()
 
-    init(_ queue: DispatchQueue) { queue.setSpecific(key: key, value: true) }
-    var isOnQueue: Bool { DispatchQueue.getSpecific(key: key) == true }
+    init(_ queue: DispatchQueue) {
+        queue.setSpecific(key: key, value: true)
+    }
+    var isOnQueue: Bool {
+        DispatchQueue.getSpecific(key: key) == true
+    }
 }
 
 private struct SSHCompletion: Sendable {
@@ -31,7 +35,9 @@ struct SSHProcessTests {
         let probe = SSHCompletionQueueProbe(queue)
         let results = Mutex(Array(repeating: SSHCompletion(), count: 64))
         var children: [SSHProcess] = []
-        defer { for child in children { child.stop() } }
+        defer { for child in children {
+            child.stop()
+        } }
 
         for batch in 0..<4 {
             let indices = (batch * 16)..<((batch + 1) * 16)
@@ -46,10 +52,17 @@ struct SSHProcessTests {
                 done
                 exit \(status)
                 """
-                let token = server.register(host: "process-test", handler: { _, reply in reply(nil) })
-                let child = SSHProcess(path: "/bin/sh", arguments: ["-c", script],
-                                       environment: ProcessInfo.processInfo.environment,
-                                       askpass: server, token: token, nullInput: true)
+                let token = server.register(host: "process-test", handler: { _, reply in
+                    reply(nil)
+                })
+                let child = SSHProcess(
+                    path: "/bin/sh",
+                    arguments: ["-c", script],
+                    environment: ProcessInfo.processInfo.environment,
+                    askpass: server,
+                    token: token,
+                    nullInput: true
+                )
                 children.append(child)
                 try child.start(queue: queue, captureOutput: true) { child, status, output in
                     results.withLock { values in
@@ -62,12 +75,18 @@ struct SSHProcessTests {
                 }
             }
             try await eventually("short SSH child callbacks") {
-                results.withLock { values in indices.allSatisfy { values[$0].count > 0 } }
+                results.withLock { values in
+                    indices.allSatisfy {
+                        values[$0].count > 0
+                    }
+                }
             }
         }
 
         queue.sync {}
-        let completed = results.withLock { $0 }
+        let completed = results.withLock {
+            $0
+        }
         for (index, result) in completed.enumerated() {
             #expect(result.count == 1)
             #expect(result.status == (index.isMultiple(of: 2) ? 0 : 255))
