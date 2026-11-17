@@ -27,41 +27,40 @@ struct RecentRemoteDestinations {
         }
         defaults.set(Array(updated.prefix(Self.limit)), forKey: Self.key)
     }
+
+    func remove(_ destination: String) {
+        defaults.set(destinations.filter {
+            $0 != destination
+        }, forKey: Self.key)
+    }
 }
 
 @MainActor
 enum RemoteDestinationPanel {
+    /// Shows the Connect to Host panel over the front window and waits for
+    /// the answer. Nil if the user cancels.
     static func run() -> String? {
         let recent = RecentRemoteDestinations()
-        let aliases = (try? SSHHostAliases.list()) ?? []
-        var seen = Set<String>()
-        let choices = (recent.destinations + aliases).filter {
-            seen.insert($0).inserted
-        }
-        let field = NSComboBox(frame: NSRect(x: 0, y: 0, width: 420, height: 26))
-        field.addItems(withObjectValues: choices)
-        field.completes = true
-        field.placeholderString = "user@host or SSH Host alias"
-        field.stringValue = recent.destinations.first ?? ""
-        let alert = NSAlert()
-        alert.messageText = "Remote Destination"
-        alert.informativeText = "Enter an SSH destination or choose a recent destination or Host alias."
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Connect")
-        alert.addButton(withTitle: "Cancel")
-        while alert.runModal() == .alertFirstButtonReturn {
-            let destination = field.stringValue
-            do {
-                try SSHConfiguration.validate(destination)
-                recent.record(destination)
-                return destination
-            } catch {
-                let problem = NSAlert()
-                problem.messageText = "Invalid SSH destination"
-                problem.informativeText = "Enter a host name, user@host, or Host alias. Do not use spaces or start with a hyphen."
-                problem.runModal()
+        let model = RemoteDestinationPickerModel(
+            recents: recent.destinations,
+            aliases: (try? SSHHostAliases.list()) ?? [],
+            removeRecent: recent.remove
+        )
+        let window = RemoteDestinationWindow(model: model)
+        var result: String?
+        window.onFinish = { [weak window] in
+            result = $0
+            // Not the session of another window, for example an alert.
+            if NSApp.modalWindow === window {
+                NSApp.stopModal()
             }
         }
-        return nil
+        window.place(over: NSApp.keyWindow ?? NSApp.mainWindow)
+        NSApp.runModal(for: window)
+        window.orderOut(nil)
+        if let result {
+            recent.record(result)
+        }
+        return result
     }
 }
