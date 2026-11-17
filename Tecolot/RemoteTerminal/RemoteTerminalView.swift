@@ -1414,33 +1414,10 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     }
 }
 
-extension RemoteTerminalView: TerminalPaneSurface {
+extension RemoteTerminalView: TerminalSurface {
     var gridDimensions: (cols: Int, rows: Int) {
         let grid = gridSize
         return (grid.columns, grid.rows)
-    }
-
-    func applyReset(_ action: ResetAction) {
-        session.reset(action)
-    }
-
-    func runFindAction(_ action: NSTextFinder.Action) {
-        performFind(action)
-    }
-
-    func sendTypedText(_ text: String) {
-        guard remoteInputEnabled else { return }
-        session.send(bytes: Array(text.utf8))
-    }
-
-    func scrollRows(by rows: Int) {
-        session.scroll(by: rows)
-    }
-
-    func jumpToPrompt(upward: Bool) -> Bool {
-        // The helper has the prompt marks; the scroll happens when it answers.
-        scrollToPrompt(upward: upward)
-        return true
     }
 }
 

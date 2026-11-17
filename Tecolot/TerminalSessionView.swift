@@ -163,7 +163,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     private(set) var hasActivity = false
 
     /// The terminal view of this pane, local or persistent.
-    var surface: (NSView & TerminalPaneSurface)? {
+    var surface: (NSView & TerminalSurface)? {
         terminal ?? persistentView
     }
 
@@ -466,7 +466,11 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if newOpacity < 1.0 {
             updateWindowTransparency()
         }
-        surface.backgroundOpacity = CGFloat(newOpacity)
+        if let terminal {
+            terminal.backgroundOpacity = CGFloat(newOpacity)
+        } else {
+            persistentView?.backgroundOpacity = CGFloat(newOpacity)
+        }
         (surface.superview as? TerminalSessionContainerView)?.updatePaddingColor()
         surface.requestRedraw()
         if newOpacity >= 1.0 {
@@ -894,9 +898,19 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     func printBuffer() {
-        surface?.bufferText { [weak self] text in
-            self?.printText(text)
+        if let persistentView {
+            persistentView.bufferText { [weak self] text in
+                self?.printText(text)
+            }
+            return
         }
+        guard
+            let data = terminal?.getBufferAsData(),
+            let text = String(data: data, encoding: .utf8)
+        else {
+            return
+        }
+        printText(text)
     }
 
     private func printText(_ text: String) {
@@ -945,11 +959,19 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     func softReset() {
-        surface?.applyReset(.soft)
+        if let persistentView {
+            persistentView.session.reset(.soft)
+            return
+        }
+        terminal?.softReset()
     }
 
     func hardReset() {
-        surface?.applyReset(.hard)
+        if let persistentView {
+            persistentView.session.reset(.hard)
+            return
+        }
+        terminal?.resetToInitialState()
     }
 
     /// Clears the screen and the scrollback without sending data to the program.
@@ -966,7 +988,13 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     /// Runs a Find menu action in this pane.
     func performFind(_ action: NSTextFinder.Action) {
-        surface?.runFindAction(action)
+        if let persistentView {
+            persistentView.performFind(action)
+            return
+        }
+        let item = NSMenuItem()
+        item.tag = action.rawValue
+        terminal?.performTextFinderAction(item)
     }
 
     /// Sends text to the program as if the user typed it.
@@ -982,17 +1010,29 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     var allowMouseReporting: Bool {
-        get { surface?.allowMouseReporting ?? false }
-        set { surface?.allowMouseReporting = newValue }
+        get { terminal?.allowMouseReporting ?? persistentView?.allowMouseReporting ?? false }
+        set {
+            if let persistentView {
+                persistentView.allowMouseReporting = newValue
+                return
+            }
+            terminal?.allowMouseReporting = newValue
+        }
     }
 
     var optionAsMetaKey: Bool {
-        get { surface?.optionAsMetaKey ?? false }
-        set { surface?.optionAsMetaKey = newValue }
+        get { terminal?.optionAsMetaKey ?? persistentView?.optionAsMetaKey ?? false }
+        set {
+            if let persistentView {
+                persistentView.optionAsMetaKey = newValue
+                return
+            }
+            terminal?.optionAsMetaKey = newValue
+        }
     }
 
     var useMetalRenderer: Bool {
-        get { surface?.isUsingMetalRenderer ?? false }
+        get { persistentView?.isUsingMetalRenderer ?? terminal?.isUsingMetalRenderer ?? false }
         set {
             UserDefaults.standard.set(newValue, forKey: TerminalSessionController.useMetalRendererKey)
             TerminalSessionRegistry.shared.setUseMetalRenderer(newValue)
@@ -1021,7 +1061,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     }
 
     var usePerFrameMetalBuffering: Bool {
-        get { surface?.metalBufferingMode == .perFrameAggregated }
+        get { (persistentView?.metalBufferingMode ?? terminal?.metalBufferingMode) == .perFrameAggregated }
         set {
             if let persistentView {
                 persistentView.metalBufferingMode = newValue ? .perFrameAggregated : .perRowPersistent
@@ -1047,15 +1087,20 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         surface?.selectionActive ?? false
     }
 
+    /// The font of the pane's view, local or persistent.
+    private var surfaceFont: NSFont? {
+        terminal?.font ?? persistentView?.font
+    }
+
     func biggerFont() {
-        guard let size = surface?.font.pointSize, size < 72 else {
+        guard let size = surfaceFont?.pointSize, size < 72 else {
             return
         }
         setFontSize(size + 1)
     }
 
     func smallerFont() {
-        guard let size = surface?.font.pointSize, size > 5 else {
+        guard let size = surfaceFont?.pointSize, size > 5 else {
             return
         }
         setFontSize(size - 1)
@@ -2881,14 +2926,6 @@ final class TerminalSessionRegistry {
         for controller in allControllers where controller.profile.id == profileID {
             controller.previewBackgroundOpacity(opacity)
         }
-    }
-
-    /// The registered panes of `window` and the panes of its workspace.
-    func allControllers(for window: NSWindow?) -> [TerminalSessionController] {
-        let registered = controllers(for: window)
-        let ids = Set(registered.map(ObjectIdentifier.init))
-        let hidden = (workspace(for: window)?.controllers ?? []).filter { !ids.contains(ObjectIdentifier($0)) }
-        return registered + hidden
     }
 
     func workspace(for window: NSWindow?) -> TerminalPaneWorkspace? {
