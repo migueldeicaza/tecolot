@@ -2,7 +2,7 @@
 //  FindBar.swift
 //  Tecolot
 //
-//  The find bar of every pane: a capsule with the query, the status, the
+//  The find bar of every pane: a pill with the query, the status, the
 //  options and the next, previous and close buttons. Local panes get it
 //  through SwiftTerm's `findBarProvider`, and the status is a match count
 //  ("2/14"). Persistent panes show it themselves: their helper searches the
@@ -15,7 +15,10 @@ import SwiftTerm
 
 final class FindBar: NSView, TerminalFindBar, NSTextFieldDelegate {
     private enum Layout {
-        static let height: CGFloat = 34
+        static let height: CGFloat = 38
+        /// The terminal places the bar 8 points under its top edge. The pill
+        /// is drawn this much higher, to sit just under the pane's header.
+        static let lift: CGFloat = 6
         static let preferredWidth: CGFloat = 440
         static let maximumWidth: CGFloat = 560
         static let minimumFieldWidth: CGFloat = 120
@@ -28,14 +31,14 @@ final class FindBar: NSView, TerminalFindBar, NSTextFieldDelegate {
 
     let field = NSTextField()
     private let status = NSTextField(labelWithString: "")
-    private let caseButton = NSButton()
-    private let regexButton = NSButton()
-    private let wordButton = NSButton()
-    private let previousButton = NSButton()
-    private let nextButton = NSButton()
-    private let closeButton = NSButton()
+    private let caseButton = FindOptionButton()
+    private let regexButton = FindOptionButton()
+    private let wordButton = FindOptionButton()
+    private let previousButton = ChromeIconButton(treatment: .window)
+    private let nextButton = ChromeIconButton(treatment: .window)
+    private let closeButton = ChromeIconButton(treatment: .window)
     private let content = NSView()
-    private let background: NSView
+    private let background = PillView()
 
     var searchText: String {
         get { field.stringValue }
@@ -65,34 +68,12 @@ final class FindBar: NSView, TerminalFindBar, NSTextFieldDelegate {
     }
 
     init() {
-        if #available(macOS 26, *) {
-            let glass = NSGlassEffectView()
-            glass.style = .regular
-            glass.cornerRadius = Layout.height / 2
-            glass.contentView = content
-            background = glass
-        } else {
-            let material = NSVisualEffectView()
-            material.material = .popover
-            material.blendingMode = .withinWindow
-            material.state = .active
-            material.wantsLayer = true
-            material.layer?.cornerRadius = Layout.height / 2
-            material.layer?.masksToBounds = true
-            content.translatesAutoresizingMaskIntoConstraints = false
-            material.addSubview(content)
-            NSLayoutConstraint.activate([
-                content.leadingAnchor.constraint(equalTo: material.leadingAnchor),
-                content.trailingAnchor.constraint(equalTo: material.trailingAnchor),
-                content.topAnchor.constraint(equalTo: material.topAnchor),
-                content.bottomAnchor.constraint(equalTo: material.bottomAnchor),
-            ])
-            background = material
-        }
         super.init(frame: .zero)
 
         background.translatesAutoresizingMaskIntoConstraints = false
         addSubview(background)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
 
         field.placeholderString = "Find"
         field.isBordered = false
@@ -107,7 +88,7 @@ final class FindBar: NSView, TerminalFindBar, NSTextFieldDelegate {
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        status.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        status.font = .monospacedDigitSystemFont(ofSize: 14, weight: .regular)
         status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byTruncatingTail
         status.isHidden = true
@@ -139,12 +120,13 @@ final class FindBar: NSView, TerminalFindBar, NSTextFieldDelegate {
         ])
         stack.orientation = .horizontal
         stack.alignment = .centerY
-        stack.spacing = 8
-        stack.setCustomSpacing(10, after: status)
-        stack.setCustomSpacing(10, after: divider)
-        stack.setCustomSpacing(10, after: wordButton)
-        stack.setCustomSpacing(2, after: previousButton)
-        stack.setCustomSpacing(2, after: nextButton)
+        stack.spacing = 2
+        stack.setCustomSpacing(8, after: field)
+        stack.setCustomSpacing(9, after: status)
+        stack.setCustomSpacing(6, after: divider)
+        stack.setCustomSpacing(4, after: wordButton)
+        stack.setCustomSpacing(0, after: previousButton)
+        stack.setCustomSpacing(0, after: nextButton)
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
 
@@ -153,18 +135,22 @@ final class FindBar: NSView, TerminalFindBar, NSTextFieldDelegate {
         NSLayoutConstraint.activate([
             background.leadingAnchor.constraint(equalTo: leadingAnchor),
             background.trailingAnchor.constraint(equalTo: trailingAnchor),
-            background.topAnchor.constraint(equalTo: topAnchor),
-            background.bottomAnchor.constraint(equalTo: bottomAnchor),
+            background.topAnchor.constraint(equalTo: topAnchor, constant: -Layout.lift),
+            background.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Layout.lift),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor),
+            content.topAnchor.constraint(equalTo: background.topAnchor),
+            content.bottomAnchor.constraint(equalTo: background.bottomAnchor),
             heightAnchor.constraint(equalToConstant: Layout.height),
             preferredWidth,
             widthAnchor.constraint(lessThanOrEqualToConstant: Layout.maximumWidth),
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -6),
             stack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
             field.widthAnchor.constraint(greaterThanOrEqualToConstant: Layout.minimumFieldWidth),
             status.widthAnchor.constraint(lessThanOrEqualToConstant: Layout.maximumStatusWidth),
             divider.widthAnchor.constraint(equalToConstant: 1),
-            divider.heightAnchor.constraint(equalToConstant: 18),
+            divider.heightAnchor.constraint(equalToConstant: 20),
         ])
     }
 
@@ -173,45 +159,42 @@ final class FindBar: NSView, TerminalFindBar, NSTextFieldDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func configureOption(_ button: NSButton, title: String, tooltip: String) {
-        button.setButtonType(.toggle)
-        button.isBordered = false
-        button.title = title
+    private func configureOption(_ button: FindOptionButton, title: String, tooltip: String) {
+        button.label = title
         button.toolTip = tooltip
         button.setAccessibilityLabel(tooltip)
         button.target = self
         button.action = #selector(optionChanged(_:))
-        button.setContentCompressionResistancePriority(.required, for: .horizontal)
-        styleOption(button)
-    }
-
-    /// An option that is on shows in the accent color; one that is off is dimmed.
-    private func styleOption(_ button: NSButton) {
-        let on = button.state == .on
-        let title = NSAttributedString(
-            string: button.title,
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 12, weight: on ? .semibold : .regular),
-                .foregroundColor: on ? NSColor.controlAccentColor : NSColor.tertiaryLabelColor,
-            ]
-        )
-        button.attributedTitle = title
-        // A toggle that is on draws its alternate title.
-        button.attributedAlternateTitle = title
     }
 
     private func configureSymbol(_ button: NSButton, symbol: String, tooltip: String, action: Selector) {
-        button.setButtonType(.momentaryChange)
-        button.isBordered = false
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .medium))
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
         button.imagePosition = .imageOnly
         button.contentTintColor = .secondaryLabelColor
         button.toolTip = tooltip
+        button.setAccessibilityLabel(tooltip)
         button.target = self
         button.action = action
-        button.widthAnchor.constraint(equalToConstant: 24).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        button.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 26).isActive = true
+    }
+
+    /// The pill is not where the bar's frame is: clicks go by the pill.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden else {
+            return nil
+        }
+        let local = convert(point, from: superview)
+        guard background.frame.contains(local) else {
+            return nil
+        }
+        for subview in subviews.reversed() {
+            if let hit = subview.hitTest(local) {
+                return hit
+            }
+        }
+        return self
     }
 
     // The bar floats over the terminal. A click on its padding, the divider
@@ -297,7 +280,6 @@ final class FindBar: NSView, TerminalFindBar, NSTextFieldDelegate {
     }
 
     @objc private func optionChanged(_ sender: NSButton) {
-        styleOption(sender)
         findBarDelegate?.findBarOptionsChanged(self)
     }
 
@@ -321,5 +303,213 @@ final class FindBar: NSView, TerminalFindBar, NSTextFieldDelegate {
             return true
         }
         return false
+    }
+}
+
+/// One of the options of the find bar: its name, in the accent color when
+/// it is on, over a highlight that follows the pointer like the one of the
+/// pane buttons.
+private final class FindOptionButton: NSButton {
+    private static let fontSize: CGFloat = 12
+
+    private var hoverState = ChromeButtonHoverState()
+    private var hoverTrackingArea: NSTrackingArea?
+
+    /// The name of the option.
+    var label = "" {
+        didSet {
+            updateTitle()
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    override var state: NSControl.StateValue {
+        didSet { updateTitle() }
+    }
+
+    /// The width of the name when the option is on, the wider of the two,
+    /// so that the bar does not move when an option changes.
+    override var intrinsicContentSize: NSSize {
+        let width = (label as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: Self.fontSize, weight: .semibold)
+        ]).width
+        return NSSize(width: ceil(width) + 12, height: 22)
+    }
+
+    init() {
+        super.init(frame: .zero)
+        setButtonType(.toggle)
+        isBordered = false
+        (cell as? NSButtonCell)?.highlightsBy = []
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        setContentHuggingPriority(.required, for: .horizontal)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// A click, the keyboard and accessibility change the state in the
+    /// cell, without the setter above: the name follows before the action.
+    override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
+        updateTitle()
+        return super.sendAction(action, to: target)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        hoverTrackingArea = area
+        // The status can move another option under a pointer that stays still.
+        synchronizeHoverWithPointer()
+    }
+
+    private func synchronizeHoverWithPointer() {
+        if let window, !isHiddenOrHasHiddenAncestor {
+            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            updateHover(bounds.contains(point) ? .enter : .exit)
+        } else {
+            updateHover(.unavailable)
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        updateHover(.enter)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        updateHover(.exit)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        updateHover(.press)
+        super.mouseDown(with: event)
+        updateHover(.release)
+        // The button may have been released away from the option.
+        synchronizeHoverWithPointer()
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        updateHover(.unavailable)
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        synchronizeHoverWithPointer()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateHover(.unavailable)
+    }
+
+    private func updateHover(_ event: ChromeButtonHoverState.Event) {
+        let previous = hoverState
+        hoverState.send(event)
+        if previous != hoverState {
+            updateTitle()
+            needsDisplay = true
+        }
+    }
+
+    /// The highlight is drawn under the name.
+    override func draw(_ dirtyRect: NSRect) {
+        if hoverState.highlighted {
+            let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+            let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
+            ChromeIconButton.highlightColor(dark: dark, increasedContrast: contrast, treatment: .window).setFill()
+            path.fill()
+            if contrast {
+                NSColor.secondaryLabelColor.setStroke()
+                path.lineWidth = 1
+                path.stroke()
+            }
+        }
+        super.draw(dirtyRect)
+    }
+
+    /// An option that is on shows in the accent color; one that is off is
+    /// dimmed, less so under the pointer.
+    private func updateTitle() {
+        let on = state == .on
+        let color: NSColor = on ? .controlAccentColor : hoverState.highlighted ? .secondaryLabelColor : .tertiaryLabelColor
+        let text = NSAttributedString(
+            string: label,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: Self.fontSize, weight: on ? .semibold : .regular),
+                .foregroundColor: color,
+            ]
+        )
+        attributedTitle = text
+        // A toggle that is on draws its alternate title.
+        attributedAlternateTitle = text
+    }
+}
+
+/// The pill behind the find bar: an opaque fill a little apart from the
+/// terminal under it, with a hairline edge and a soft shadow.
+private final class PillView: NSView {
+    private static let fill = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(white: 0.21, alpha: 1)
+            : NSColor(white: 0.90, alpha: 1)
+    }
+    private static let edge = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(white: 1, alpha: 0.14)
+            : NSColor(white: 1, alpha: 0.65)
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.18)
+        shadow.shadowBlurRadius = 5
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        self.shadow = shadow
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var wantsUpdateLayer: Bool {
+        true
+    }
+
+    override func layout() {
+        super.layout()
+        needsDisplay = true
+    }
+
+    override func updateLayer() {
+        guard let layer else {
+            return
+        }
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer.backgroundColor = Self.fill.cgColor
+            layer.borderColor = Self.edge.cgColor
+        }
+        layer.cornerRadius = bounds.height / 2
+        layer.cornerCurve = .continuous
+        layer.borderWidth = 1
+        // Without a path the shadow is worked out from the pixels each
+        // time the terminal under it changes.
+        layer.shadowPath = CGPath(
+            roundedRect: bounds,
+            cornerWidth: bounds.height / 2,
+            cornerHeight: bounds.height / 2,
+            transform: nil
+        )
     }
 }
