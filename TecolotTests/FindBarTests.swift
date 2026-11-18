@@ -105,7 +105,16 @@ struct FindBarTests {
             return try #require(found)
         }
         #expect(bar.options == SearchOptions())
+        // An option that is on shows in the accent color, at the same width.
+        let caseSensitive = try button("Case Sensitive")
+        let width = caseSensitive.intrinsicContentSize.width
+        func color() -> NSColor? {
+            caseSensitive.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        }
+        #expect(color() == .tertiaryLabelColor)
         try button("Case Sensitive").performClick(nil)
+        #expect(color() == .controlAccentColor)
+        #expect(caseSensitive.intrinsicContentSize.width == width)
         try button("Whole Word").performClick(nil)
         #expect(bar.options == SearchOptions(caseSensitive: true, regex: false, wholeWord: true))
         try button("Regular Expression").performClick(nil)
