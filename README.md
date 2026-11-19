@@ -323,3 +323,6 @@ Tecolot is available under the [MIT License](LICENSE). See the bundled
 [Nerd Font notices](Tecolot/NerdFont/NerdFontResources/THIRD_PARTY_NOTICES.md)
 and [shell-integration license](Tecolot/Profiles/Resources/shell-integration/LICENSE)
 for third-party attribution.
+The [terminal command artwork notices](Tecolot/Profiles/Resources/TerminalBrandNotices/README.txt)
+cover the Bun and Git logos used for command icons. Tecolot does not include
+the Bun runtime.
