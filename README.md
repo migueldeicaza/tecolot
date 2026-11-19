@@ -76,28 +76,44 @@ unresponsive.
 
 The following results come from local
 [`vtebench`](https://github.com/alacritty/vtebench) tests that used the same Mac
-and workload set.
+and the 12 default workloads.
 [Ghostty](https://ghostty.org/docs/about#fast) is a useful reference because it
 also targets the high-performance terminal class. It is a demanding baseline,
-not an average terminal.
+not an average terminal. The SwiftTerm column is a Release build of
+MacTerminal, the SwiftTerm sample app. It uses the same terminal engine and
+Metal renderer as Tecolot, at a newer SwiftTerm revision than the current
+Tecolot release.
 
-| Build | Measurement date | Sum of 10 mean write times |
-| --- | --- | ---: |
-| Ghostty release build | 2026-08-11 | 199.53 ms |
-| **Tecolot / SwiftTerm test build** | **2026-09-14** | **168.97 ms** |
-| Ghostty development build | 2026-08-31 | 124.88 ms |
+![vtebench mean sample time for SwiftTerm and Ghostty](website/public/assets/vtebench-2026-11-18.svg)
 
-Lower values are better. The Tecolot run had a lower mean time in 8 of the 10
-workloads than the Ghostty release build. It processed the dense styled-cell
-workload at 145.6 MiB/s and the Unicode workload at 263.7 MiB/s. The newer
-Ghostty development build still leads the combined suite, but Tecolot is in
-the same performance range.
+| Workload | SwiftTerm (ms) | Ghostty (ms) | SwiftTerm / Ghostty |
+| --- | ---: | ---: | ---: |
+| `cursor_motion` | 6.0 | 5.8 | 1.02 |
+| `dense_cells` | 4.8 | 4.9 | 0.99 |
+| `light_cells` | 3.2 | 3.2 | 1.01 |
+| `medium_cells` | 5.2 | 5.2 | 1.00 |
+| `scrolling` | 11.4 | 13.3 | 0.86 |
+| `scrolling_bottom_region` | 14.9 | 13.0 | 1.15 |
+| `scrolling_bottom_small_region` | 14.0 | 12.1 | 1.16 |
+| `scrolling_fullscreen` | 3.6 | 5.9 | 0.61 |
+| `scrolling_top_region` | 14.4 | 12.6 | 1.14 |
+| `scrolling_top_small_region` | 14.0 | 12.0 | 1.16 |
+| `sync_medium_cells` | 5.4 | 5.4 | 1.00 |
+| `unicode` | 4.0 | 3.7 | 1.07 |
+| **Sum** | **101.0** | **97.2** | **1.04** |
 
-Each workload ran for three seconds and processed at least 1 MiB per sample.
-The total is the sum of the mean sample times for cell, Unicode, synchronized
-output, and scrolling workloads. Suite totals repeat to about 1%. Individual
-tests usually repeat to about 3%, and some repeat to about 7%. Treat small
-differences as ties.
+Lower values are better. Each value is the mean time for one sample of at
+least 1 MiB. Ghostty is faster by 4% on the sum of the suite. SwiftTerm is
+faster by 39% on full-screen scrolling and by 14% on plain scrolling. Ghostty
+is faster by 14% to 16% on the four scrolling-region workloads and by 7% on
+the Unicode workload. The other workloads are equal to within 2%.
+
+Measured on 2026-11-18 on a Mac Studio (M3 Ultra) with macOS 27.2.1, SwiftTerm
+`main` at `6ae3d832`, and Ghostty 1.4.1 tip (`542611b3d`). Each terminal used
+a window of 100 by 37 cells and SF Mono at 13 points. Each workload ran for
+three seconds. The table shows the median of three runs for each terminal.
+Suite sums repeat to about 1%. Individual workloads repeat to about 7%, and
+some repeat to about 14%. Treat small differences as ties.
 
 These tests measure PTY write and terminal processing throughput. They do not
 measure application startup, complete frame latency, or power use.
