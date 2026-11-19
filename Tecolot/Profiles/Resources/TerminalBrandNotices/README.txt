@@ -1,9 +1,12 @@
 Terminal command artwork
 
+Tecolot includes the artwork below for terminal command icons. It does not
+include the Bun runtime.
+
 Bun
 Source: https://github.com/oven-sh/bun/blob/main/docs/logo/bun.png
 Copyright: Bun contributors, including Jarred Sumner and Oven.
-License: MIT. The project license statement is in Bun-LICENSE.md.
+License: MIT. The license text is in Bun-MIT.txt.
 The image is copied without changes. It identifies the Bun executable.
 
 Git
