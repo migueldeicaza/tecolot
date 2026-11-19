@@ -359,6 +359,134 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         remoteDestination == nil ? TerminalWorkingDirectory.path(from: postedDirectory) : nil
     }
 
+    nonisolated static func isShellExecutable(_ nameOrPath: String) -> Bool {
+        let base = (nameOrPath as NSString).lastPathComponent
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            .lowercased()
+        switch base {
+        case "sh", "bash", "zsh", "fish", "nu", "nushell", "elvish", "dash", "ksh", "mksh", "csh", "tcsh", "ash", "xonsh":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Whether a shell started with these arguments waits at a prompt: one
+    /// that runs a script (`bash build.sh`, a `#!/bin/sh` file) or a command
+    /// string (`sh -c`) does not, and what is typed at it goes to the script.
+    /// `arguments` starts with the name of the shell.
+    nonisolated static func isInteractiveShell(arguments: [String]) -> Bool {
+        // Options whose value is the next argument.
+        let valued: Set<String> = ["-o", "+o", "-O", "+O", "--rcfile", "--init-file", "-C", "--init-command"]
+        var index = 1
+        while index < arguments.count {
+            let argument = arguments[index]
+            if valued.contains(argument) {
+                index += 2
+                continue
+            }
+            if argument == "--" || argument == "-" {
+                // What follows is the script, if anything.
+                return index + 1 >= arguments.count
+            }
+            if argument.hasPrefix("--") {
+                if argument == "--command" || argument.hasPrefix("--command=") {
+                    return false
+                }
+                index += 1
+                continue
+            }
+            if argument.hasPrefix("-") || argument.hasPrefix("+") {
+                // A group of one-letter options: `-lc` runs a command string.
+                if argument.hasPrefix("-"), argument.dropFirst().contains("c") {
+                    return false
+                }
+                index += 1
+                continue
+            }
+            // The first operand is a script.
+            return false
+        }
+        return true
+    }
+
+    /// The arguments a process was started with, its name first.
+    nonisolated static func processArguments(of processID: pid_t) -> [String]? {
+        var name: [Int32] = [CTL_KERN, KERN_PROCARGS2, processID]
+        var size = 0
+        guard sysctl(&name, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else {
+            return nil
+        }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&name, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else {
+            return nil
+        }
+        // The count, the path of the executable and its padding, then the arguments.
+        let count = buffer.withUnsafeBytes { Int($0.loadUnaligned(as: Int32.self)) }
+        var position = MemoryLayout<Int32>.size
+        while position < size, buffer[position] != 0 {
+            position += 1
+        }
+        while position < size, buffer[position] == 0 {
+            position += 1
+        }
+        var arguments: [String] = []
+        while arguments.count < count, position < size {
+            var end = position
+            while end < size, buffer[end] != 0 {
+                end += 1
+            }
+            arguments.append(String(decoding: buffer[position..<end], as: UTF8.self))
+            position = end + 1
+        }
+        return arguments.count == count && count > 0 ? arguments : nil
+    }
+
+    /// Whether the process is a shell at its prompt, not one running a
+    /// script. A process whose arguments cannot be read does not count.
+    nonisolated static func isInteractiveShell(processID: pid_t) -> Bool {
+        processArguments(of: processID).map { isInteractiveShell(arguments: $0) } ?? false
+    }
+
+    /// True when the pane is a local session whose foreground process is an interactive shell in the normal buffer.
+    /// Allows nested shells (e.g. `nix develop`, `bash`) and backgrounded jobs while rejecting editors/REPLs.
+    @MainActor
+    var canChangeDirectory: Bool {
+        guard remoteDestination == nil else {
+            return false
+        }
+        if let persistentView {
+            let state = persistentView.session.state
+            if state.buffer == .alternate || state.exitStatus != nil {
+                return false
+            }
+            if let info = state.info, let foreground = info.foreground {
+                if foreground.pid != info.shellPID,
+                   !Self.isShellExecutable(foreground.name) || !Self.isInteractiveShell(processID: pid_t(foreground.pid)) {
+                    return false
+                }
+            }
+            return true
+        }
+        if let terminal {
+            if terminal.terminalContentSnapshot(region: .history(maximumScrollbackRows: 0), buffer: .normal)?.inputState.isAlternateBuffer == true {
+                return false
+            }
+            if let process = terminal.process, process.running {
+                let inspector = SystemTerminalProcessInspector()
+                if let group = inspector.foregroundProcessGroup(for: process.childfd) {
+                    let processes = inspector.foregroundProcesses(in: group)
+                    if let foreground = processes.first(where: { $0.processID == group }) ?? processes.first,
+                       let path = foreground.executablePath,
+                       !Self.isShellExecutable(path) || !Self.isInteractiveShell(processID: foreground.processID) {
+                        return false
+                    }
+                }
+            }
+        }
+        return true
+    }
+
     /// The theme currently in effect for this session
     @MainActor
     var effectiveTheme: TerminalTheme {
@@ -1119,6 +1247,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         terminal?.font ?? persistentView?.font
     }
 
+    var currentFontSize: CGFloat? {
+        surfaceFont?.pointSize
+    }
+
     func biggerFont() {
         guard let size = surfaceFont?.pointSize, size < 72 else {
             return
@@ -1140,7 +1272,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     /// Changes only the size, keeping the profile's font family. A
     /// persistent view sends its new grid size to the helper.
-    private func setFontSize(_ size: CGFloat) {
+    func setFontSize(_ size: CGFloat) {
         if let persistentView {
             persistentFontSize = size == CGFloat(profile.fontSize) ? nil : size
             persistentView.font = Self.font(persistentView.font, size: size)

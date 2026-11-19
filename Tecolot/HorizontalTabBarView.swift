@@ -13,6 +13,7 @@ final class HorizontalTabBarView: NSView {
     private let theme = ThemeTitlebarControl()
     private let zoom = NSButton()
     private let add = NSButton()
+    let commandPaletteButton = ChromeIconButton(treatment: .toolbar)
     let activityButton = ChromeIconButton(treatment: .toolbar)
     private let activityBadge = ProgramStatusBadgeView()
     private let activityPopover = ActivityPopover()
@@ -112,10 +113,15 @@ final class HorizontalTabBarView: NSView {
         activityButton.toolTip = "Activity (⌘.)"
         activityButton.setAccessibilityLabel("Activity")
         activityButton.addSubview(activityBadge)
-        for button in [zoom, add, activityButton] {
+        commandPaletteButton.image = NSImage(systemSymbolName: "command", accessibilityDescription: "Command Palette")
+        commandPaletteButton.target = self
+        commandPaletteButton.action = #selector(toggleCommandPalette)
+        commandPaletteButton.toolTip = "Command Palette (⇧⌘P)"
+        commandPaletteButton.setAccessibilityLabel("Command Palette")
+        for button in [zoom, add, commandPaletteButton, activityButton] {
             button.isBordered = false
         }
-        for view in [groupButton, scroll, theme, zoom, add, activityButton] {
+        for view in [groupButton, scroll, theme, zoom, add, commandPaletteButton, activityButton] {
             addSubview(view)
         }
         dropIndicator.wantsLayer = true
@@ -271,6 +277,10 @@ final class HorizontalTabBarView: NSView {
         activityPopover.toggle(relativeTo: activityButton, owner: controller)
     }
 
+    @objc private func toggleCommandPalette() {
+        controller?.toggleCommandPalette()
+    }
+
     func configure(group: TerminalTabGroup) {
         groupName = group.name
         refreshGroupCaption()
@@ -331,7 +341,8 @@ final class HorizontalTabBarView: NSView {
         let zoomWidth: CGFloat = zoom.isHidden ? 0 : 34
         zoom.frame = NSRect(x: add.frame.minX - zoomWidth, y: 7, width: zoomWidth, height: 32)
         theme.frame = NSRect(x: zoom.frame.minX - 34, y: 7, width: 35, height: 30)
-        let activityStart = theme.frame.minX - 34
+        commandPaletteButton.frame = NSRect(x: theme.frame.minX - 34, y: 7, width: 35, height: 32)
+        let activityStart = commandPaletteButton.frame.minX - 34
         activityButton.frame = NSRect(x: activityStart, y: 7, width: 35, height: 32)
         activityBadge.frame = NSRect(x: 21, y: 0, width: 15, height: 15)
         let start = groupButton.frame.maxX + 8

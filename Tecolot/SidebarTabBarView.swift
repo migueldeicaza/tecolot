@@ -10,6 +10,7 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
     let scroll = NSScrollView()
     let toggle = NSButton()
     let activity = ChromeIconButton(treatment: .window)
+    let commandPalette = ChromeIconButton(treatment: .window)
     private let theme = ThemeTitlebarControl()
     private let zoom = NSButton()
     private let add = NSButton()
@@ -79,13 +80,14 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         filter.isHidden = true
         configure(toggle, symbol: "sidebar.left", title: "Toggle Sidebar (⌘/)", action: #selector(toggleSidebar))
         configure(activity, symbol: "eye", title: "Activity (⌘.)", action: #selector(toggleActivity))
+        configure(commandPalette, symbol: "command", title: "Command Palette (⇧⌘P)", action: #selector(toggleCommandPalette))
         configure(add, symbol: "plus", title: "New Tab (⌘T)", action: #selector(addTab))
         configure(zoom, symbol: "arrow.down.right.and.arrow.up.left", title: "Reset Split Zoom", action: #selector(resetZoom))
         configure(overflow, symbol: "ellipsis.circle", title: "Sidebar actions", action: #selector(showOverflow))
         configure(filterButton, symbol: "line.3.horizontal.decrease", title: "Filter", action: #selector(showFilter))
         configure(newGroup, symbol: "plus.rectangle.on.rectangle", title: "New Group (⇧⌘N)", action: #selector(addGroup))
         activity.addSubview(activityBadge)
-        for view in [scroll, toggle, activity, theme, zoom, add, overflow, filterButton, newGroup, filter] {
+        for view in [scroll, toggle, activity, commandPalette, theme, zoom, add, overflow, filterButton, newGroup, filter] {
             addSubview(view)
         }
         for name in [
@@ -371,17 +373,19 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         super.layout()
         let right = controller?.sidebarPreferences.style == .right
         toggle.frame = NSRect(x: right ? bounds.width - 40 : 92, y: 12, width: 29, height: 25)
-        let start: CGFloat = right ? 9 : bounds.width - 99
-        add.frame = NSRect(x: right ? start : start + 60, y: 12, width: 30, height: 26)
-        theme.frame = NSRect(x: start + 30, y: 12, width: 29, height: 24)
-        activity.frame = NSRect(x: right ? start + 60 : start, y: 12, width: 29, height: 26)
-        let narrow = !right && bounds.width < 220
-        for view in [activity, theme, add] {
+        let pitch: CGFloat = 26
+        let start: CGFloat = right ? 9 : bounds.width - 113
+        add.frame = NSRect(x: right ? start : start + pitch * 3, y: 12, width: 26, height: 26)
+        theme.frame = NSRect(x: right ? start + pitch : start + pitch * 2, y: 12, width: 26, height: 24)
+        commandPalette.frame = NSRect(x: right ? start + pitch * 2 : start + pitch, y: 12, width: 26, height: 26)
+        activity.frame = NSRect(x: right ? start + pitch * 3 : start, y: 12, width: 26, height: 26)
+        let narrow = !right && bounds.width < 236
+        for view in [activity, commandPalette, theme, add] {
             view.isHidden = narrow
         }
         overflow.isHidden = !narrow
         overflow.frame = NSRect(x: bounds.width - 38, y: 12, width: 29, height: 26)
-        let bottomZoom = right || bounds.width < 275
+        let bottomZoom = right || bounds.width < 290
         zoom.frame = NSRect(
             x: bottomZoom ? bounds.width - 70 : start - 30,
             y: bottomZoom ? bounds.height - 32 : 12,
@@ -504,6 +508,9 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         }
         popover.toggle(relativeTo: activity.isHidden ? overflow : activity, owner: controller)
     }
+    @objc private func toggleCommandPalette() {
+        controller?.toggleCommandPalette()
+    }
     @objc private func addTab() {
         controller?.newTab()
     }
@@ -519,6 +526,9 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         menu.addItem(ClosureMenuItem("Activity") { [weak self] in
             self?.toggleActivity()
         })
+        menu.addItem(ClosureMenuItem("Command Palette…") { [weak self] in
+            self?.toggleCommandPalette()
+        })
         menu.addItem(ClosureMenuItem("Theme…") { [weak self] in
             self?.theme.presentPicker()
         })
@@ -526,6 +536,14 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
             self?.addTab()
         })
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: overflow.bounds.maxY), in: overflow)
+    }
+    func focusFilter() {
+        if !filterShown {
+            filterShown = true
+            filter.isHidden = false
+            needsLayout = true
+        }
+        window?.makeFirstResponder(filter)
     }
     @objc private func showFilter() {
         filterShown.toggle()

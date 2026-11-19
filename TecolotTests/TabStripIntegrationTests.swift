@@ -55,7 +55,7 @@ struct TabStripIntegrationTests {
         #expect(bar.groupButton.accessibilityValue() as? String == group.name)
         #expect(bar.groupButton.toolTip == "Go to Group (⌘K)")
         #expect(bar.groupButton.frame == NSRect(x: 85, y: 7, width: 34, height: 32))
-        #expect(bar.scroll.frame == NSRect(x: 127, y: 7, width: 936, height: 32))
+        #expect(bar.scroll.frame == NSRect(x: 127, y: 7, width: 902, height: 32))
         #expect(selectorCell.titleRect(forBounds: bar.groupButton.bounds) == .zero)
         #expect(glyph == NSRect(x: 95.5, y: 15, width: 16, height: 16))
 
@@ -67,7 +67,7 @@ struct TabStripIntegrationTests {
         #expect(bar.groupButton.isAccessibilityElement())
         #expect(bar.groupButton.accessibilityValue() as? String == group.name)
         #expect(bar.groupButton.frame == NSRect(x: 85, y: 5, width: 105, height: 36))
-        #expect(bar.scroll.frame == NSRect(x: 198, y: 7, width: 865, height: 32))
+        #expect(bar.scroll.frame == NSRect(x: 198, y: 7, width: 831, height: 32))
         #expect(bar.convert(selectorCell.imageRect(forBounds: bar.groupButton.bounds), from: bar.groupButton) == glyph)
         if openSecondWindow {
             let other = try #require(manager.openWindow(group: second) as? TerminalWindowController)
@@ -89,7 +89,7 @@ struct TabStripIntegrationTests {
         #expect(bar.groupButton.isAccessibilityElement())
         #expect(bar.groupButton.accessibilityValue() as? String == group.name)
         #expect(bar.groupButton.frame == NSRect(x: 85, y: 7, width: 34, height: 32))
-        #expect(bar.scroll.frame == NSRect(x: 127, y: 7, width: 936, height: 32))
+        #expect(bar.scroll.frame == NSRect(x: 127, y: 7, width: 902, height: 32))
         #expect(bar.cells.first === cell)
         #expect(cell.tab.hostView.window === owner.window)
     }
@@ -147,7 +147,8 @@ struct TabStripIntegrationTests {
         #expect(!bar.groupButton.isHidden)
         #expect(bar.groupButton.title.isEmpty)
         #expect(bar.groupButton.accessibilityValue() as? String == group.name)
-        #expect(bar.scroll.frame == NSRect(x: 127, y: 7, width: 936, height: 32))
+        #expect(bar.scroll.frame == NSRect(x: 127, y: 7, width: 902, height: 32))
+        #expect(!bar.commandPaletteButton.isHidden)
         #expect(bar.cells[0].frame.width == 242)
         #expect(first.hostView.frame == NSRect(x: 8, y: 46, width: 1164, height: 706))
         for _ in 1..<20 {
@@ -321,7 +322,7 @@ struct TabStripIntegrationTests {
         #expect(owner.tabBar.groupButton.frame == NSRect(x: 85, y: 5, width: captionWidth, height: 36))
         #expect(groupEditor.frame == NSRect(x: 87, y: 11, width: captionWidth - 4, height: 24))
         #expect(owner.tabBar.groupButton.isHidden)
-        #expect(owner.tabBar.scroll.frame == NSRect(x: 93 + captionWidth, y: 7, width: 970 - captionWidth, height: 32))
+        #expect(owner.tabBar.scroll.frame == NSRect(x: 93 + captionWidth, y: 7, width: 936 - captionWidth, height: 32))
         groupEditor.stringValue = "Inline group"
         #expect(groupEditor.control(groupEditor, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:))))
         #expect(group.name == "Inline group")
@@ -331,7 +332,7 @@ struct TabStripIntegrationTests {
         #expect(owner.tabBar.groupButton.title.isEmpty)
         #expect(owner.tabBar.groupButton.accessibilityValue() as? String == "Inline group")
         #expect(owner.tabBar.groupButton.frame == NSRect(x: 85, y: 7, width: 34, height: 32))
-        #expect(owner.tabBar.scroll.frame == NSRect(x: 127, y: 7, width: 936, height: 32))
+        #expect(owner.tabBar.scroll.frame == NSRect(x: 127, y: 7, width: 902, height: 32))
 
         owner.renameTab(tab)
         let cell = try #require(owner.tabBar.cells.first)
@@ -374,7 +375,7 @@ struct TabStripIntegrationTests {
         #expect(owner.tabBar.groupButton.isAccessibilityElement())
         #expect(owner.tabBar.groupButton.accessibilityValue() as? String == "Inline group")
         #expect(owner.tabBar.groupButton.frame == NSRect(x: 85, y: 7, width: 34, height: 32))
-        #expect(owner.tabBar.scroll.frame == NSRect(x: 127, y: 7, width: 936, height: 32))
+        #expect(owner.tabBar.scroll.frame == NSRect(x: 127, y: 7, width: 902, height: 32))
         #expect(owner.window?.isVisible == false)
     }
 
