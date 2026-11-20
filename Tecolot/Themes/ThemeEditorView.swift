@@ -358,6 +358,7 @@ struct HexColorWell: View {
     var focus: FocusState<String?>.Binding
     let id: String
     @State private var text = ""
+    @State private var colorPanel = ThemeColorPanel()
 
     private var isFocused: Bool {
         focus.wrappedValue == id
@@ -365,10 +366,15 @@ struct HexColorWell: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Rectangle()
-                .fill(color.swiftUIColor)
-                .overlay(NativeColorWell(color: $color))
-                .frame(height: 30)
+            Button {
+                colorPanel.open(for: $color)
+            } label: {
+                Rectangle()
+                    .fill(color.swiftUIColor)
+                    .frame(height: 30)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Choose color")
             Divider()
             TextField("", text: $text)
                 .textFieldStyle(.plain)
@@ -399,11 +405,15 @@ struct HexColorWell: View {
             if Self.parse(text) != newColor {
                 text = Self.display(newColor)
             }
+            colorPanel.update(to: newColor)
         }
         .onChange(of: isFocused) { _, focused in
             if !focused {
                 commit()
             }
+        }
+        .onDisappear {
+            colorPanel.stop()
         }
     }
 
@@ -429,51 +439,71 @@ struct HexColorWell: View {
     }
 }
 
-/// An AppKit color well without alpha. SwiftUI ColorPicker cannot show a
-/// large color block, so this well only takes the clicks.
-private struct NativeColorWell: NSViewRepresentable {
-    @Binding var color: ProfileColor
+/// Connects the flat color button to the system color panel.
+@MainActor
+private final class ThemeColorPanel {
+    private var selection: Binding<ProfileColor>?
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(color: $color)
+    func open(for selection: Binding<ProfileColor>) {
+        self.selection = selection
+        let panel = NSColorPanel.shared
+        panel.showsAlpha = false
+        // No action while the color is set, so that the color of the
+        // last well does not go to this well.
+        panel.setAction(nil)
+        panel.setTarget(nil)
+        panel.color = selection.wrappedValue.swiftUIColor.nsColor
+        ThemeColorPanelTarget.shared.active = self
+        panel.setTarget(ThemeColorPanelTarget.shared)
+        panel.setAction(#selector(ThemeColorPanelTarget.colorChanged(_:)))
+        panel.makeKeyAndOrderFront(nil)
     }
 
-    func makeNSView(context: Context) -> NSColorWell {
-        let well = NSColorWell(style: .default)
-        well.supportsAlpha = false
-        well.isBordered = false
-        // SwiftUI draws the flat color block under the well. The well
-        // stays almost transparent, but it still gets clicks and opens
-        // the color panel.
-        well.alphaValue = 0.02
-        well.target = context.coordinator
-        well.action = #selector(Coordinator.colorChanged(_:))
-        well.color = color.swiftUIColor.nsColor
-        return well
+    func stop() {
+        if isActive {
+            let panel = NSColorPanel.shared
+            panel.setAction(nil)
+            panel.setTarget(nil)
+            panel.close()
+            ThemeColorPanelTarget.shared.active = nil
+        }
+        selection = nil
     }
 
-    func updateNSView(_ well: NSColorWell, context: Context) {
-        context.coordinator.color = $color
-        if ProfileColor(nsColor: well.color)?.roundedTo8Bits != color.roundedTo8Bits {
-            well.color = color.swiftUIColor.nsColor
+    private var isActive: Bool {
+        ThemeColorPanelTarget.shared.active === self
+    }
+
+    func update(to color: ProfileColor) {
+        guard isActive else {
+            return
+        }
+        let panel = NSColorPanel.shared
+        if ProfileColor(nsColor: panel.color)?.roundedTo8Bits != color.roundedTo8Bits {
+            panel.color = color.swiftUIColor.nsColor
         }
     }
 
-    final class Coordinator: NSObject {
-        var color: Binding<ProfileColor>
-
-        init(color: Binding<ProfileColor>) {
-            self.color = color
+    fileprivate func colorChanged(to color: NSColor) {
+        guard let selection,
+              let value = ProfileColor(nsColor: color)?.roundedTo8Bits,
+              value != selection.wrappedValue else {
+            return
         }
+        selection.wrappedValue = value
+    }
+}
 
-        @objc func colorChanged(_ sender: NSColorWell) {
-            // 8 bits for each channel, so that the value shows as "#RRGGBB".
-            if
-                let value = ProfileColor(nsColor: sender.color)?.roundedTo8Bits,
-                value != color.wrappedValue {
-                color.wrappedValue = value
-            }
-        }
+/// The target of the system color panel. The panel does not retain its
+/// target, thus the target is an object that is never released. The link
+/// to the well is weak, so a released well cannot cause a dangling pointer.
+@MainActor
+private final class ThemeColorPanelTarget: NSObject {
+    static let shared = ThemeColorPanelTarget()
+    weak var active: ThemeColorPanel?
+
+    @objc func colorChanged(_ sender: NSColorPanel) {
+        active?.colorChanged(to: sender.color)
     }
 }
 
