@@ -183,6 +183,11 @@ struct SettingsView: View {
                 }
             }
         }
+        // Each keystroke can change the row count. A new outline view for
+        // each set of pages keeps the row views and the row data equal.
+        // SwiftUI stops at an assertion in HeterogeneousViewIDs when it
+        // updates a row view that has no row data.
+        .id(pages)
     }
 
     private func openFirstSearchResult() {
