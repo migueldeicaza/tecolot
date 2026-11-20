@@ -231,6 +231,15 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         observe()
     }
 
+    /// The view that has the keyboard focus. For a field editor, this is the
+    /// control that the editor serves.
+    private static func focusOwner(of responder: NSResponder?) -> NSView? {
+        if let editor = responder as? NSText, editor.isFieldEditor, let owner = editor.delegate as? NSView {
+            return owner
+        }
+        return responder as? NSView
+    }
+
     private func refresh() {
         let tabs = group.tabs.filter {
             !$0.isDormant
@@ -253,6 +262,17 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
             safeModeMessage.removeFromSuperview()
             startGroupButton.removeFromSuperview()
         }
+        // Read the first responder before the tab hosts change. When AppKit
+        // hides the focused terminal, it moves the first responder to the next
+        // valid key view. That view can be a control in the window chrome.
+        // When AppKit removes the focused view, the window becomes the first
+        // responder.
+        let responder = window?.firstResponder
+        let focusedView = Self.focusOwner(of: responder)
+        let followsTab = responder == nil || responder === window
+            || mountedTabs.contains {
+                focusedView?.isDescendant(of: $0.hostView) == true
+            }
         for tab in mountedTabs where !tabs.contains(where: {
             $0 === tab
         }) {
@@ -299,10 +319,14 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         }
         let selected = group.selectedTab
         if let window, let selected, !selected.isDormant {
-            let responder = window.firstResponder
-            let followsTab = responder == nil || responder === window
-                || responder is AppTerminalView || responder is RemoteTerminalView
-            if followsTab, (responder as? NSView)?.isDescendant(of: selected.hostView) != true {
+            // AppKit can also move the first responder to a different pane of
+            // the tab that becomes visible. Thus a changed focus always goes
+            // to the focused pane. Compare the focus owners, because all the
+            // text fields of a window use the same field editor.
+            let currentView = Self.focusOwner(of: window.firstResponder)
+            if
+                followsTab,
+                currentView !== focusedView || currentView?.isDescendant(of: selected.hostView) != true {
                 window.makeFirstResponder(selected.workspace.focusedController?.surface)
             }
         }
@@ -313,10 +337,19 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
             TerminalWindowAppearance.apply(theme: theme, to: window)
             tabBar.apply(theme: theme, opacity: pane?.effectiveBackgroundOpacity ?? 1)
         }
+        let chromeFocus = Self.focusOwner(of: window?.firstResponder)
+        let chromeFocusWasVisible = chromeFocus?.isHiddenOrHasHiddenAncestor == false
         tabBar.isHidden = sidebarPreferences.style != .above
         sidebar.isHidden = sidebarPreferences.style == .above || sidebarPreferences.hidden
         resizeHandle.isHidden = sidebar.isHidden
         contentHeader.isHidden = sidebarPreferences.style == .above || (sidebarPreferences.style == .left && !sidebarPreferences.hidden)
+        // A hidden control cannot keep the keyboard focus. Give the focus to
+        // the selected terminal.
+        if
+            chromeFocusWasVisible, chromeFocus?.isHiddenOrHasHiddenAncestor == true,
+            let selected, !selected.isDormant {
+            window?.makeFirstResponder(selected.workspace.focusedController?.surface)
+        }
         sidebar.apply(
             theme: pane?.profile.useThemeColorsForWindowChrome == false ? nil : pane?.effectiveTheme,
             opacity: pane?.effectiveBackgroundOpacity ?? 1

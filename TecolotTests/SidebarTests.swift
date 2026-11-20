@@ -216,6 +216,26 @@ struct SidebarTests {
         #expect(owner.group === current)
     }
 
+    @Test func hidingTheFocusedSidebarMovesKeyboardFocusToTheTerminal() throws {
+        let suite = "SidebarHideFocus-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        SidebarPreferences.setStyle(.left, defaults: defaults)
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        manager.makeWindow = {
+            TerminalWindowController(group: $0, manager: manager, defaults: defaults)
+        }
+        defer { stop(manager) }
+        let group = manager.newGroup(tab: live())
+        let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
+        let window = try #require(owner.window)
+        #expect(!owner.sidebar.isHidden)
+        #expect(window.makeFirstResponder(owner.sidebar.outline))
+        owner.toggleSidebar()
+        #expect(owner.sidebar.isHidden)
+        #expect(window.firstResponder === group.selectedTab?.workspace.focusedController?.surface)
+    }
+
     @Test func liveStyleChangesReachEveryWindowAndOutlineNavigationRetainsFocus() async throws {
         let suite = "SidebarWindows-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))

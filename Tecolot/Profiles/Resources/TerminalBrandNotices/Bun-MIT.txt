@@ -1,7 +1,10 @@
 MIT License
 
+This notice covers the Bun logo included in Tecolot. Tecolot does not include
+the Bun runtime.
+
 Copyright Bun contributors, including Jarred Sumner and Oven.
-Source: https://github.com/oven-sh/bun
+Artwork source: https://github.com/oven-sh/bun/blob/main/docs/logo/bun.png
 Upstream license declaration: https://github.com/oven-sh/bun/blob/main/LICENSE.md
 The upstream file declares MIT licensing but does not supply a copyright line.
 The following is the standard MIT license text.

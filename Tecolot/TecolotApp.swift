@@ -510,11 +510,12 @@ struct TerminalPrintCommands: Commands {
     @State private var commandState = TerminalCommandState()
 
     var body: some Commands {
+        // No keyboard shortcut: Command-P must reach the terminal instead of
+        // opening the print panel.
         CommandGroup(replacing: .printItem) {
             Button("Print…") {
                 commandState.controller?.printBuffer()
             }
-            .keyboardShortcut("p", modifiers: [.command])
             .disabled(commandState.controller == nil)
         }
     }

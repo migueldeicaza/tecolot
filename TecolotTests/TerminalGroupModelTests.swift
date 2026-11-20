@@ -476,6 +476,104 @@ struct TerminalGroupRegistryTests {
         manager.closeGroup(first)
     }
 
+    /// AppKit moves the first responder to the next valid key view when it
+    /// hides the focused terminal. The selected tab must get the focus then.
+    @Test func selectingATabMovesKeyboardFocusPastWindowChrome() throws {
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        let firstTab = TerminalTab(startsProcesses: false)
+        let group = manager.newGroup(tab: firstTab)
+        let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
+        defer { manager.closeGroup(group) }
+        let window = try #require(owner.window)
+        let firstSurface = try #require(firstTab.workspace.focusedController?.surface)
+        let chrome = NSTextField(string: "chrome")
+        chrome.frame = NSRect(x: 0, y: 0, width: 80, height: 22)
+        window.contentView?.addSubview(chrome)
+        firstSurface.nextKeyView = chrome
+        #expect(window.makeFirstResponder(firstSurface))
+
+        let secondTab = TerminalTab(startsProcesses: false)
+        manager.addTab(secondTab, to: group)
+        #expect(window.firstResponder === secondTab.workspace.focusedController?.surface)
+
+        let secondSurface = try #require(secondTab.workspace.focusedController?.surface)
+        secondSurface.nextKeyView = chrome
+        manager.select(firstTab, in: group)
+        #expect(window.firstResponder === firstSurface)
+    }
+
+    /// A text field in a tab host, such as the find field, loses the focus
+    /// when its tab closes. The fallback tab must get the focus then.
+    @Test func closingATabFromATextFieldInItsHostMovesKeyboardFocus() throws {
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        let firstTab = TerminalTab(startsProcesses: false)
+        let group = manager.newGroup(tab: firstTab)
+        let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
+        defer { manager.closeGroup(group) }
+        let window = try #require(owner.window)
+        let secondTab = TerminalTab(startsProcesses: false)
+        manager.addTab(secondTab, to: group)
+        let field = NSTextField(string: "find")
+        field.frame = NSRect(x: 0, y: 0, width: 80, height: 22)
+        secondTab.hostView.addSubview(field)
+        #expect(window.makeFirstResponder(field))
+        #expect(window.firstResponder === field.currentEditor())
+
+        // A refresh that does not change the tabs must not take the focus.
+        owner.tabNameDidChange()
+        #expect(window.firstResponder === field.currentEditor())
+
+        manager.closeTab(secondTab, in: group)
+        #expect(window.firstResponder === firstTab.workspace.focusedController?.surface)
+    }
+
+    /// A window has one field editor for all its text fields. A focus that
+    /// moves between the fields of two tabs must go to the terminal.
+    @Test func selectingATabFromATextFieldDoesNotFocusATextFieldOfTheNewTab() throws {
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        let firstTab = TerminalTab(startsProcesses: false)
+        let group = manager.newGroup(tab: firstTab)
+        let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
+        defer { manager.closeGroup(group) }
+        let window = try #require(owner.window)
+        let secondTab = TerminalTab(startsProcesses: false)
+        manager.addTab(secondTab, to: group)
+        let fields = [firstTab, secondTab].map { tab -> NSTextField in
+            let field = NSTextField(string: "find")
+            field.frame = NSRect(x: 0, y: 0, width: 80, height: 22)
+            tab.hostView.addSubview(field)
+            return field
+        }
+        fields[1].nextKeyView = fields[0]
+        #expect(window.makeFirstResponder(fields[1]))
+
+        manager.select(firstTab, in: group)
+        #expect(window.firstResponder === firstTab.workspace.focusedController?.surface)
+    }
+
+    /// AppKit can move the first responder to a pane of the tab that becomes
+    /// visible. The focused pane of that tab must get the focus.
+    @Test func selectingATabFocusesItsFocusedPane() throws {
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        let firstTab = TerminalTab(startsProcesses: false)
+        let group = manager.newGroup(tab: firstTab)
+        let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
+        defer { manager.closeGroup(group) }
+        let window = try #require(owner.window)
+        let firstPane = try #require(firstTab.workspace.focusedController)
+        firstTab.workspace.split(firstPane, direction: .right)
+        let focused = try #require(firstTab.workspace.focusedController)
+        #expect(focused !== firstPane)
+        let secondTab = TerminalTab(startsProcesses: false)
+        manager.addTab(secondTab, to: group)
+        let secondSurface = try #require(secondTab.workspace.focusedController?.surface)
+        secondSurface.nextKeyView = firstPane.surface
+        #expect(window.makeFirstResponder(secondSurface))
+
+        manager.select(firstTab, in: group)
+        #expect(window.firstResponder === focused.surface)
+    }
+
     @Test func captureSavesShownAndDormantGroupsAndSelection() throws {
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
         let firstTab = TerminalTab(startsProcesses: false)
