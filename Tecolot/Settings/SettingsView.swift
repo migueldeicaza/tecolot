@@ -183,10 +183,11 @@ struct SettingsView: View {
                 }
             }
         }
-        // Each keystroke can change the row count. A new outline view for
-        // each set of pages keeps the row views and the row data equal.
-        // SwiftUI stops at an assertion in HeterogeneousViewIDs when it
-        // updates a row view that has no row data.
+        // A precaution: each keystroke can change the rows, and a new
+        // outline view for each set of pages does not update old rows.
+        // SwiftUI stopped once at an "unexpected type" assertion in
+        // HeterogeneousViewIDs during an outline list update. The cause
+        // is not known, and this line is not a confirmed fix.
         .id(pages)
     }
 
