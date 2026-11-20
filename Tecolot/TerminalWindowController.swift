@@ -67,6 +67,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     private var isPositioningTrafficLights = false
     private var trafficLightLayoutScheduled = false
     var groupPresenter: any GroupSwitcherPresenting = GroupSwitcherPanel()
+    var commandPalettePresenter: any CommandPalettePresenting = CommandPalettePanel()
     private let resumeRemotePrompts: @MainActor () -> Void
 
     init(group: TerminalTabGroup, manager: TerminalWindowManager, defaults: UserDefaults = .standard, resumeRemotePrompts: @escaping @MainActor () -> Void = {
@@ -658,6 +659,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     }
 
     func closeWindow() {
+        commandPalettePresenter.dismiss(restoreFocus: false)
         for tab in mountedTabs {
             tab.hostView.removeFromSuperview()
         }
@@ -671,6 +673,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     }
 
     func windowWillClose(_ notification: Notification) {
+        commandPalettePresenter.dismiss(restoreFocus: false)
         manager.closeWindow(self)
     }
 
@@ -740,6 +743,20 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     }
     func showGroups() {
         groupPresenter.present(for: self, manager: manager, anchor: tabBar.groupButton)
+    }
+    func toggleCommandPalette(initialScope: PaletteScope = .root) {
+        commandPalettePresenter.present(for: self, manager: manager, initialScope: initialScope)
+    }
+    func openCommandPalette(scope: PaletteScope) {
+        commandPalettePresenter.present(for: self, manager: manager, initialScope: scope)
+    }
+    func focusSidebarFilter() {
+        if sidebarPreferences.style != .above {
+            if sidebarPreferences.hidden {
+                toggleSidebar()
+            }
+            sidebar.focusFilter()
+        }
     }
     func requestCloseSelectedPane() {
         guard let tab = group.selectedTab else {

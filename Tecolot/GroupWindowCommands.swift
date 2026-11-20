@@ -19,6 +19,11 @@ struct GroupWindowCommands: Commands {
         CommandGroup(replacing: .saveItem) {}
         CommandGroup(replacing: .importExport) {}
         CommandGroup(after: .newItem) {
+            Button("Go to Directory…") {
+                owner?.openCommandPalette(scope: .directoryPicker(initialPath: nil))
+            }
+            .keyboardShortcut("g", modifiers: [.command, .shift])
+            .disabled(owner == nil)
             Divider()
             Button("Close") {
                 if let owner {
@@ -62,6 +67,12 @@ struct GroupWindowCommands: Commands {
             .disabled(owner == nil)
         }
         CommandGroup(after: .toolbar) {
+            Button("Command Palette…") {
+                owner?.toggleCommandPalette()
+            }
+            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .disabled(owner == nil)
+            Divider()
             Toggle("Show Pane Headers", isOn: $showPaneHeaders)
             Button("Toggle Tab Style") {
                 SidebarPreferences.toggleStyle()
