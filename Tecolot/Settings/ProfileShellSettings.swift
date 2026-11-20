@@ -57,7 +57,7 @@ extension ProfileSettingsPage {
                 .settingsAnchor(.shellSession)
             } footer: {
                 Text("A persistent session keeps the shell running when you close its pane or quit Tecolot. " +
-                    "Use File > Attach to Session to show it again. Applies to new tabs and windows.")
+                    "Use File > Sessions > Attach to Session to show it again. Applies to new tabs and windows.")
             }
             Section {
                 Text("Tecolot inherits the app environment, then applies these changes.")

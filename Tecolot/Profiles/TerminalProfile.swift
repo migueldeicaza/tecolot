@@ -42,8 +42,8 @@ public enum SessionPersistence: String, Codable, CaseIterable, Sendable, CustomS
     /// The shell runs in the app and ends when its pane closes
     case standard
     /// The shell runs in a persistent session (tecolot-sessiond): closing the
-    /// pane or quitting the app detaches, and File > Attach to Session shows
-    /// it again
+    /// pane or quitting the app detaches, and File > Sessions > Attach to Session
+    /// shows it again
     case persistent
 
     public var description: String {

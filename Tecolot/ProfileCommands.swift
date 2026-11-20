@@ -2,10 +2,9 @@
 //  ProfileCommands.swift
 //  Tecolot
 //
-//  Menu commands for launching windows/tabs with a specific profile,
-//  switching the front window's theme, and applying a profile to a
-//  running session. Stores are passed in explicitly: Commands do not
-//  receive scene environment objects.
+//  Launch helpers and View-menu commands for switching the front window's
+//  theme and applying a profile to a running session. Stores are passed in
+//  explicitly: Commands do not receive scene environment objects.
 //
 import AppKit
 import os
@@ -146,61 +145,9 @@ enum WindowOpener {
 
 struct ProfileCommands: Commands {
     @ObservedObject var profiles: ProfileStore
-    @Environment(\.openWindow) private var openWindow
     @State private var commandState = TerminalCommandState()
 
     var body: some Commands {
-        CommandGroup(after: .newItem) {
-            Button("New Persistent Tab") {
-                var spec = WindowOpener.inheritedTabSpec()
-                spec.persistent = true
-                WindowOpener.openTab(spec: spec)
-            }
-            .keyboardShortcut("t", modifiers: [.command, .option])
-            Button("New Persistent Window") {
-                var spec = LaunchSpec()
-                spec.persistent = true
-                WindowOpener.openWindow(spec: spec)
-            }
-            Button("Attach to Session…") {
-                openWindow(id: SessionBrowserWindowID.value)
-            }
-            Button("Attach to Remote Session…") {
-                openWindow(id: SessionBrowserWindowID.value)
-                // The window opens first, so that the host section shows in it.
-                DispatchQueue.main.async {
-                    SessionBrowserModel.shared.connectToHost()
-                }
-            }
-            Button("New Remote Session…") {
-                guard let destination = RemoteDestinationPanel.run() else {
-                    return
-                }
-                var spec = LaunchSpec()
-                spec.remoteDestination = destination
-                spec.persistent = true
-                WindowOpener.openTab(spec: spec)
-            }
-            .keyboardShortcut("t", modifiers: [.command, .option, .shift])
-            Divider()
-            Menu("New Window with Profile") {
-                ForEach(profiles.profiles) { profile in
-                    Button(profile.name) {
-                        WindowOpener.openWindow(spec: LaunchSpec(profileID: profile.id))
-                    }
-                }
-            }
-            Menu("New Tab with Profile") {
-                ForEach(profiles.profiles) { profile in
-                    Button(profile.name) {
-                        var spec = WindowOpener.inheritedTabSpec()
-                        spec.profileID = profile.id
-                        WindowOpener.openTab(spec: spec)
-                    }
-                }
-            }
-        }
-
         CommandGroup(after: .toolbar) {
             Button("Change Theme…") {
                 commandState.controller?.showThemePicker.toggle()
