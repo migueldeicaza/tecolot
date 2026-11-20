@@ -79,6 +79,7 @@ struct SettingsSearchTests {
     @Test func everyWordMustMatchAndTheLastCanBeAPrefix() {
         #expect(ids("cursor bl") == [.appearanceCursor])
         #expect(ids("option meta") == [.keyboardOptionAsMeta])
+        #expect(ids("right option") == [.keyboardOptionAsMeta])
         #expect(ids("scrollback li").contains(.terminalScrollbackLines))
         #expect(ids("font zebra").isEmpty)
     }

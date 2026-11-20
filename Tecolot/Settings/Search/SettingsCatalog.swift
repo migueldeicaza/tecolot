@@ -635,9 +635,10 @@ extension SettingID {
             return pageEntry(self, .keyboardAndMouse, "Set the Option and Delete keys, the pointer and key mappings.",
                         keywords: ["keys", "shortcuts", "input"])
         case .keyboardOptionAsMeta:
-            return settingEntry(self, .keyboardAndMouse, "Use Option as Meta key",
-                           "Send Meta with the Option key, for programs such as Emacs.",
-                           keywords: ["alt", "escape prefix", "esc+", "emacs", "special characters"])
+            return settingEntry(self, .keyboardAndMouse, "Option key as Meta",
+                           "Select the Option keys that send Meta, for programs such as Emacs. The other key types the characters of the keyboard layout.",
+                           keywords: ["alt", "escape prefix", "esc+", "emacs", "special characters",
+                                      "left option", "right option", "altgr", "layout", "norwegian", "german", "pipe"])
         case .keyboardDeleteSendsControlH:
             return settingEntry(self, .keyboardAndMouse, "Delete sends Control-H",
                            "Send Control-H, not DEL, when you press Delete.",

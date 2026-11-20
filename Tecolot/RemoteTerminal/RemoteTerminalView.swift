@@ -26,6 +26,10 @@ final class RemoteTerminalView: TerminalRenderView, NSTextInputClient, NSMenuIte
     weak var sessionController: TerminalSessionController?
 
     var optionAsMetaKey = true
+    var optionAsMetaSide = OptionMetaSide.both
+    /// An Option key that is not Meta stays Meta on the keys that the layout
+    /// composes nothing for, as in a local pane (see `ProfileApplier`).
+    var optionAsMetaKeyForFunctionalKeys = true
     var backspaceSendsControlH = false
     /// The Terminal menu's Allow Mouse Reporting. Off, the mouse selects
     /// text also when the program asked for mouse reports.

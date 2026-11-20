@@ -118,6 +118,12 @@ public enum ProfileApplier {
             view.enableOsc8Hyperlinks = profile.linkOsc8
             view.enableRectangularAreaChecksum = profile.screenChecksumReports
             view.optionAsMetaKey = profile.optionAsMetaKey
+            #if os(macOS)
+                view.optionAsMetaSide = profile.optionMetaSide
+                // An Option key that is not Meta stays Meta on the keys that
+                // the layout composes nothing for (Backspace, Escape, arrows).
+                view.optionAsMetaKeyForFunctionalKeys = true
+            #endif
             view.backspaceSendsControlH = profile.backspaceSendsControlH
             let cursorStyleParameter: Int
             switch profile.cursorStyle {

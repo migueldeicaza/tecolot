@@ -2421,6 +2421,7 @@ extension TerminalSessionController {
             view.fontSmoothing = profile.fontSmoothing
             view.useBrightColors = profile.useBrightColorsForBold
             view.optionAsMetaKey = profile.optionAsMetaKey
+            view.optionAsMetaSide = profile.optionMetaSide
             view.backspaceSendsControlH = profile.backspaceSendsControlH
             view.allowsOsc8Links = profile.linkOsc8
         }

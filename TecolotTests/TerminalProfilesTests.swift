@@ -481,6 +481,42 @@ final class ProfileStoreTests {
         #expect(reloaded.defaultProfile.sessionPersistence == .persistent)
     }
 
+    @Test func optionMetaSideSurvivesRoundTrip() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var profile = store.defaultProfile
+        #expect(profile.optionMetaSide == .both)
+        profile.optionMetaSide = .left
+        try store.update(profile)
+
+        let reloaded = try ProfileStore(directory: dir)
+        #expect(reloaded.defaultProfile.optionMetaSide == .left)
+        #expect(reloaded.defaultProfile.optionAsMetaKey)
+    }
+
+    @Test func absentOrUnknownOptionMetaSideIsBoth() throws {
+        for json in [#"{"name": "Old"}"#, #"{"name": "Newer", "optionMetaSide": "fn"}"#] {
+            let profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(json.utf8))
+            #expect(profile.optionMetaSide == .both)
+            #expect(profile.optionAsMetaKey)
+        }
+    }
+
+    /// The picker of the settings keeps its choice in two profile fields.
+    @Test func optionMetaKeysPickerMapsToTheProfileFields() throws {
+        var profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(#"{"name": "P"}"#.utf8))
+        #expect(OptionMetaKeys(profile: profile) == .both)
+        OptionMetaKeys.right.apply(to: &profile)
+        #expect(profile.optionAsMetaKey && profile.optionMetaSide == .right)
+        #expect(OptionMetaKeys(profile: profile) == .right)
+        // "Neither key" keeps the side for the Terminal menu's toggle.
+        OptionMetaKeys.neither.apply(to: &profile)
+        #expect(!profile.optionAsMetaKey && profile.optionMetaSide == .right)
+        #expect(OptionMetaKeys(profile: profile) == .neither)
+        OptionMetaKeys.both.apply(to: &profile)
+        #expect(profile.optionAsMetaKey && profile.optionMetaSide == .both)
+    }
+
     @Test func unknownSessionPersistenceFallsBackToStandard() throws {
         let json = #"{"name": "Newer", "sessionPersistence": "remoteHost"}"#
         let profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(json.utf8))

@@ -202,6 +202,9 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
 
     // MARK: Keyboard
     public var optionAsMetaKey: Bool
+    /// The Option keys that are Meta while `optionAsMetaKey` is true. The
+    /// other key types the characters of the keyboard layout.
+    public var optionMetaSide: OptionMetaSide
     public var backspaceSendsControlH: Bool
     public var hidePointerWhileTyping: Bool
     public var keyBindings: [TerminalKeyBinding]
@@ -249,6 +252,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.askBeforeClosing = defaults.askBeforeClosing
         self.sessionPersistence = defaults.sessionPersistence
         self.optionAsMetaKey = defaults.optionAsMetaKey
+        self.optionMetaSide = defaults.optionMetaSide
         self.backspaceSendsControlH = defaults.backspaceSendsControlH
         self.hidePointerWhileTyping = defaults.hidePointerWhileTyping
         self.keyBindings = defaults.keyBindings
@@ -317,6 +321,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         askBeforeClosing: AskBeforeClosing,
         sessionPersistence: SessionPersistence,
         optionAsMetaKey: Bool,
+        optionMetaSide: OptionMetaSide,
         backspaceSendsControlH: Bool,
         hidePointerWhileTyping: Bool,
         linkOsc8: Bool,
@@ -347,6 +352,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
             askBeforeClosing: .onlyIfProcessesRunning,
             sessionPersistence: .standard,
             optionAsMetaKey: true,
+            optionMetaSide: .both,
             backspaceSendsControlH: false,
             hidePointerWhileTyping: true,
             linkOsc8: true,
@@ -368,7 +374,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         case useThemeColorsForWindowChrome
         case columns, rows, scrollbackLines, titleOverride, titleComponents
         case shell, whenShellExits, askBeforeClosing, sessionPersistence
-        case optionAsMetaKey, backspaceSendsControlH, hidePointerWhileTyping, keyBindings
+        case optionAsMetaKey, optionMetaSide, backspaceSendsControlH, hidePointerWhileTyping, keyBindings
         case linkOsc8, screenChecksumReports, termName, termProgram, termVersion
         case environmentVariables, bellStyle, allowsNotifications
     }
@@ -424,6 +430,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
                 $0
             } ?? defaults.sessionPersistence
         self.optionAsMetaKey = try c.decodeIfPresent (Bool.self, forKey: .optionAsMetaKey) ?? defaults.optionAsMetaKey
+        self.optionMetaSide = (try? c.decodeIfPresent (OptionMetaSide.self, forKey: .optionMetaSide)) ?? defaults.optionMetaSide
         self.backspaceSendsControlH = try c.decodeIfPresent (Bool.self, forKey: .backspaceSendsControlH) ?? defaults.backspaceSendsControlH
         self.hidePointerWhileTyping = try c.decodeIfPresent(
             Bool.self,
@@ -474,6 +481,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode (askBeforeClosing, forKey: .askBeforeClosing)
         try c.encode (sessionPersistence, forKey: .sessionPersistence)
         try c.encode (optionAsMetaKey, forKey: .optionAsMetaKey)
+        try c.encode (optionMetaSide, forKey: .optionMetaSide)
         try c.encode (backspaceSendsControlH, forKey: .backspaceSendsControlH)
         try c.encode(hidePointerWhileTyping, forKey: .hidePointerWhileTyping)
         try c.encode (keyBindings, forKey: .keyBindings)

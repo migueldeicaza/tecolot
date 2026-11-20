@@ -175,6 +175,7 @@ struct KeyParityTests {
         /// Output that sets the mode in both terminals.
         var setup: String
         var optionAsMeta = true
+        var optionMetaSide = OptionMetaSide.both
         var backspaceSendsControlH = false
     }
 
@@ -193,6 +194,11 @@ struct KeyParityTests {
             Key(name: "ctrl-[", keyCode: 33, characters: "\u{1b}", ignoringModifiers: "[", modifiers: .control),
             Key(name: "ctrl-space", keyCode: 49, characters: "\u{00}", ignoringModifiers: " ", modifiers: .control),
             Key(name: "option-f", keyCode: 3, characters: "ƒ", ignoringModifiers: "f", modifiers: .option),
+            // The device flags show which Option key is down.
+            Key(name: "left-option-f", keyCode: 3, characters: "ƒ", ignoringModifiers: "f",
+                modifiers: NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.option.rawValue | 0x20)),
+            Key(name: "right-option-f", keyCode: 3, characters: "ƒ", ignoringModifiers: "f",
+                modifiers: NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.option.rawValue | 0x40)),
             Key(name: "return", keyCode: 36, characters: "\r", ignoringModifiers: "\r"),
             Key(name: "tab", keyCode: 48, characters: "\t", ignoringModifiers: "\t"),
             Key(name: "shift-tab", keyCode: 48, characters: "\u{19}", ignoringModifiers: "\u{19}", modifiers: .shift),
@@ -303,6 +309,7 @@ struct KeyParityTests {
         Mode(name: "normal", setup: "\u{1b}[?1l\u{1b}>"),
         Mode(name: "application cursor and keypad", setup: "\u{1b}[?1h\u{1b}="),
         Mode(name: "option is not meta", setup: "\u{1b}[?1l\u{1b}>", optionAsMeta: false),
+        Mode(name: "left option is meta", setup: "\u{1b}[?1l\u{1b}>", optionMetaSide: .left),
         Mode(name: "kitty disambiguate", setup: "\u{1b}[>1u"),
         Mode(name: "kitty all flags", setup: "\u{1b}[>31u"),
         Mode(name: "backspace sends ^H", setup: "\u{1b}[<10u\u{1b}[?1l\u{1b}>", backspaceSendsControlH: true),
@@ -431,6 +438,9 @@ struct KeyParityTests {
         }
         panes.local.optionAsMetaKey = mode.optionAsMeta
         panes.remote.optionAsMetaKey = mode.optionAsMeta
+        panes.local.optionAsMetaSide = mode.optionMetaSide
+        panes.remote.optionAsMetaSide = mode.optionMetaSide
+        panes.local.optionAsMetaKeyForFunctionalKeys = panes.remote.optionAsMetaKeyForFunctionalKeys
         panes.local.backspaceSendsControlH = mode.backspaceSendsControlH
         panes.remote.backspaceSendsControlH = mode.backspaceSendsControlH
     }
@@ -503,6 +513,11 @@ struct KeyParityTests {
         #expect(sent["kitty all flags / a"] == Array("\u{1b}[97;;97u\u{1b}[97;1:3u".utf8))
         #expect(sent["backspace sends ^H / delete"] == [0x08])
         #expect(sent["normal / ctrl-cyrillic-ef"] == [0x01])
+        // The left Option key is Meta; the right one goes to the layout,
+        // which composes nothing in a test.
+        #expect(sent["left option is meta / left-option-f"] == [0x1b, 0x66])
+        #expect(sent["left option is meta / right-option-f"] != [0x1b, 0x66])
+        #expect(sent["normal / right-option-f"] == [0x1b, 0x66])
         let report = mismatches.joined(separator: "\n")
         #expect(mismatches.isEmpty, "\(mismatches.count) of \(compared) differ:\n\(report)")
     }
