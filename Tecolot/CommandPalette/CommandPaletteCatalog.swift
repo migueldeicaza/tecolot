@@ -81,9 +81,9 @@ final class CommandPaletteCatalog {
         for group in context.manager.groups {
             for tab in group.tabs {
                 let isCurrent = tab.id == currentTabID && group === context.activeGroup
-                let icon: NSImage?
+                let icon: PaletteIcon
                 if let workspace = tab.loadedWorkspace {
-                    icon = TerminalTabIconStack.image(
+                    icon = .image(TerminalTabIconStack.image(
                         workspace: workspace,
                         preferences: preferences,
                         selected: isCurrent,
@@ -91,9 +91,9 @@ final class CommandPaletteCatalog {
                         scale: scale,
                         showsProgress: tab.status.progress != nil && showActivity,
                         vertical: true
-                    )
+                    ))
                 } else {
-                    icon = NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)
+                    icon = .symbol("terminal")
                 }
                 rows.append(
                     PaletteRow(
@@ -143,7 +143,7 @@ final class CommandPaletteCatalog {
                 style: .twoLine(
                     title: entry.title,
                     subtitle: entry.breadcrumb,
-                    icon: NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil),
+                    icon: .symbol("gearshape"),
                     accessory: .none
                 ),
                 keywords: entry.keywords,
@@ -1961,7 +1961,7 @@ final class CommandPaletteCatalog {
                 section: "Go to",
                 style: .standard(
                     title: entry.title,
-                    icon: cachedFileIcon(forPath: entry.fullPath),
+                    icon: .image(cachedFileIcon(forPath: entry.fullPath)),
                     accessory: .none
                 ),
                 isCommand: false,
@@ -2006,7 +2006,7 @@ final class CommandPaletteCatalog {
                 id: "ssh.typed.\(trimmed)",
                 style: .standard(
                     title: "Connect to \(trimmed)",
-                    icon: NSImage(systemSymbolName: "network", accessibilityDescription: nil),
+                    icon: .symbol("network"),
                     accessory: .returnGlyph
                 ),
                 isCommand: false
@@ -2024,7 +2024,7 @@ final class CommandPaletteCatalog {
                 id: "ssh.recent.\(dest)",
                 style: .standard(
                     title: dest,
-                    icon: NSImage(systemSymbolName: "clock", accessibilityDescription: nil),
+                    icon: .symbol("clock"),
                     accessory: .none
                 ),
                 isCommand: false,
@@ -2050,7 +2050,7 @@ final class CommandPaletteCatalog {
                 id: "ssh.alias.\(alias)",
                 style: .standard(
                     title: alias,
-                    icon: NSImage(systemSymbolName: "server.rack", accessibilityDescription: nil),
+                    icon: .symbol("server.rack"),
                     accessory: .none
                 ),
                 isCommand: false,

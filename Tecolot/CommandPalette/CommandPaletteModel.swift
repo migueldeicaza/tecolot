@@ -1,28 +1,46 @@
 import Foundation
+import Observation
+import SwiftUI
 
 /// State machine driving the Command Palette's scope stack, filtering, selection, and live previews.
 @MainActor
+@Observable
 final class CommandPaletteModel {
-    private let catalog: CommandPaletteCatalog
-    let mru: CommandPaletteMRU
+    @ObservationIgnored private let catalog: CommandPaletteCatalog
+    @ObservationIgnored let mru: CommandPaletteMRU
 
     private(set) var stack: [PaletteScopeFrame] = []
     private(set) var items: [PaletteDisplayItem] = []
     private(set) var selectedIndex: Int?
 
+    /// Controlled text selection for SwiftUI's `TextField(..., selection:)`.
+    var textSelection: TextSelection?
+
+    /// Incremented whenever keyboard navigation or a rebuild chooses a row so the list scrolls to it.
+    /// Hovering with the pointer does not increment this counter.
+    private(set) var revealCount = 0
+
+    /// Incremented when the view should restore focus to the search field.
+    private(set) var fieldFocusCount = 0
+
+    /// True when the next focus acquisition should place the caret at the end of `query`.
+    @ObservationIgnored private(set) var shouldPlaceCaretAtEndOnFocus = false
+
+    /// Stationary-pointer guard: only pointer movement after a list/keyboard change moves selection.
+    @ObservationIgnored private var pointerMovedSinceLastChange = false
+
     /// Reverts any live preview (such as Theme Picker) if the user cancels or pops without committing.
-    private var activePreviewRevert: (@MainActor () -> Void)?
+    @ObservationIgnored private var activePreviewRevert: (@MainActor () -> Void)?
 
     /// Background task and cache for non-blocking directory listing in Go to Directory.
-    private(set) var directoryLoadTask: Task<Void, Never>?
-    private(set) var isDirectoryLoadPending = false
-    private var directoryLoadGeneration: UInt64 = 0
-    private var directoryNamesCache: [String: [String]] = [:]
+    @ObservationIgnored private(set) var directoryLoadTask: Task<Void, Never>?
+    @ObservationIgnored private(set) var isDirectoryLoadPending = false
+    @ObservationIgnored private var directoryLoadGeneration: UInt64 = 0
+    @ObservationIgnored private var directoryNamesCache: [String: [String]] = [:]
 
-    var onItemsChanged: (() -> Void)?
-    var onScopeChanged: (() -> Void)?
-    var onQueryReplaced: ((String) -> Void)?
-    var onRequestDismiss: ((Bool) -> Void)?
+    /// Notifies the hosting panel synchronously so it can resize from its pinned top edge.
+    @ObservationIgnored var onItemsChanged: (() -> Void)?
+    @ObservationIgnored var onRequestDismiss: ((Bool) -> Void)?
 
     var currentFrame: PaletteScopeFrame {
         stack.last ?? PaletteScopeFrame(scope: .root, query: "", selectedRowID: nil)
@@ -74,11 +92,52 @@ final class CommandPaletteModel {
             ]
         }
         installPreviewRevertIfNeeded(for: resolvedScope)
+        placeCaretAtEnd()
+        requestFieldFocus(moveCaretToEnd: !query.isEmpty)
         rebuild(preferredSelectionID: nil)
-        onScopeChanged?()
     }
 
+    /// Programmatically replaces the query and places the caret at the end of the new text.
     func setQuery(_ newQuery: String) {
+        updateQuery(newQuery, moveCaretToEnd: true)
+    }
+
+    /// Updates the query from interactive `TextField` edits without overriding the user's caret position.
+    func updateQueryFromTyping(_ newQuery: String) {
+        updateQuery(newQuery, moveCaretToEnd: false)
+    }
+
+    func clearQuery() {
+        updateQuery("", moveCaretToEnd: true)
+        requestFieldFocus(moveCaretToEnd: false)
+    }
+
+    func placeCaretAtEnd() {
+        let text = query
+        textSelection = TextSelection(insertionPoint: text.endIndex)
+    }
+
+    func requestFieldFocus(moveCaretToEnd: Bool = false) {
+        shouldPlaceCaretAtEndOnFocus = moveCaretToEnd
+        fieldFocusCount += 1
+    }
+
+    func pointerMoved() {
+        pointerMovedSinceLastChange = true
+    }
+
+    func hoverIndex(_ index: Int) {
+        guard pointerMovedSinceLastChange, items.indices.contains(index), items[index].isSelectable else {
+            return
+        }
+        pointerMovedSinceLastChange = false
+        guard selectedIndex != index else {
+            return
+        }
+        selectIndex(index, triggerPreview: true)
+    }
+
+    private func updateQuery(_ newQuery: String, moveCaretToEnd: Bool) {
         guard !stack.isEmpty else {
             return
         }
@@ -86,6 +145,9 @@ final class CommandPaletteModel {
             return
         }
         stack[stack.count - 1].query = newQuery
+        if moveCaretToEnd {
+            textSelection = TextSelection(insertionPoint: newQuery.endIndex)
+        }
         rebuild(preferredSelectionID: nil)
     }
 
@@ -104,7 +166,9 @@ final class CommandPaletteModel {
         } else {
             next = delta >= 0 ? selectable.first! : selectable.last!
         }
+        pointerMovedSinceLastChange = false
         selectIndex(next, triggerPreview: true)
+        revealCount += 1
     }
 
     func selectIndex(_ index: Int?, triggerPreview: Bool) {
@@ -168,8 +232,9 @@ final class CommandPaletteModel {
         }
         stack.append(PaletteScopeFrame(scope: resolvedScope, query: resolvedScope.initialQuery, selectedRowID: nil))
         installPreviewRevertIfNeeded(for: resolvedScope)
+        placeCaretAtEnd()
+        requestFieldFocus(moveCaretToEnd: !query.isEmpty)
         rebuild(preferredSelectionID: nil)
-        onScopeChanged?()
     }
 
     @discardableResult
@@ -180,8 +245,9 @@ final class CommandPaletteModel {
         revertPreviewIfNeeded()
         stack.removeLast()
         let restoredID = stack.last?.selectedRowID
+        placeCaretAtEnd()
+        requestFieldFocus(moveCaretToEnd: !query.isEmpty)
         rebuild(preferredSelectionID: restoredID)
-        onScopeChanged?()
         return true
     }
 
@@ -198,7 +264,6 @@ final class CommandPaletteModel {
     func handleEscape() {
         if !query.isEmpty {
             setQuery("")
-            onQueryReplaced?("")
             return
         }
         if pop() {
@@ -230,7 +295,6 @@ final class CommandPaletteModel {
             return false
         }
         setQuery(completion)
-        onQueryReplaced?(completion)
         return true
     }
 
@@ -297,6 +361,8 @@ final class CommandPaletteModel {
         if !stack.isEmpty {
             stack[stack.count - 1].selectedRowID = selectedRow?.id
         }
+        pointerMovedSinceLastChange = false
+        revealCount += 1
         onItemsChanged?()
     }
 

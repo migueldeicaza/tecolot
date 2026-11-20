@@ -189,10 +189,15 @@ struct PaletteScopeFrame {
     var selectedRowID: String?
 }
 
+enum PaletteIcon {
+    case symbol(String)
+    case image(NSImage)
+}
+
 struct PaletteRow {
     enum Style {
-        case standard(title: String, icon: NSImage? = nil, accessory: PaletteRowAccessory)
-        case twoLine(title: String, subtitle: String, icon: NSImage?, accessory: PaletteRowAccessory)
+        case standard(title: String, icon: PaletteIcon? = nil, accessory: PaletteRowAccessory)
+        case twoLine(title: String, subtitle: String, icon: PaletteIcon?, accessory: PaletteRowAccessory)
     }
 
     let id: String

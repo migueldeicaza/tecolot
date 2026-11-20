@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import Tecolot
 
@@ -504,6 +505,92 @@ struct CommandPaletteModelTests {
         #expect(model.pop())
         #expect(pane.themeOverride == nil)
     }
+
+    @Test func textSelectionTracksProgrammaticReplacementWithoutOverridingTyping() {
+        let fixture = makeFixture()
+        defer {
+            fixture.controller.closeWindow()
+            fixture.defaults.removePersistentDomain(forName: fixture.suiteName)
+        }
+
+        let catalog = CommandPaletteCatalog(
+            owner: fixture.controller,
+            manager: fixture.manager,
+            defaults: fixture.defaults
+        )
+        let model = CommandPaletteModel(catalog: catalog, mru: CommandPaletteMRU(defaults: fixture.defaults))
+        model.reset()
+
+        // Programmatic replacement places caret at endIndex.
+        model.setQuery("Change Group")
+        #expect(model.textSelection == TextSelection(insertionPoint: model.query.endIndex))
+
+        // Interactive typing leaves the user's mid-string caret intact.
+        let midIndex = model.query.index(model.query.startIndex, offsetBy: 3)
+        let midSelection = TextSelection(insertionPoint: midIndex)
+        model.textSelection = midSelection
+        model.updateQueryFromTyping("Change")
+        #expect(model.textSelection == midSelection)
+
+        // Pushing and popping scope restores parent query and moves caret to endIndex.
+        model.setQuery("Change Group")
+        model.executeSelected()
+        #expect(model.currentScope.chipTitle == "Group")
+        #expect(model.textSelection == TextSelection(insertionPoint: model.query.endIndex))
+
+        #expect(model.pop())
+        #expect(model.query == "Change Group")
+        #expect(model.textSelection == TextSelection(insertionPoint: model.query.endIndex))
+
+        // Clearing query resets caret to start/end of empty string.
+        model.clearQuery()
+        #expect(model.query.isEmpty)
+        #expect(model.textSelection == TextSelection(insertionPoint: model.query.endIndex))
+    }
+
+    @Test func hoverIgnoresStationaryPointerUntilPointerMoves() {
+        let fixture = makeFixture()
+        defer {
+            fixture.controller.closeWindow()
+            fixture.defaults.removePersistentDomain(forName: fixture.suiteName)
+        }
+
+        let catalog = CommandPaletteCatalog(
+            owner: fixture.controller,
+            manager: fixture.manager,
+            defaults: fixture.defaults
+        )
+        let model = CommandPaletteModel(catalog: catalog, mru: CommandPaletteMRU(defaults: fixture.defaults))
+        model.reset()
+
+        let selectable = model.items.indices.filter {
+            model.items[$0].isSelectable
+        }
+        guard selectable.count >= 3 else {
+            return
+        }
+        let initial = model.selectedIndex
+        let other = selectable[2]
+        #expect(initial != other)
+
+        // Without pointer movement, hover is ignored.
+        model.hoverIndex(other)
+        #expect(model.selectedIndex == initial)
+
+        // After pointer movement, hover updates selection without incrementing revealCount.
+        let revealsBeforeHover = model.revealCount
+        model.pointerMoved()
+        model.hoverIndex(other)
+        #expect(model.selectedIndex == other)
+        #expect(model.revealCount == revealsBeforeHover)
+
+        // Keyboard navigation re-arms the stationary-pointer guard and increments revealCount.
+        model.moveSelection(by: -1)
+        #expect(model.revealCount == revealsBeforeHover + 1)
+        let afterKey = model.selectedIndex
+        model.hoverIndex(other)
+        #expect(model.selectedIndex == afterKey)
+    }
 }
 
 // MARK: - Panel UI, Geometry & Keyboard
@@ -651,5 +738,39 @@ struct CommandPalettePanelTests {
         panel.recordClickDismissal(from: down)
         #expect(panel.shouldSuppressReopen(for: pairedUp))
         #expect(!panel.shouldSuppressReopen(for: nextUp))
+    }
+
+    @Test func livePanelPlacesCaretAtEndInFieldEditorForDirectoryScope() async throws {
+        let suite = "CommandPaletteLiveCaret-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        let group = manager.newGroup(tab: TerminalTab(startsProcesses: false))
+        let controller = TerminalWindowController(group: group, manager: manager, defaults: defaults)
+        controller.window?.setFrame(NSRect(x: 200, y: 200, width: 900, height: 700), display: false)
+        controller.window?.makeKeyAndOrderFront(nil)
+        defer { controller.closeWindow() }
+
+        let panel = CommandPalettePanel(defaults: defaults)
+        defer { panel.dismiss(restoreFocus: false) }
+
+        let dirPath = "/tmp/"
+        panel.present(for: controller, manager: manager, initialScope: .directoryPicker(initialPath: dirPath))
+        panel.makeKeyAndOrderFront(nil)
+
+        let deadline = Date().addingTimeInterval(0.6)
+        while Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            if let editor = panel.firstResponder as? NSTextView, editor.selectedRange() == NSRange(location: dirPath.utf16.count, length: 0) {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        if let editor = panel.firstResponder as? NSTextView {
+            #expect(editor.selectedRange() == NSRange(location: dirPath.utf16.count, length: 0))
+        }
+        #expect(panel.activeModel?.textSelection == TextSelection(insertionPoint: dirPath.endIndex))
     }
 }

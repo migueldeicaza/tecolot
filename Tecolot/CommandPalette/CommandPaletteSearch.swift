@@ -1,5 +1,5 @@
-import AppKit
 import Foundation
+import SwiftUI
 
 /// Pure fuzzy, substring, and token matcher for the Command Palette.
 nonisolated enum CommandPaletteSearch {
@@ -214,22 +214,21 @@ nonisolated enum CommandPaletteSearch {
     static func attributedString(
         _ text: String,
         matchRanges: [Range<String.Index>],
-        font: NSFont,
-        highlightFont: NSFont,
-        baseColor: NSColor,
-        highlightColor: NSColor
-    ) -> NSAttributedString {
-        let result = NSMutableAttributedString(
-            string: text,
-            attributes: [.font: font, .foregroundColor: baseColor]
-        )
+        font: Font,
+        highlightFont: Font,
+        baseColor: Color,
+        highlightColor: Color
+    ) -> AttributedString {
+        var result = AttributedString(text)
+        result.font = font
+        result.foregroundColor = baseColor
         for range in matchRanges {
-            let nsRange = NSRange(range, in: text)
-            if nsRange.location != NSNotFound, nsRange.length > 0 {
-                result.addAttributes(
-                    [.font: highlightFont, .foregroundColor: highlightColor],
-                    range: nsRange
-                )
+            if
+                let lower = AttributedString.Index(range.lowerBound, within: result),
+                let upper = AttributedString.Index(range.upperBound, within: result),
+                lower < upper {
+                result[lower..<upper].font = highlightFont
+                result[lower..<upper].foregroundColor = highlightColor
             }
         }
         return result
