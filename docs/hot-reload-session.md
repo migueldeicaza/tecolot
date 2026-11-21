@@ -176,12 +176,83 @@ Once the prototype is validated, moving the lifecycle hooks into `SwiftTerm.Loca
 
 ---
 
-## 9. Verification
+## 9. How to Test
 
-Automated multi-process tests in `TecolotTests/HotReloadTests.swift` cover:
+### 9.1 Automated Tests
+
+Run the multi-process hot-reload test suite (`TecolotTests/HotReloadTests.swift`):
+
+```sh
+xcodebuild test \
+  -project Tecolot.xcodeproj \
+  -scheme Tecolot \
+  -configuration Debug \
+  -only-testing:TecolotTests/HotReloadTests \
+  CODE_SIGNING_ALLOWED=NO
+```
+
+Run the related local-pane and restoration regression suites alongside it:
+
+```sh
+xcodebuild test \
+  -project Tecolot.xcodeproj \
+  -scheme Tecolot \
+  -configuration Debug \
+  -only-testing:TecolotTests/HotReloadTests \
+  -only-testing:TecolotTests/RestoreStoreTests \
+  -only-testing:TecolotTests/TerminalClearActionTests \
+  -only-testing:TecolotTests/TerminalContextMenuTests \
+  -only-testing:TecolotTests/TerminalFileDropTests \
+  -only-testing:TecolotTests/TerminalPaneFocusTests \
+  -only-testing:TecolotTests/TerminalClosePolicyTests \
+  CODE_SIGNING_ALLOWED=NO
+```
+
+What `HotReloadTests` verifies:
 
 - `SCM_RIGHTS` authentication (invalid token rejection, `getpeereid`, `FD_CLOEXEC`, post-close pipe I/O).
 - **Real cross-process reparenting to `launchd` (PID 1)**: a separate sender process calls `pty.fork()`, transfers the master FD over `SCM_RIGHTS`, and exits (`os._exit(0)`). The test asserts `ppid == 1`, asserts `waitpid` returns `ECHILD`, exchanges live I/O with the reparented shell, and verifies `ProcessExitMonitor` recovers exact exit code `42`.
 - `SIGTERM` termination of a reparented adopted shell reporting `exitCode == nil`.
 - Two-phase `pauseForHandoff()` -> `resumeAfterAbortedHandoff()` rollback followed by `pauseForHandoff()` -> `SCM_RIGHTS` -> `commitHandoff()` without signaling on deinit.
 - `HotReloadInbox` drain/restore/take/discard lifecycle.
+
+### 9.2 Manual End-to-End Test: Same-Bundle Hot Reload
+
+1. Build and launch `Tecolot.app` (from Xcode, or directly from `DerivedData` so Xcode's debugger does not intercept the app termination):
+   ```sh
+   open ~/Library/Developer/Xcode/DerivedData/Tecolot-*/Build/Products/Debug/Tecolot.app
+   ```
+2. Open a few **local** (non-persistent) panes across tabs and splits. For example:
+   - **Pane 1 (shell state + PID check):**
+     ```sh
+     export HOT_RELOAD_CHECK=alive
+     echo "shell=$$ ppid=$PPID"
+     ```
+   - **Pane 2 (active foreground job):** run `top` or `vim` (or `sleep 300`).
+   - **Tab 2 (dormant tab check):** run `echo "tab2=$$"`, then switch back to Tab 1 so Tab 2 is not visible during reload.
+3. Optional — stream hot-reload logs in another terminal (e.g., Terminal.app):
+   ```sh
+   log stream --info --predicate 'category == "HotReload"'
+   ```
+4. From the **Tecolot** menu bar, choose **Hot Reload Tecolot (Prototype)**.
+5. Verify in the newly launched `Tecolot` window:
+   - The old `Tecolot` process exited without showing the *"Quit and terminate running processes?"* dialog, and `pgrep -fl Tecolot` shows a **new** `Tecolot` PID.
+   - In **Pane 1**: `echo "shell=$$ check=$HOT_RELOAD_CHECK"` prints the **same shell PID** and `check=alive`, with no *"Session ended"* separator line, and `ps -o pid,ppid,comm -p $$` shows **`PPID = 1`** (`launchd`).
+   - In **Pane 2**: `top` / `vim` / `sleep 300` is still running and redrew via `SIGWINCH`.
+   - Switch to **Tab 2**: `echo $$` prints the same `tab2` PID, proving dormant-tab FDs stayed open in `HotReloadInbox`.
+   - **Exit code check (proves `kqueue` `NOTE_EXITSTATUS`):** in an adopted pane with *"When shell exits"* set to keep open (or observing close-if-cleanly), run `exit 42` and verify `[Process completed — exit 42]` is reported accurately.
+   - **Chained reload check:** run **Hot Reload Tecolot (Prototype)** a *second* time and verify the already-adopted shells survive `B -> C` with the same PIDs.
+
+### 9.3 Manual End-to-End Test: Upgrade in Place from Another `.app` Bundle
+
+1. Make a second copy of the app bundle (or build a modified version with a visible change such as an updated menu/title string):
+   ```sh
+   cp -R ~/Library/Developer/Xcode/DerivedData/Tecolot-*/Build/Products/Debug/Tecolot.app /tmp/Tecolot-v2.app
+   ```
+2. With live local panes running in the original `Tecolot.app`, choose **Tecolot -> Upgrade in Place from App…** and select `/tmp/Tecolot-v2.app`.
+3. Verify the running process path (`ps -o pid,comm -p $(pgrep -x Tecolot)`) now points to `/tmp/Tecolot-v2.app` while all local shells remain alive with their original PIDs.
+
+### 9.4 Manual Test: Rollback on Failed Handoff
+
+1. Choose **Tecolot -> Upgrade in Place from App…** and select an `.app` bundle that does not speak the Tecolot hot-reload protocol (e.g., `/System/Applications/Calculator.app`).
+2. After the 15-second handoff timeout expires, verify the *"Hot Reload Aborted"* alert appears and every local pane in the original `Tecolot` resumes accepting input and displaying output without losing any running process.
