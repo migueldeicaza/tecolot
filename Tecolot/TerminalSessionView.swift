@@ -45,7 +45,7 @@ struct PanePresentation: Equatable {
 }
 
 @Observable
-final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegate {
+final class TerminalSessionController: NSObject, AppTerminalViewDelegate {
     nonisolated static let useMetalRendererKey = "useMetalRenderer"
     nonisolated static let useMetalRendererDefault = true
     nonisolated static let copyOnSelectKey = "copyOnSelect"
@@ -78,7 +78,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored private var keyEventMonitor: Any?
     private var logging = TerminalSessionController.logHostOutputDefault
 
-    @ObservationIgnored private(set) var terminal: LocalProcessTerminalView?
+    @ObservationIgnored private(set) var terminal: AppTerminalView?
     /// The view of a persistent pane; its shell runs in tecolot-sessiond.
     @ObservationIgnored private(set) var persistentView: RemoteTerminalView?
     @ObservationIgnored private var wantsPersistentSession = false
@@ -509,7 +509,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         )
     }
 
-    func attach(to terminal: LocalProcessTerminalView) {
+    func attach(to terminal: AppTerminalView) {
         if self.terminal !== terminal {
             isConfigured = false
             didRequestFocus = false
@@ -558,7 +558,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         // for persistent panes.
         oscObservation = terminal.observeOscEvents(codes: [9, 777, 133, 7501]) { [weak self] event in
             Task { @MainActor [weak self] in
-                guard let self, let terminal = self.terminal as? AppTerminalView else {
+                guard let self, let terminal = self.terminal else {
                     return
                 }
                 if event.code == 133, event.payload.first == 65 {
@@ -619,8 +619,8 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         scheduleFocusIfNeeded()
     }
 
-    func sizeChanged(source _: LocalProcessTerminalView, newCols _: Int, newRows _: Int) {
-        // LocalProcessTerminalView updates the PTY. Do not resize the window here.
+    func sizeChanged(source _: AppTerminalView, newCols _: Int, newRows _: Int) {
+        // AppTerminalView updates the PTY. Do not resize the window here.
         // A live resize sends many grid changes. Update the title only when
         // it shows the grid size.
         if profile.titleComponents.contains(.dimensions) {
@@ -628,7 +628,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
     }
 
-    func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
+    func setTerminalTitle(source: AppTerminalView, title: String) {
         postedTitle = title
         scheduleTerminalTitleUpdate()
     }
@@ -767,7 +767,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     /// Wraps the native local store in the shared host policy before presentation.
     func programStatusChanged(source: TerminalView, records: [TerminalProgramStatus]) {
-        guard let view = terminal as? AppTerminalView else {
+        guard let view = terminal else {
             return
         }
         view.programStatusTracker.receive(records, isReport: false)
@@ -776,7 +776,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     /// Applies the tracker reset serial so legacy progress can resume after RIS.
     func programStatusDidReset() {
-        guard let view = terminal as? AppTerminalView else {
+        guard let view = terminal else {
             return
         }
         programStatus.receive(view.programStatusTracker.snapshot)
@@ -788,7 +788,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         guard !removed.isEmpty else {
             return
         }
-        (terminal as? AppTerminalView)?.programStatusTracker.clearSeen(removed)
+        terminal?.programStatusTracker.clearSeen(removed)
         persistentView?.session.clearSeenProgramStatus(removed)
     }
 
@@ -823,7 +823,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
         if let terminal {
             terminal.programStatusProcessExited()
-            (terminal as? AppTerminalView)?.programStatusTracker.processExited()
+            terminal.programStatusTracker.processExited()
         }
         programStatus.dropTransient()
         let exitedCleanly = (exitCode ?? 0) == 0
@@ -1177,6 +1177,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             }
             return
         }
+        HotReloadInbox.shared.discard(paneID: id)
         terminal?.terminate()
     }
 
@@ -1238,7 +1239,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
     }
 
-    private func configureTerminal(_ terminal: LocalProcessTerminalView) {
+    private func configureTerminal(_ terminal: AppTerminalView) {
         terminal.metalBufferingMode = .perFrameAggregated
         setUseMetalRenderer(UserDefaults.standard.object(forKey: TerminalSessionController.useMetalRendererKey) as? Bool ?? TerminalSessionController.useMetalRendererDefault)
         applyAppearance()
@@ -1623,6 +1624,23 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
         restoreBufferIfNeeded(on: terminal)
 
+        // If this pane arrived via an SCM_RIGHTS hot-reload handoff, adopt the
+        // live PTY master descriptor and shell PID instead of forking a new shell.
+        if let handoff = HotReloadInbox.shared.take(paneID: id) {
+            terminal.attachAdoptedProcess(
+                fd: handoff.fd,
+                shellPid: handoff.entry.shellPid,
+                startTime: handoff.entry.startTime,
+                sendSigwinch: true
+            )
+            terminal.sizeChanged(
+                source: terminal,
+                newCols: dimensions.cols,
+                newRows: dimensions.rows
+            )
+            return
+        }
+
         let params = ProfileApplier.launchParameters(for: profile, initialDirectory: launchDirectory)
         directoryTracker.launch = params.currentDirectory
         terminal.startProcess(
@@ -1639,7 +1657,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         )
     }
 
-    private func restoreBufferIfNeeded(on terminal: LocalProcessTerminalView) {
+    private func restoreBufferIfNeeded(on terminal: AppTerminalView) {
         // A restored pane: the saved text, then the separator, then the shell.
         if let replayText {
             self.replayText = nil
@@ -2810,7 +2828,7 @@ struct TerminalSessionView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: TerminalSessionContainerView, context: Context) {
-        if let local = nsView.terminal as? LocalProcessTerminalView {
+        if let local = nsView.terminal as? AppTerminalView {
             controller.attach(to: local)
         }
         nsView.updatePaddingColor()

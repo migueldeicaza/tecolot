@@ -192,15 +192,27 @@ extension TerminalSessionController {
     @MainActor
     func beginLocalRestore(_ restoration: PaneRestoration) {
         awaitingRestore = true
+        let isHotReloaded = HotReloadInbox.shared.contains(paneID: id)
         let path = restoration.pane.directory?.path
         let textURL = restoration.textURL
         let limit = restoration.restoresScrollback ? RestoreStore.restoredRowsLimit : 0
         Task { [weak self] in
-            async let directory = RestoreDirectoryCheck.resolve(path)
-            async let saved = Task.detached(priority: .userInitiated) {
-                textURL.flatMap(RestoreStore.takeTextFile(at:))
-            }.value
-            let (check, file) = await (directory, saved)
+            let check: RestoreDirectoryCheck.Result
+            let file: (data: Data, decoded: (header: ScrollbackHeader, text: String))?
+            if isHotReloaded {
+                // The live shell is already running in its working directory;
+                // skip the filesystem check and load only the saved scrollback.
+                check = RestoreDirectoryCheck.Result(path: path, notFound: false)
+                file = await Task.detached(priority: .userInitiated) {
+                    textURL.flatMap(RestoreStore.takeTextFile(at:))
+                }.value
+            } else {
+                async let directory = RestoreDirectoryCheck.resolve(path)
+                async let saved = Task.detached(priority: .userInitiated) {
+                    textURL.flatMap(RestoreStore.takeTextFile(at:))
+                }.value
+                (check, file) = await (directory, saved)
+            }
             guard let self else {
                 return
             }
@@ -215,7 +227,7 @@ extension TerminalSessionController {
                 replay = DurableStateDirectory.lastLines(text.text, limit: limit)
             }
             let program = text?.header.alternateScreenProgram ?? restoration.pane.alternateScreenProgram
-            if !restoration.startsFresh || check.notFound {
+            if !isHotReloaded, !restoration.startsFresh || check.notFound {
                 replay += RestoreSeparator.line(
                     savedAt: text?.header.savedAt ?? restoration.savedAt,
                     reason: restoration.reason,
