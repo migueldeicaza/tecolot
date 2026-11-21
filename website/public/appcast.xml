@@ -6,6 +6,15 @@
     <description>Updates for Tecolot, a native terminal for macOS.</description>
     <language>en</language>
     <item>
+      <title>0.99.14</title>
+      <pubDate>Sat, 21 Nov 2026 00:56:59 +0000</pubDate>
+      <sparkle:version>43</sparkle:version>
+      <sparkle:shortVersionString>0.99.14</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.5.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink>https://github.com/migueldeicaza/tecolot/releases/tag/v0.99.14</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/migueldeicaza/tecolot/releases/download/v0.99.14/Tecolot-0.99.14.zip" length="17803501" type="application/octet-stream" sparkle:edSignature="wbqnTp+UTFyKc/8CB0d+ASqULKkNsqyV6FG7FT0bcN+1a34XC1fqreuwSygF9SapuVG0lrpQLpPGqw2ljWI2Dw==" />
+    </item>
+    <item>
       <title>0.99.13</title>
       <pubDate>Fri, 20 Nov 2026 20:58:11 +0000</pubDate>
       <sparkle:version>42</sparkle:version>
