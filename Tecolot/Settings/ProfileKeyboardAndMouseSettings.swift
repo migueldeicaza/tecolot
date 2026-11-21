@@ -2,8 +2,9 @@ import SwiftUI
 import SwiftTerm
 
 /// The rows of the "Option key as Meta" picker. A profile keeps the choice in
-/// two fields: `optionAsMetaKey`, which the Terminal menu also sets, and
-/// `optionMetaSide`.
+/// two fields: `optionAsMetaKey` and `optionMetaSide`. The Terminal menu's
+/// "Use Option as Meta Key" changes only the pane's value, not the profile;
+/// the pane keeps the side from the profile.
 enum OptionMetaKeys: CaseIterable, CustomStringConvertible {
     case both, left, right, neither
 
@@ -48,11 +49,14 @@ enum OptionMetaKeys: CaseIterable, CustomStringConvertible {
 }
 
 extension ProfileSettingsPage {
+    /// Writes only the two Option fields onto the stored profile, as
+    /// `binding(_:)` does for one field.
     var optionMetaKeysBinding: Binding<OptionMetaKeys> {
-        let profile = binding(\.self)
-        return Binding(
-            get: { OptionMetaKeys(profile: profile.wrappedValue) },
-            set: { $0.apply(to: &profile.wrappedValue) }
+        Binding(
+            get: { OptionMetaKeys(profile: profile) },
+            set: { keys in
+                updateIgnoringResult { keys.apply(to: &$0) }
+            }
         )
     }
 

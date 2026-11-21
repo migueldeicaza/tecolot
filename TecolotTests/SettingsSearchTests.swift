@@ -74,6 +74,8 @@ struct SettingsSearchTests {
         #expect(ids("gpu") == [.generalUseMetal])
         #expect(ids("terminfo") == [.terminalDeclareAs])
         #expect(ids("keybindings").contains(.keyboardKeyMappings))
+        // The old title, which is also the Terminal menu's wording.
+        #expect(ids("use option as meta") == [.keyboardOptionAsMeta])
     }
 
     @Test func everyWordMustMatchAndTheLastCanBeAPrefix() {

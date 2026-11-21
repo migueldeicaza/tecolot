@@ -637,7 +637,7 @@ extension SettingID {
         case .keyboardOptionAsMeta:
             return settingEntry(self, .keyboardAndMouse, "Option key as Meta",
                            "Select the Option keys that send Meta, for programs such as Emacs. The other key types the characters of the keyboard layout.",
-                           keywords: ["alt", "escape prefix", "esc+", "emacs", "special characters",
+                           keywords: ["use option as meta", "alt", "escape prefix", "esc+", "emacs", "special characters",
                                       "left option", "right option", "altgr", "layout", "norwegian", "german", "pipe"])
         case .keyboardDeleteSendsControlH:
             return settingEntry(self, .keyboardAndMouse, "Delete sends Control-H",

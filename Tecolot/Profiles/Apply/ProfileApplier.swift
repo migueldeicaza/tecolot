@@ -119,10 +119,12 @@ public enum ProfileApplier {
             view.enableRectangularAreaChecksum = profile.screenChecksumReports
             view.optionAsMetaKey = profile.optionAsMetaKey
             #if os(macOS)
-                view.optionAsMetaSide = profile.optionMetaSide
-                // An Option key that is not Meta stays Meta on the keys that
-                // the layout composes nothing for (Backspace, Escape, arrows).
-                view.optionAsMetaKeyForFunctionalKeys = true
+                view.optionAsMetaSide = profile.optionMetaSide.terminalSide
+                // While Option is Meta, an Option key that the side excludes
+                // stays Meta on the keys that the layout composes nothing for
+                // (Backspace, Escape, arrows). While Option is not Meta, no
+                // key is Meta, as before the side setting.
+                view.optionAsMetaKeyForFunctionalKeys = profile.optionAsMetaKey
             #endif
             view.backspaceSendsControlH = profile.backspaceSendsControlH
             let cursorStyleParameter: Int

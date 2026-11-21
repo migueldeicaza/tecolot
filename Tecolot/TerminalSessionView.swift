@@ -1041,6 +1041,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
                 return
             }
             terminal?.optionAsMetaKey = newValue
+            // Keep the functional keys with the Option keys, as
+            // `ProfileApplier` does.
+            terminal?.optionAsMetaKeyForFunctionalKeys = newValue
         }
     }
 
@@ -2421,7 +2424,7 @@ extension TerminalSessionController {
             view.fontSmoothing = profile.fontSmoothing
             view.useBrightColors = profile.useBrightColorsForBold
             view.optionAsMetaKey = profile.optionAsMetaKey
-            view.optionAsMetaSide = profile.optionMetaSide
+            view.optionAsMetaSide = profile.optionMetaSide.terminalSide
             view.backspaceSendsControlH = profile.backspaceSendsControlH
             view.allowsOsc8Links = profile.linkOsc8
         }

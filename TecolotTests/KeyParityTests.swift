@@ -175,7 +175,7 @@ struct KeyParityTests {
         /// Output that sets the mode in both terminals.
         var setup: String
         var optionAsMeta = true
-        var optionMetaSide = OptionMetaSide.both
+        var optionMetaSide = OptionMetaKeySide.both
         var backspaceSendsControlH = false
     }
 
@@ -204,6 +204,15 @@ struct KeyParityTests {
             Key(name: "shift-tab", keyCode: 48, characters: "\u{19}", ignoringModifiers: "\u{19}", modifiers: .shift),
             Key(name: "escape", keyCode: 53, characters: "\u{1b}", ignoringModifiers: "\u{1b}"),
             Key(name: "delete", keyCode: 51, characters: "\u{7f}", ignoringModifiers: "\u{7f}"),
+            // Keys that the layout composes nothing for, with the right
+            // Option key: Meta while Option is Meta, also on the side that
+            // the profile excludes; not Meta while Option is not Meta.
+            Key(name: "right-option-delete", keyCode: 51, characters: "\u{7f}", ignoringModifiers: "\u{7f}",
+                modifiers: NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.option.rawValue | 0x40)),
+            Key(name: "right-option-f5", keyCode: 96, characters: function(NSF5FunctionKey),
+                ignoringModifiers: function(NSF5FunctionKey),
+                modifiers: NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.option.rawValue | 0x40)
+                    .union(.function)),
             Key(
                 name: "forward-delete",
                 keyCode: 117,
@@ -310,6 +319,7 @@ struct KeyParityTests {
         Mode(name: "application cursor and keypad", setup: "\u{1b}[?1h\u{1b}="),
         Mode(name: "option is not meta", setup: "\u{1b}[?1l\u{1b}>", optionAsMeta: false),
         Mode(name: "left option is meta", setup: "\u{1b}[?1l\u{1b}>", optionMetaSide: .left),
+        Mode(name: "right option is meta", setup: "\u{1b}[?1l\u{1b}>", optionMetaSide: .right),
         Mode(name: "kitty disambiguate", setup: "\u{1b}[>1u"),
         Mode(name: "kitty all flags", setup: "\u{1b}[>31u"),
         Mode(name: "backspace sends ^H", setup: "\u{1b}[<10u\u{1b}[?1l\u{1b}>", backspaceSendsControlH: true),
@@ -438,9 +448,10 @@ struct KeyParityTests {
         }
         panes.local.optionAsMetaKey = mode.optionAsMeta
         panes.remote.optionAsMetaKey = mode.optionAsMeta
-        panes.local.optionAsMetaSide = mode.optionMetaSide
-        panes.remote.optionAsMetaSide = mode.optionMetaSide
-        panes.local.optionAsMetaKeyForFunctionalKeys = panes.remote.optionAsMetaKeyForFunctionalKeys
+        panes.local.optionAsMetaSide = mode.optionMetaSide.terminalSide
+        panes.remote.optionAsMetaSide = mode.optionMetaSide.terminalSide
+        // As ProfileApplier sets it; the persistent pane derives it.
+        panes.local.optionAsMetaKeyForFunctionalKeys = mode.optionAsMeta
         panes.local.backspaceSendsControlH = mode.backspaceSendsControlH
         panes.remote.backspaceSendsControlH = mode.backspaceSendsControlH
     }
@@ -516,8 +527,18 @@ struct KeyParityTests {
         // The left Option key is Meta; the right one goes to the layout,
         // which composes nothing in a test.
         #expect(sent["left option is meta / left-option-f"] == [0x1b, 0x66])
-        #expect(sent["left option is meta / right-option-f"] != [0x1b, 0x66])
+        #expect(sent["left option is meta / right-option-f"] == Array("ƒ".utf8))
+        #expect(sent["right option is meta / right-option-f"] == [0x1b, 0x66])
+        #expect(sent["right option is meta / left-option-f"] == Array("ƒ".utf8))
         #expect(sent["normal / right-option-f"] == [0x1b, 0x66])
+        // The side that is not Meta stays Meta on Delete and F5.
+        #expect(sent["left option is meta / right-option-delete"] == [0x1b, 0x7f])
+        #expect(sent["left option is meta / right-option-f5"] == Array("\u{1b}[15;3~".utf8))
+        // While Option is not Meta, Delete and F5 send what they sent
+        // before the side setting: Delete goes to the layout, which
+        // composes nothing in a test.
+        #expect(sent["option is not meta / right-option-delete"] == [])
+        #expect(sent["option is not meta / right-option-f5"] == Array("\u{1b}[15~".utf8))
         let report = mismatches.joined(separator: "\n")
         #expect(mismatches.isEmpty, "\(mismatches.count) of \(compared) differ:\n\(report)")
     }

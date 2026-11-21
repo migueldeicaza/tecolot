@@ -78,6 +78,32 @@ public enum AskBeforeClosing: String, Codable, CaseIterable, Sendable, CustomStr
 ///
 /// Raw string values are persisted so future versions can add components
 /// without changing the profile document format.
+/// The Option keys that are Meta while a profile's `optionAsMetaKey` is
+/// true. The raw values are stored in profiles: do not change them. Tecolot
+/// owns this type, so that a change to SwiftTerm's `OptionMetaSide` does not
+/// change the stored choice.
+public enum OptionMetaKeySide: String, Codable, CaseIterable, Sendable {
+    /// The left and the right Option keys are Meta.
+    case both
+    /// The left Option key is Meta; the right one goes to the layout.
+    case left
+    /// The right Option key is Meta; the left one goes to the layout.
+    case right
+}
+
+#if os(macOS)
+    extension OptionMetaKeySide {
+        /// The value for SwiftTerm's `optionAsMetaSide`.
+        var terminalSide: OptionMetaSide {
+            switch self {
+            case .both: return .both
+            case .left: return .left
+            case .right: return .right
+            }
+        }
+    }
+#endif
+
 public enum TerminalTitleComponent: String, Codable, CaseIterable, Hashable, Sendable {
     case activeTitle
     case workingDirectory
@@ -204,7 +230,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var optionAsMetaKey: Bool
     /// The Option keys that are Meta while `optionAsMetaKey` is true. The
     /// other key types the characters of the keyboard layout.
-    public var optionMetaSide: OptionMetaSide
+    public var optionMetaSide: OptionMetaKeySide
     public var backspaceSendsControlH: Bool
     public var hidePointerWhileTyping: Bool
     public var keyBindings: [TerminalKeyBinding]
@@ -321,7 +347,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         askBeforeClosing: AskBeforeClosing,
         sessionPersistence: SessionPersistence,
         optionAsMetaKey: Bool,
-        optionMetaSide: OptionMetaSide,
+        optionMetaSide: OptionMetaKeySide,
         backspaceSendsControlH: Bool,
         hidePointerWhileTyping: Bool,
         linkOsc8: Bool,
@@ -430,7 +456,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
                 $0
             } ?? defaults.sessionPersistence
         self.optionAsMetaKey = try c.decodeIfPresent (Bool.self, forKey: .optionAsMetaKey) ?? defaults.optionAsMetaKey
-        self.optionMetaSide = (try? c.decodeIfPresent (OptionMetaSide.self, forKey: .optionMetaSide)) ?? defaults.optionMetaSide
+        self.optionMetaSide = (try? c.decodeIfPresent (OptionMetaKeySide.self, forKey: .optionMetaSide)) ?? defaults.optionMetaSide
         self.backspaceSendsControlH = try c.decodeIfPresent (Bool.self, forKey: .backspaceSendsControlH) ?? defaults.backspaceSendsControlH
         self.hidePointerWhileTyping = try c.decodeIfPresent(
             Bool.self,
