@@ -63,9 +63,20 @@ public enum ProfileApplier {
         /// Applies just the colors of a theme to a running terminal view;
         /// this is the hot path used while previewing themes in a picker
         @MainActor
-        public static func apply (theme: TerminalTheme, opacity: Double = 1.0, to view: TerminalView) {
+        public static func apply (
+            theme: TerminalTheme,
+            opacity: Double = 1.0,
+            paletteStrategy: Ansi256PaletteStrategy,
+            to view: TerminalView
+        ) {
             guard theme.isValid else {
                 return
+            }
+            // Set the strategy before the colors, so that SwiftTerm builds
+            // colors 16-255 from the new theme with the new strategy.
+            // The view redraws all of the screen when the strategy changes.
+            if view.ansi256PaletteStrategy != paletteStrategy {
+                view.ansi256PaletteStrategy = paletteStrategy
             }
             view.installColors (theme.ansi.map {
                 $0.terminalColor
@@ -108,7 +119,12 @@ public enum ProfileApplier {
             to view: TerminalView
         ) {
             let themeName = sessionThemeOverride ?? profile.themeName (isDark: isDark)
-            apply (theme: themeStore.theme (named: themeName), opacity: profile.backgroundOpacity, to: view)
+            apply (
+                theme: themeStore.theme (named: themeName),
+                opacity: profile.backgroundOpacity,
+                paletteStrategy: profile.ansi256PaletteStrategy (isDark: isDark),
+                to: view
+            )
 
             view.font = font (for: profile)
             #if os(macOS)

@@ -367,6 +367,13 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         )
     }
 
+    /// How the palette colors 16-255 are made for the current system
+    /// appearance. A per-tab theme override uses the option of the mode.
+    @MainActor
+    var effectivePaletteStrategy: Ansi256PaletteStrategy {
+        profile.ansi256PaletteStrategy(isDark: AppModel.shared.systemAppearance.isDark)
+    }
+
     /// Applies a new profile to the running session (colors, font, cursor,
     /// keyboard, scrollback); shell settings only affect future launches
     @MainActor
@@ -434,6 +441,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             ProfileApplier.apply(
                 theme: effectiveTheme,
                 opacity: effectiveBackgroundOpacity,
+                paletteStrategy: effectivePaletteStrategy,
                 to: terminal
             )
         } else {
@@ -2400,6 +2408,7 @@ extension TerminalSessionController {
             }
             view.selectedTextBackgroundColor = ProfileApplier.nativeColor(selection)
             view.selectedTextForegroundColor = ProfileApplier.nativeColor(theme.effectiveSelectionText)
+            view.source.paletteStrategy = effectivePaletteStrategy
             view.source.theme = (ansi, theme.foreground.terminalColor, theme.background.terminalColor)
             let rgb: (SwiftTerm.Color) -> WireRGB = { color in
                 WireRGB(red: color.red, green: color.green, blue: color.blue)

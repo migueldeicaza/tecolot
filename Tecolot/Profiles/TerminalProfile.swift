@@ -179,6 +179,43 @@ public struct TerminalKeyBinding: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+/// How a profile makes palette colors 16-255 (the 6x6x6 color cube and
+/// the gray ramp). Colors 0-15 always come from the theme.
+public enum ExtendedPaletteMode: String, Codable, CaseIterable, Sendable {
+    /// The standard xterm colors, the same for all themes.
+    case standard
+    /// Colors from the theme, interpolated in LAB. The cube and the gray
+    /// ramp go from dark to light, also on a light theme.
+    case theme
+    /// Colors from the theme, interpolated in LAB. The cube and the gray
+    /// ramp go from the background to the foreground, so on a light theme
+    /// they go from light to dark. On a dark theme this is the same as
+    /// `theme`.
+    case themeHarmonious
+
+    public var title: String {
+        switch self {
+        case .standard:
+            "Standard"
+        case .theme:
+            "From Theme"
+        case .themeHarmonious:
+            "From Theme, Background to Foreground"
+        }
+    }
+
+    public var strategy: Ansi256PaletteStrategy {
+        switch self {
+        case .standard:
+            .xterm
+        case .theme:
+            .base16Lab
+        case .themeHarmonious:
+            .base16LabHarmonious
+        }
+    }
+}
+
 public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     /// Display name, unique within a store
@@ -191,6 +228,10 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var lightThemeName: String
     /// Name of the TerminalTheme used when the system is in Dark Mode
     public var darkThemeName: String
+    /// How palette colors 16-255 are made in Light Mode
+    public var lightExtendedPalette: ExtendedPaletteMode
+    /// How palette colors 16-255 are made in Dark Mode
+    public var darkExtendedPalette: ExtendedPaletteMode
     /// Font family name; nil uses the system monospaced font
     public var fontFamily: String?
     /// Font size in points
@@ -261,6 +302,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.name = name
         self.lightThemeName = TerminalProfile.defaultThemeName(isDark: false)
         self.darkThemeName = TerminalProfile.defaultThemeName(isDark: true)
+        self.lightExtendedPalette = defaults.extendedPalette
+        self.darkExtendedPalette = defaults.extendedPalette
         self.fontFamily = defaults.fontFamily
         self.fontSize = defaults.fontSize
         self.fontSmoothing = defaults.fontSmoothing
@@ -312,6 +355,26 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         }
     }
 
+    /// How palette colors 16-255 are made for the given system appearance
+    public func extendedPalette(isDark: Bool) -> ExtendedPaletteMode {
+        isDark ? darkExtendedPalette : lightExtendedPalette
+    }
+
+    /// Sets how palette colors 16-255 are made for the given system appearance
+    public mutating func setExtendedPalette(_ mode: ExtendedPaletteMode, isDark: Bool) {
+        if isDark {
+            darkExtendedPalette = mode
+        } else {
+            lightExtendedPalette = mode
+        }
+    }
+
+    /// The SwiftTerm strategy for palette colors 16-255 in the given
+    /// system appearance.
+    public func ansi256PaletteStrategy(isDark: Bool) -> Ansi256PaletteStrategy {
+        extendedPalette(isDark: isDark).strategy
+    }
+
     /// Replaces each slot that uses `oldName` with the result of
     /// `replacement` for the mode of that slot. Returns true if a slot changed.
     @discardableResult
@@ -330,6 +393,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     /// The defaults applied to new profiles and to fields missing from
     /// persisted data written by older versions
     static var standardValues: (
+        extendedPalette: ExtendedPaletteMode,
         fontFamily: String?,
         fontSize: Double,
         fontSmoothing: Bool,
@@ -361,6 +425,9 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         keyBindings: [TerminalKeyBinding]
     ) {
         (
+            // Colors 16-255 are the standard xterm colors, as in other
+            // terminals (issue #77).
+            extendedPalette: .standard,
             fontFamily: nil,
             fontSize: 12,
             fontSmoothing: true,
@@ -396,6 +463,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, name, fontFamily
         case lightThemeName = "themeName", darkThemeName, fontSize, fontSmoothing
+        case lightExtendedPalette, darkExtendedPalette
         case useBrightColorsForBold, cursorStyle, backgroundOpacity
         case useThemeColorsForWindowChrome
         case columns, rows, scrollbackLines, titleOverride, titleComponents
@@ -422,6 +490,15 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
             self.darkThemeName = try c.decodeIfPresent (String.self, forKey: .darkThemeName)
                 ?? TerminalProfile.defaultThemeName(isDark: true)
         }
+        // An unknown value (from a newer version) falls back to the default.
+        self.lightExtendedPalette = (try? c.decodeIfPresent(ExtendedPaletteMode.self, forKey: .lightExtendedPalette))
+            .flatMap {
+                $0
+            } ?? defaults.extendedPalette
+        self.darkExtendedPalette = (try? c.decodeIfPresent(ExtendedPaletteMode.self, forKey: .darkExtendedPalette))
+            .flatMap {
+                $0
+            } ?? defaults.extendedPalette
         self.fontFamily = try c.decodeIfPresent (String.self, forKey: .fontFamily) ?? defaults.fontFamily
         self.fontSize = try c.decodeIfPresent (Double.self, forKey: .fontSize) ?? defaults.fontSize
         self.fontSmoothing = try c.decodeIfPresent (Bool.self, forKey: .fontSmoothing) ?? defaults.fontSmoothing
@@ -489,6 +566,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode (name, forKey: .name)
         try c.encode (lightThemeName, forKey: .lightThemeName)
         try c.encode (darkThemeName, forKey: .darkThemeName)
+        try c.encode(lightExtendedPalette, forKey: .lightExtendedPalette)
+        try c.encode(darkExtendedPalette, forKey: .darkExtendedPalette)
         try c.encodeIfPresent (fontFamily, forKey: .fontFamily)
         try c.encode (fontSize, forKey: .fontSize)
         try c.encode (fontSmoothing, forKey: .fontSmoothing)

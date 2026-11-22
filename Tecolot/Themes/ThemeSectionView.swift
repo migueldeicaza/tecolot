@@ -160,6 +160,7 @@ struct ThemeModeSection: View {
                 } message: {
                     Text(operationError ?? "")
                 }
+            extendedPalettePicker
         } header: {
             header
         }
@@ -178,6 +179,28 @@ struct ThemeModeSection: View {
             Button("New", systemImage: "plus.circle", action: newTheme)
                 .buttonStyle(.borderless)
                 .help(isDark ? "Make a new dark theme" : "Make a new light theme")
+        }
+    }
+
+    /// How colors 16-255 are made in this mode. Colors 0-15 always come
+    /// from the theme.
+    private var extendedPalettePicker: some View {
+        Picker(selection: Binding(
+            get: {
+                profile.extendedPalette(isDark: isDark)
+            },
+            set: { mode in
+                _ = update {
+                    $0.setExtendedPalette(mode, isDark: isDark)
+                }
+            }
+        )) {
+            ForEach(ExtendedPaletteMode.allCases, id: \.self) { mode in
+                Text(mode.title).tag(mode)
+            }
+        } label: {
+            Text("Extended palette")
+            Text("Colors 16\u{2013}255")
         }
     }
 

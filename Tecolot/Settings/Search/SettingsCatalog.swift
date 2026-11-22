@@ -544,11 +544,13 @@ extension SettingID {
         case .appearanceLightTheme:
             return settingEntry(self, .appearance, "Light mode",
                            "Choose or make the theme for the system light appearance.",
-                           keywords: ["light theme", "color scheme", "colors", "palette", "new theme"])
+                           keywords: ["light theme", "color scheme", "colors", "palette", "new theme",
+                                      "extended palette", "256 colors", "color cube", "xterm colors"])
         case .appearanceDarkTheme:
             return settingEntry(self, .appearance, "Dark mode",
                            "Choose or make the theme for the system dark appearance.",
-                           keywords: ["dark theme", "color scheme", "colors", "palette", "new theme"])
+                           keywords: ["dark theme", "color scheme", "colors", "palette", "new theme",
+                                      "extended palette", "256 colors", "color cube", "xterm colors"])
         case .appearanceWindowChrome:
             return settingEntry(self, .appearance, "Match window chrome to theme",
                            "Use the theme colors for the title bar, tabs and toolbar controls.",

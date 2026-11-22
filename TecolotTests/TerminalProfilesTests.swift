@@ -1245,3 +1245,47 @@ struct Osc8ProfileTests {
         }
     }
 }
+
+@Suite("Extended palette profile setting")
+@MainActor
+struct ExtendedPaletteProfileTests {
+    @Test func missingSettingIsStandardInBothModes() throws {
+        let profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(#"{"name":"Old profile"}"#.utf8))
+        #expect(profile.lightExtendedPalette == .standard)
+        #expect(profile.darkExtendedPalette == .standard)
+        #expect(profile.ansi256PaletteStrategy(isDark: true) == .xterm)
+    }
+
+    @Test func unknownValueFallsBackToStandard() throws {
+        let json = #"{"name":"Newer profile","lightExtendedPalette":"later","darkExtendedPalette":"theme"}"#
+        let profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(json.utf8))
+        #expect(profile.lightExtendedPalette == .standard)
+        #expect(profile.darkExtendedPalette == .theme)
+    }
+
+    @Test func modesAreIndependentAndSurviveEncoding() throws {
+        var profile = TerminalProfile(name: "Test")
+        profile.setExtendedPalette(.themeHarmonious, isDark: false)
+        #expect(profile.extendedPalette(isDark: false) == .themeHarmonious)
+        #expect(profile.extendedPalette(isDark: true) == .standard)
+        let data = try JSONEncoder().encode(profile)
+        #expect(try JSONDecoder().decode(TerminalProfile.self, from: data) == profile)
+    }
+
+    @Test func modeOfAppearanceAppliesToOpenTerminal() {
+        let view = TerminalView(frame: .zero)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let themes = ThemeStore(directory: directory)
+        var profile = TerminalProfile(name: "Test")
+        profile.setExtendedPalette(.theme, isDark: true)
+        profile.setExtendedPalette(.themeHarmonious, isDark: false)
+        ProfileApplier.apply(profile: profile, themeStore: themes, isDark: true, to: view)
+        #expect(view.ansi256PaletteStrategy == .base16Lab)
+        ProfileApplier.apply(profile: profile, themeStore: themes, isDark: false, to: view)
+        #expect(view.ansi256PaletteStrategy == .base16LabHarmonious)
+        profile.setExtendedPalette(.standard, isDark: false)
+        ProfileApplier.apply(profile: profile, themeStore: themes, isDark: false, to: view)
+        #expect(view.ansi256PaletteStrategy == .xterm)
+    }
+}
