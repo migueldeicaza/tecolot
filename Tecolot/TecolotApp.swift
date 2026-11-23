@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = SecureKeyboardEntry.shared
         CrashReporting.finishLaunch()
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            HotReloadInbox.shared.receiveIfRequested()
             DetachedSessionNotifications.shared.start()
         }
         // Do not wait for the activation: an app that starts in the
@@ -79,6 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if HotReloadCoordinator.shared.isExitingForHotReload {
+            return .terminateNow
+        }
         let runningCount = TerminalClosePolicy.confirmationCount(in: TerminalSessionRegistry.shared.allControllers)
         let hasLiveProcess = runningCount > 0
         guard hasLiveProcess else {
@@ -110,6 +114,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if !HotReloadCoordinator.shared.isExitingForHotReload {
+            HotReloadInbox.shared.closeAllUnclaimed()
+        }
         SecureKeyboardEntry.shared.disableForTermination()
         RemoteHosts.shared.shutdown()
     }
@@ -541,6 +548,7 @@ struct TecolotApp: App {
         .commands {
             AppInfoCommands()
             UpdateCommands()
+            HotReloadCommands()
             SettingsCommands()
             FileCommands(profiles: model.profiles)
             GroupWindowCommands()

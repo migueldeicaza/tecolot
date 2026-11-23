@@ -429,7 +429,7 @@ private func executablePath(for dialect: TerminalShellDialect) -> String {
 @MainActor
 private final class PasteReceiver: TerminalViewDelegate {
     var data = Data()
-    weak var forwardTo: LocalProcessTerminalView?
+    weak var forwardTo: AppTerminalView?
     func send(source: TerminalView, data: ArraySlice<UInt8>) {
         self.data.append(contentsOf: data)
         forwardTo?.send(source: source, data: data)

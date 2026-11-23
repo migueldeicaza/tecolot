@@ -3,8 +3,8 @@
 //  Tecolot
 //
 //  What the pane chrome (container, cards, titlebars, divider limits) needs
-//  from a terminal view. A local pane uses SwiftTerm's
-//  LocalProcessTerminalView; a persistent pane uses RemoteTerminalView, which
+//  from a terminal view. A local pane uses AppTerminalView (a TerminalView
+//  subclass); a persistent pane uses RemoteTerminalView, which
 //  draws a session that runs in tecolot-sessiond.
 //
 
@@ -20,7 +20,7 @@ protocol TerminalSurface: AnyObject {
     func requestRedraw()
 }
 
-extension LocalProcessTerminalView: TerminalSurface {
+extension TerminalView: TerminalSurface {
     var gridDimensions: (cols: Int, rows: Int) {
         let dimensions = terminalDimensions
         return (dimensions.cols, dimensions.rows)

@@ -522,6 +522,52 @@ final class RestoreStore {
         }
     }
 
+    /// Saves all windows, tabs, splits, and normal-buffer scrollback for an
+    /// in-place hot reload, even when the user disabled "Restore windows" for
+    /// normal quits. Does not mark `isTerminating` so a rollback leaves the
+    /// store active.
+    func saveForHotReload(completion: @escaping @MainActor () -> Void) {
+        guard isReady, canWrite else {
+            completion()
+            return
+        }
+        startupTask?.cancel()
+        startupTask = nil
+        launchInProgress = false
+        pendingSave?.cancel()
+        pendingSave = nil
+        var (state, texts, caches) = capture(limit: max(Self.restoredRowsLimit, 500))
+        state.cleanShutdown = true
+        let directory = directory
+        let windowsURL = windowsURL
+        let panesURL = panesURL
+        let done = DispatchGroup()
+        done.enter()
+        let stateWriter = stateWriter
+        queue.async {
+            Self.write(state, texts: texts, caches: caches, directory: directory, windowsURL: windowsURL, panesURL: panesURL, stateWriter: stateWriter)
+            done.leave()
+        }
+        var finished = false
+        let finish = {
+            guard !finished else {
+                return
+            }
+            finished = true
+            completion()
+        }
+        done.notify(queue: .main) {
+            MainActor.assumeIsolated {
+                finish()
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.saveTimeLimit) {
+            MainActor.assumeIsolated {
+                finish()
+            }
+        }
+    }
+
     /// Scrollback is captured only at quit. All groups and their window mapping
     /// are saved regardless of macOS window preferences or the quit event.
     func saveForTermination(completion: @escaping @MainActor () -> Void) {
@@ -817,7 +863,7 @@ final class RestoreStore {
     /// cleared only after every group and window was restored successfully.
     func restore() -> Bool {
         isReady = true
-        guard isEnabled else {
+        guard isEnabled || HotReloadInbox.shared.hasReceivedHandoff else {
             return false
         }
         isRestoring = true
