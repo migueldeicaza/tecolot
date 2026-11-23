@@ -40,6 +40,12 @@ struct TerminalForegroundJobIconResolverTests {
         #expect(resolver.executablePath(for: snapshot([process(101, "/usr/bin/git")]), descriptor: 4) == "/usr/bin/git")
     }
 
+    @Test func antigravityIsSelectedFromForegroundGroup() {
+        var resolver = TerminalForegroundJobIconResolver()
+        let agy = process(101, "/Users/example/.local/bin/agy")
+        #expect(resolver.executablePath(for: snapshot([process(100, "/usr/bin/less"), agy]), descriptor: 4) == agy.executablePath)
+    }
+
     @Test func newGroupOrDescriptorClearsRememberedCommand() {
         for changesDescriptor in [false, true] {
             var resolver = TerminalForegroundJobIconResolver()

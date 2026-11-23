@@ -19,6 +19,28 @@ The image is copied without changes. It identifies the Git executable.
 Git and the Git logo are trademarks of Software Freedom Conservancy, Inc.
 This use does not imply endorsement.
 
-No Node.js, LazyGit, Codex, or Claude artwork is included.
+VSCode Icons: Perl, Python, PHP
+Source: https://icon-sets.iconify.design/vscode-icons/
+Icons: file-type-perl, file-type-python, file-type-php.
+Copyright: The vscode-icons Contributors.
+License: MIT. The license text is in VSCode-Icons-MIT.txt.
+The SVG files came from https://api.iconify.design/ with a 128 by 128
+output size.
+
+SVG Logos: Node.js, Ruby, .NET, Hermes, OpenCode
+Source: https://icon-sets.iconify.design/logos/
+Icons: nodejs-icon-alt, ruby, dotnet, hermes, opencode-icon.
+License: CC0 1.0 Universal. The license text is in SVG-Logos-CC0.txt.
+The SVG files came from https://api.iconify.design/ with a 128 by 128
+output size.
+
+Simple Icons: Pi, htop
+Source: https://icon-sets.iconify.design/simple-icons/
+Icons: pi, htop.
+License: CC0 1.0 Universal. The license text is in Simple-Icons-CC0.txt.
+The SVG files came from https://api.iconify.design/ with a 128 by 128
+output size. Their image sets render as templates in Tecolot's tab tiles.
+
+No LazyGit, Codex, or Claude artwork is included.
 Node.js policy: https://trademark-policy.openjsf.org/
 LazyGit has no separate logo in its official repository tree.
