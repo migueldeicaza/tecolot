@@ -60,4 +60,17 @@ struct ProgramStatusWireTests {
         var reader = WireReader(writer.bytes)
         #expect(try SetFrameRateMessage(from: &reader).maximumFramesPerSecond == 0)
     }
+    @Test func infoReportsRoundTrip() throws {
+        for mode in [InfoReportMode.off, .background, .live] {
+            var writer = WireWriter()
+            SetInfoReportsMessage(mode: mode).encode(to: &writer)
+            var reader = WireReader(writer.bytes)
+            #expect(try SetInfoReportsMessage(from: &reader).mode == mode)
+        }
+        var writer = WireWriter()
+        writer.u8(9)
+        var reader = WireReader(writer.bytes)
+        #expect(try SetInfoReportsMessage(from: &reader).mode == .live)
+        #expect(SessionCapabilities.helper.contains(.infoReports))
+    }
 }

@@ -155,6 +155,11 @@ struct TabIconStackTests {
         #expect(TabStripPreferences(defaults: defaults).iconCount == 5)
         defaults.set(-1, forKey: TabStripPreferences.iconCountKey)
         #expect(TabStripPreferences(defaults: defaults).iconCount == 0)
+        defaults.set(4, forKey: TabStripPreferences.iconCountKey)
+        defaults.set(false, forKey: TabStripPreferences.trackRunningProgramsKey)
+        #expect(TabStripPreferences(defaults: defaults).iconCount == 0)
+        defaults.set(true, forKey: TabStripPreferences.trackRunningProgramsKey)
+        #expect(TabStripPreferences(defaults: defaults).iconCount == 4)
         prefs.colorMode = .activePanes
         #expect(prefs.colorsTile(selected: true, index: 0))
         #expect(!prefs.colorsTile(selected: true, index: 1))
@@ -167,9 +172,10 @@ struct TabIconStackTests {
     }
 
     @Test func processInspectionDoesNotRequirePaneCardsOrAWindow() {
-        #expect(TabStripPreferences.inspectsProcesses(paneCards: false, iconCount: 3))
-        #expect(TabStripPreferences.inspectsProcesses(paneCards: true, iconCount: 0))
-        #expect(!TabStripPreferences.inspectsProcesses(paneCards: false, iconCount: 0))
+        #expect(TabStripPreferences.inspectsProcesses(tracking: true, paneCards: false, iconCount: 3))
+        #expect(TabStripPreferences.inspectsProcesses(tracking: true, paneCards: true, iconCount: 0))
+        #expect(!TabStripPreferences.inspectsProcesses(tracking: true, paneCards: false, iconCount: 0))
+        #expect(!TabStripPreferences.inspectsProcesses(tracking: false, paneCards: true, iconCount: 3))
     }
 }
 

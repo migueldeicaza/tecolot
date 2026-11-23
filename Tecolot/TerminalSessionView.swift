@@ -131,6 +131,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored var directoryTracker = PaneDirectoryTracker()
     /// The shell of a persistent pane, from the helper's session information.
     @ObservationIgnored var persistentShellPID: Int32 = 0
+    /// How often the helper polls the foreground program for this pane.
+    @ObservationIgnored private(set) var remoteInfoMode = InfoReportMode.live
+    /// Skips local foreground-process polls while the shell waits at a prompt.
+    @ObservationIgnored var foregroundPollGate = ForegroundPollGate()
     /// A restored local pane waits for its saved text and directory before
     /// its shell starts.
     @ObservationIgnored var awaitingRestore = false
@@ -569,6 +573,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
                 guard let self, let terminal = self.terminal as? AppTerminalView else {
                     return
                 }
+                if event.code == 133 {
+                    self.foregroundPollGate.observe(osc133: event.payload)
+                }
                 if event.code == 133, event.payload.first == 65 {
                     terminal.programStatusTracker.dropTransient()
                     if self.programStatus.uses7501 {
@@ -833,6 +840,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             terminal.programStatusProcessExited()
             (terminal as? AppTerminalView)?.programStatusTracker.processExited()
         }
+        foregroundPollGate.reset()
         programStatus.dropTransient()
         let exitedCleanly = (exitCode ?? 0) == 0
         switch profile.whenShellExits {
@@ -2311,7 +2319,19 @@ extension TerminalSessionController {
                 self.handlePersistentEvent(event)
             }
         }
+        if remoteInfoMode != .live {
+            session.setInfoReportMode(remoteInfoMode)
+        }
         return session
+    }
+
+    /// Sets how often the helper polls the foreground program for this pane.
+    func setRemoteInfoMode(_ mode: InfoReportMode) {
+        guard remoteInfoMode != mode else {
+            return
+        }
+        remoteInfoMode = mode
+        persistentView?.session.setInfoReportMode(mode)
     }
 
     /// Connects again to the session after the connection dropped.
@@ -2384,6 +2404,8 @@ extension TerminalSessionController {
             }
         }
         scheduleFocusIfNeeded()
+        // The helper polls only while a tab icon or pane header needs it.
+        workspace?.updateProcessInspection()
     }
 
     @MainActor
@@ -2474,7 +2496,11 @@ extension TerminalSessionController {
             processTerminated(source: nil, exitCode: code)
         case .info(let info):
             persistentShellPID = info.shellPID
-            updatePaneExecutablePath(info.foreground?.path)
+            // Older helpers, and the first report of an attach, still come
+            // when "Track running programs" is off.
+            if remoteInfoMode != .off {
+                updatePaneExecutablePath(info.foreground?.path)
+            }
         case .programStatus(let snapshot):
             if let previous = remoteOutputSerial, previous != snapshot.outputSerial {
                 noteOutputActivity()

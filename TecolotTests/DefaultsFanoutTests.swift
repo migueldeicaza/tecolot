@@ -222,7 +222,9 @@ struct DefaultsFanoutTests {
         let edits: [(String, Any)] = [
             (TabStripPreferences.iconCountKey, 5), (TabStripPreferences.colorModeKey, "never"),
             (TabStripPreferences.fillKey, true), (TabStripPreferences.animationStyleKey, "off"),
-            (TabStripPreferences.preferGeneratedTitlesKey, false)
+            (TabStripPreferences.preferGeneratedTitlesKey, false),
+            // Off hides the icons: the icon count in the snapshot changes.
+            (TabStripPreferences.trackRunningProgramsKey, false)
         ]
         #expect(Set(edits.map(\.0)) == Set(TabStripPreferences.observedKeys))
         for (index, edit) in edits.enumerated() {

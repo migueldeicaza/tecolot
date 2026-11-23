@@ -65,32 +65,48 @@ struct GroupSessionEnderTests {
 
     @Test func localBusyProbeIgnoresClosePreferencesAndPersistentState() {
         let busy = pane(.local, local: .init(persistent: false, running: true, childProcesses: 1))
-        #expect(GroupSessionEnder.probe(busy, record: nil).busyProgram == "make")
-        #expect(GroupSessionEnder.probe(pane(.local, local: .init(persistent: false, running: true, childProcesses: 0)), record: nil).busyProgram == nil)
-        #expect(GroupSessionEnder.probe(pane(.local), record: nil).busyProgram == nil)
+        #expect(GroupSessionEnder.probe(busy, record: nil, tracking: true).busyProgram == "make")
+        #expect(GroupSessionEnder.probe(pane(.local, local: .init(persistent: false, running: true, childProcesses: 0)), record: nil, tracking: true).busyProgram == nil)
+        #expect(GroupSessionEnder.probe(pane(.local), record: nil, tracking: true).busyProgram == nil)
     }
 
     @Test(arguments: [RestorePaneKind.persistent, .remote])
     func helperBusyProbeUsesForegroundAndChildren(kind: RestorePaneKind) {
         let foreground = WireProcess(pid: 2, name: "make", path: "/usr/bin/make")
         let busy = SessionInfoMessage(shellPID: 1, shellName: "zsh", foreground: foreground, hasChildren: false)
-        #expect(GroupSessionEnder.probe(pane(kind, info: busy), record: nil).busyProgram == "make")
+        #expect(GroupSessionEnder.probe(pane(kind, info: busy), record: nil, tracking: true).busyProgram == "make")
         let idle = SessionInfoMessage(shellPID: 1, shellName: "zsh", foreground: WireProcess(pid: 1, name: "zsh", path: "/bin/zsh"), hasChildren: false)
-        #expect(GroupSessionEnder.probe(pane(kind, info: idle), record: nil).busyProgram == nil)
+        #expect(GroupSessionEnder.probe(pane(kind, info: idle), record: nil, tracking: true).busyProgram == nil)
         var children = idle
         children.hasChildren = true
-        #expect(GroupSessionEnder.probe(pane(kind, info: children), record: nil).busyProgram != nil)
+        #expect(GroupSessionEnder.probe(pane(kind, info: children), record: nil, tracking: true).busyProgram != nil)
+    }
+
+    /// Without tracking, a capable helper does not poll: its old report must not name a program.
+    @Test(arguments: [RestorePaneKind.persistent, .remote])
+    func helperProbeIgnoresOldReportsWithoutTracking(kind: RestorePaneKind) {
+        let foreground = WireProcess(pid: 2, name: "make", path: "/usr/bin/make")
+        let busy = SessionInfoMessage(shellPID: 1, shellName: "zsh", foreground: foreground, hasChildren: true)
+        // A current report (from an older helper) still names the program.
+        #expect(GroupSessionEnder.probe(pane(kind, info: busy), record: nil, tracking: false).busyProgram == "make")
+        var state = RemoteSessionState()
+        state.info = busy
+        state.helperCapabilities = [.infoReports]
+        #expect(GroupSessionEnder.currentInfo(state, tracking: false) == nil)
+        #expect(GroupSessionEnder.currentInfo(state, tracking: true) == busy)
+        state.helperCapabilities = []
+        #expect(GroupSessionEnder.currentInfo(state, tracking: false) == busy)
     }
 
     @Test(arguments: [RestorePaneKind.persistent, .remote])
     func detachedHelperProbeUsesSessionBrowserMetadata(kind: RestorePaneKind) {
         var record = SessionRecord(id: "s", pid: 1, shellPID: 2, protocolVersion: 1, build: "test", createdAt: Date(), executable: "/bin/zsh", workingDirectory: nil, labels: [:], columns: 80, rows: 24)
         record.foreground = "-zsh"
-        #expect(GroupSessionEnder.probe(pane(kind), record: record).busyProgram == nil)
+        #expect(GroupSessionEnder.probe(pane(kind), record: record, tracking: true).busyProgram == nil)
         record.foreground = "make"
-        #expect(GroupSessionEnder.probe(pane(kind), record: record).busyProgram == "make")
+        #expect(GroupSessionEnder.probe(pane(kind), record: record, tracking: true).busyProgram == "make")
         record.exited = true
-        #expect(GroupSessionEnder.probe(pane(kind), record: record).busyProgram == nil)
+        #expect(GroupSessionEnder.probe(pane(kind), record: record, tracking: true).busyProgram == nil)
     }
 
     @Test func confirmationListsBusyPanesAndReservesEscapeForCancel() async {

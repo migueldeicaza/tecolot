@@ -7,6 +7,7 @@ struct TabsSettingsView: View {
     @AppStorage(SidebarPreferences.positionKey) private var sidebarPosition = SidebarPreferences.positionDefault
     @AppStorage(TabStripPreferences.fillKey) private var fill = TabStripPreferences.fillDefault
     @AppStorage(TabStripPreferences.iconCountKey) private var icons = TabStripPreferences.iconCountDefault
+    @AppStorage(TabStripPreferences.trackRunningProgramsKey) private var trackRunningPrograms = TabStripPreferences.trackRunningProgramsDefault
     @AppStorage(TabSelectionCommands.useCommandDigitsForTabsKey) private var useCommandDigitsForTabs = TabSelectionCommands.useCommandDigitsForTabsDefault
     @AppStorage(SidebarPreferences.textSizeKey) private var sidebarTextSize = SidebarPreferences.textSizeDefault
     @AppStorage(SidebarPreferences.preserveWidthKey) private var preserveWidth = SidebarPreferences.preserveWidthDefault
@@ -57,7 +58,13 @@ struct TabsSettingsView: View {
                         Text("\($0)").tag($0)
                     }
                 }
+                .disabled(!trackRunningPrograms)
                 .settingsAnchor(.tabsShowIcons)
+                if !trackRunningPrograms {
+                    Text("Turn on Track running programs in General to show tab icons.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Toggle(SettingID.tabsCommandDigits.title, isOn: $useCommandDigitsForTabs)
                     .settingsAnchor(.tabsCommandDigits)
             }

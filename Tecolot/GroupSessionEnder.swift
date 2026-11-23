@@ -76,7 +76,7 @@ enum GroupSessionEnder {
                             SessionRef(id: $0, destination: controller.remoteDestination)
                         },
                         local: local,
-                        info: controller.persistentView?.session.state.info,
+                        info: currentInfo(controller.persistentView?.session.state),
                         program: program,
                         unavailableReason: kind == .remote && sessionID == nil ? "the session on \(controller.remoteDestination ?? "the host") is still starting; its session ID is not available yet" : nil,
                         tabID: tab.id
@@ -111,8 +111,26 @@ enum GroupSessionEnder {
         } ?? processes.first)?.executablePath ?? fallback
     }
 
+    /// The helper's last report, when it is current. With "Track running
+    /// programs" off, a capable helper stops its poll, and the report is old.
+    /// An older helper polls at all times.
+    static func currentInfo(
+        _ state: RemoteSessionState?,
+        tracking: Bool = TabStripPreferences.tracksRunningPrograms(.standard)
+    ) -> SessionInfoMessage? {
+        guard let state, tracking || !state.helperCapabilities.contains(.infoReports) else {
+            return nil
+        }
+        return state.info
+    }
+
     /// Uses the helper's foreground report, also used by the Sessions window.
-    static func probe(_ pane: Pane, record: SessionRecord?, unavailable: String? = nil) -> Probe {
+    /// With "Track running programs" off, an attached session record is old:
+    /// the busy program is not named.
+    static func probe(
+        _ pane: Pane, record: SessionRecord?, unavailable: String? = nil,
+        tracking: Bool = TabStripPreferences.tracksRunningPrograms(.standard)
+    ) -> Probe {
         if pane.kind == .local {
             return Probe(busyProgram: pane.local?.hasRunningTask == true ? (pane.program ?? "running process") : nil)
         }
@@ -124,6 +142,9 @@ enum GroupSessionEnder {
                 $0.pid != info.shellPID
             } ?? false)
             return Probe(busyProgram: busy ? (info.foreground?.name ?? "running process") : nil)
+        }
+        guard tracking else {
+            return Probe()
         }
         guard let record, !record.exited, let foreground = record.foreground, !foreground.isEmpty else {
             return Probe()

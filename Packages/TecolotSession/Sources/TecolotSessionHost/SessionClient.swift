@@ -21,6 +21,8 @@ final class SessionClient: @unchecked Sendable {
     var maximumFramesPerSecond = 60
     var viewer = false
     var focused = false
+    /// From `SetInfoReportsMessage`. Older clients do not send it.
+    var infoMode: InfoReportMode = .live
     /// Device pixels per point, in hundredths; 0 when the client did not say.
     var scale = 0
     var lastInput: DispatchTime = .init(uptimeNanoseconds: 0)

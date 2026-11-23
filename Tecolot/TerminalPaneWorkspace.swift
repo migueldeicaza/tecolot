@@ -10,6 +10,8 @@
 import AppKit
 import Observation
 import SwiftTerm
+import TecolotSessionHost
+import TecolotWire
 import SwiftUI
 
 nonisolated enum TerminalPaneSplit: String, Codable, Sendable {
@@ -36,16 +38,35 @@ enum TerminalPaneTransition {
 
 /// Ignores unrelated defaults notifications before starting process-inspection work.
 nonisolated struct PaneIconInspectionPreferences {
-    private(set) var iconCount: Int
-    init(iconCount: Int) {
-        self.iconCount = iconCount
+    struct Value: Equatable {
+        var iconCount: Int
+        var tracking: Bool
+
+        init(iconCount: Int, tracking: Bool) {
+            self.iconCount = iconCount
+            self.tracking = tracking
+        }
+
+        init(defaults: UserDefaults) {
+            iconCount = TabStripPreferences.effectiveIconCount(defaults)
+            tracking = TabStripPreferences.tracksRunningPrograms(defaults)
+        }
     }
 
-    mutating func update(iconCount: Int, refresh: () -> Void) {
-        guard self.iconCount != iconCount else {
+    private(set) var iconCount: Int
+    /// General › "Track running programs".
+    private(set) var tracking: Bool
+    init(iconCount: Int, tracking: Bool) {
+        self.iconCount = iconCount
+        self.tracking = tracking
+    }
+
+    mutating func update(iconCount: Int, tracking: Bool, refresh: () -> Void) {
+        guard self.iconCount != iconCount || self.tracking != tracking else {
             return
         }
         self.iconCount = iconCount
+        self.tracking = tracking
         refresh()
     }
 }
@@ -116,8 +137,11 @@ final class TerminalPaneWorkspace {
     @ObservationIgnored private let processInspectionUpdates = ProcessInspectionUpdates()
     @ObservationIgnored private var processTask: Task<Void, Never>?
     @ObservationIgnored private var jobIconResolvers: [UUID: TerminalForegroundJobIconResolver] = [:]
-    @ObservationIgnored private var iconPreferencesObserver: DefaultsValueObserver<Int>?
-    @ObservationIgnored private var iconPreferences = PaneIconInspectionPreferences(iconCount: TabStripPreferences().iconCount)
+    @ObservationIgnored private var iconPreferencesObserver: DefaultsValueObserver<PaneIconInspectionPreferences.Value>?
+    @ObservationIgnored private var iconPreferences = PaneIconInspectionPreferences(
+        iconCount: TabStripPreferences.effectiveIconCount(.standard),
+        tracking: TabStripPreferences.tracksRunningPrograms(.standard)
+    )
 
     init(spec: LaunchSpec = LaunchSpec(), startsProcesses: Bool = true, participatesInWindow: Bool = true) {
         self.participatesInWindow = participatesInWindow
@@ -132,14 +156,16 @@ final class TerminalPaneWorkspace {
         if spec.restoredTab == nil {
             controller.resolveLaunchIfNeeded(spec: spec)
         }
-        iconPreferencesObserver = DefaultsValueObserver(defaults: .standard, keys: [TabStripPreferences.iconCountKey]) {
-            min(5, max(0, $0.object(forKey: TabStripPreferences.iconCountKey) as? Int ?? TabStripPreferences.iconCountDefault))
+        iconPreferencesObserver = DefaultsValueObserver(
+            defaults: .standard, keys: [TabStripPreferences.iconCountKey, TabStripPreferences.trackRunningProgramsKey]
+        ) {
+            PaneIconInspectionPreferences.Value(defaults: $0)
         }
-        iconPreferencesObserver?.onChange = { [weak self] count in
+        iconPreferencesObserver?.onChange = { [weak self] value in
             guard let self else {
                 return
             }
-            self.iconPreferences.update(iconCount: count) {
+            self.iconPreferences.update(iconCount: value.iconCount, tracking: value.tracking) {
                 self.updateProcessInspection()
             }
         }
@@ -409,15 +435,29 @@ final class TerminalPaneWorkspace {
         }
     }
 
+    /// True when a visible header or tab icon needs the foreground program.
+    private var wantsProgramInfo: Bool {
+        needsProcessInspection && TabStripPreferences.inspectsProcesses(
+            tracking: iconPreferences.tracking,
+            paneCards: hostView.map {
+                $0.cardsEnabled && $0.showsPaneHeaders
+            } ?? appearanceSettings.paneCardsEnabled,
+            iconCount: iconPreferences.iconCount
+        )
+    }
+
     private func evaluateProcessInspection() {
-        guard
-            needsProcessInspection,
-            TabStripPreferences.inspectsProcesses(
-                paneCards: hostView.map {
-                    $0.cardsEnabled && $0.showsPaneHeaders
-                } ?? appearanceSettings.paneCardsEnabled,
-                iconCount: iconPreferences.iconCount
-            ) else {
+        let wanted = wantsProgramInfo
+        // Persistent and remote panes: the helper polls. Without visible
+        // icons, it polls slowly for the busy check and the Sessions window.
+        let mode: InfoReportMode = !iconPreferences.tracking ? .off : (wanted ? .live : .background)
+        for controller in controllers {
+            controller.setRemoteInfoMode(mode)
+            if !iconPreferences.tracking {
+                controller.updatePaneExecutablePath(nil)
+            }
+        }
+        guard wanted else {
             processTask?.cancel()
             processTask = nil
             jobIconResolvers.removeAll()
@@ -443,21 +483,28 @@ final class TerminalPaneWorkspace {
         }
     }
 
+    /// True when the foreground group has only the shell.
+    nonisolated static func isIdleShell(_ snapshot: TerminalForegroundJobSnapshot?, shellPid: pid_t) -> Bool {
+        guard let snapshot, snapshot.processGroup == shellPid else {
+            return false
+        }
+        return !snapshot.processes.isEmpty && snapshot.processes.allSatisfy {
+            $0.processID == shellPid
+        }
+    }
+
     private func inspectForegroundProcesses() async {
-        guard
-            needsProcessInspection,
-            TabStripPreferences.inspectsProcesses(
-                paneCards: hostView.map {
-                    $0.cardsEnabled && $0.showsPaneHeaders
-                } ?? appearanceSettings.paneCardsEnabled,
-                iconCount: iconPreferences.iconCount
-            ) else {
+        guard wantsProgramInfo else {
             return
         }
         // Recheck after each suspension; no process syscalls for hidden groups.
         let panes = controllers
         let descriptors = panes.map { controller -> Int32? in
             guard let process = controller.terminal?.process, process.running else {
+                return nil
+            }
+            // At a shell prompt (OSC 133) the program cannot change: keep the last path.
+            guard controller.panePresentation.executablePath == nil || controller.foregroundPollGate.shouldProbe() else {
                 return nil
             }
             return process.childfd
@@ -498,6 +545,13 @@ final class TerminalPaneWorkspace {
             let currentDescriptor = currentProcess?.running == true ? currentProcess?.childfd : nil
             guard descriptor == currentDescriptor else {
                 continue
+            }
+            // Only the shell: the polls can stop at a prompt (OSC 133). A
+            // poll that is cancelled before this line does not count.
+            // A prompt can start git or starship in the shell's group, so
+            // the shell must be the only process in the group.
+            if let process = currentProcess {
+                controller.foregroundPollGate.record(idle: Self.isIdleShell(snapshot, shellPid: process.shellPid))
             }
             var resolver = jobIconResolvers[controller.id] ?? TerminalForegroundJobIconResolver()
             let path = resolver.executablePath(for: snapshot, descriptor: descriptor)

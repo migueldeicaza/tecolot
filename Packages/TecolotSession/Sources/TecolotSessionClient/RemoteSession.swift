@@ -17,6 +17,9 @@ import TecolotTransport
 import TecolotWire
 
 public struct RemoteSessionState: Sendable {
+    /// An empty, unconnected state.
+    public init() {}
+
     public var connected = false
     public var sessionID = ""
     public var helperBuild = ""
@@ -154,6 +157,9 @@ public final class RemoteSession: @unchecked Sendable {
     private var closed = false
     private var capabilitiesKnown = false
     private var requestedFramesEnabled: Bool?
+    private var requestedInfoMode = InfoReportMode.live
+    /// What the helper uses now. A helper starts each client at `live`.
+    private var helperInfoMode = InfoReportMode.live
 
     /// Rows fetched ahead of a scroll, per side, in screens.
     public var prefetchScreens = 2
@@ -315,6 +321,29 @@ public final class RemoteSession: @unchecked Sendable {
             }
             channel.send(attach)
         }
+    }
+
+    /// Sets how often the helper polls the foreground process for this
+    /// client (`SessionInfoMessage`). Older helpers poll each second.
+    public func setInfoReportMode(_ mode: InfoReportMode) {
+        queue.async { [self] in
+            requestedInfoMode = mode
+            guard capabilitiesKnown else {
+                return
+            }
+            applyInfoPolicy()
+        }
+    }
+
+    /// Queue-confined; sends only a change, and only to capable helpers.
+    private func applyInfoPolicy() {
+        guard
+            state.helperCapabilities.contains(.infoReports),
+            requestedInfoMode != helperInfoMode else {
+            return
+        }
+        helperInfoMode = requestedInfoMode
+        channel.send(SetInfoReportsMessage(mode: requestedInfoMode))
     }
 
     public func clearSeenProgramStatus(_ records: [WireProgramStatus]) {
@@ -603,6 +632,8 @@ public final class RemoteSession: @unchecked Sendable {
                 }
                 capabilitiesKnown = true
                 applyFramePolicy()
+                helperInfoMode = .live
+                applyInfoPolicy()
             case .frame:
                 try apply(envelope.decode(FrameMessage.self))
             case .rows:

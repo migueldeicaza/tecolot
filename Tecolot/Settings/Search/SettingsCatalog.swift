@@ -25,6 +25,7 @@ enum SettingID: String, CaseIterable, Hashable {
     case generalSecureKeyboardEntry
     case generalCopyOnSelection
     case generalUseMetal
+    case generalTrackRunningPrograms
     case generalSectionUpdates
     case generalCheckForUpdates
     case generalDownloadUpdates
@@ -322,6 +323,10 @@ extension SettingID {
             return settingEntry(self, .general, "Use Metal",
                            "Draw terminal text with the GPU.",
                            keywords: ["rendering", "renderer", "gpu", "graphics", "performance", "hardware acceleration"])
+        case .generalTrackRunningPrograms:
+            return settingEntry(self, .general, "Track running programs",
+                           "Check which program runs in each pane. Tab icons, generated tab titles, pane headers, the Sessions window and the busy check use it. Turn off to save CPU.",
+                           keywords: ["process", "foreground", "detect app", "running app", "polling", "cpu", "battery", "tab icons"])
         case .generalSectionUpdates:
             return sectionEntry(self, .general, "Updates", "Choose how Tecolot checks for and downloads updates.",
                            keywords: ["software update", "sparkle", "new version"], requiresUpdater: true)
