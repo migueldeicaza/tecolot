@@ -85,7 +85,11 @@ nonisolated struct TabStripPreferences: Equatable {
     static let animationStyleDefault = "natural"
     static let preferGeneratedTitlesKey = "preferGeneratedTabTitles"
     static let preferGeneratedTitlesDefault = true
-    static let observedKeys = [iconCountKey, colorModeKey, fillKey, animationStyleKey, preferGeneratedTitlesKey]
+    /// General › "Track running programs". Off stops all foreground-process
+    /// polls (local, persistent and remote) and hides tab icons.
+    static let trackRunningProgramsKey = "trackRunningPrograms"
+    static let trackRunningProgramsDefault = true
+    static let observedKeys = [iconCountKey, colorModeKey, fillKey, animationStyleKey, preferGeneratedTitlesKey, trackRunningProgramsKey]
     enum ColorMode: String { case always, activeTabs, activePanes, never }
     var iconCount: Int
     var colorMode: ColorMode
@@ -94,7 +98,7 @@ nonisolated struct TabStripPreferences: Equatable {
     var preferGeneratedTitles: Bool
 
     init(defaults: UserDefaults = .standard) {
-        iconCount = min(5, max(0, defaults.object(forKey: Self.iconCountKey) as? Int ?? Self.iconCountDefault))
+        iconCount = Self.effectiveIconCount(defaults)
         colorMode = defaults.string(forKey: Self.colorModeKey).flatMap(ColorMode.init(rawValue:)) ?? Self.colorModeDefault
         fill = defaults.bool(forKey: Self.fillKey)
         animationStyle = defaults.string(forKey: Self.animationStyleKey) ?? Self.animationStyleDefault
@@ -114,7 +118,19 @@ nonisolated struct TabStripPreferences: Equatable {
         }
     }
 
-    static func inspectsProcesses(paneCards: Bool, iconCount: Int) -> Bool {
-        paneCards || iconCount > 0
+    static func tracksRunningPrograms(_ defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: trackRunningProgramsKey) as? Bool ?? trackRunningProgramsDefault
+    }
+
+    /// The icon count to show: zero when programs are not tracked.
+    static func effectiveIconCount(_ defaults: UserDefaults) -> Int {
+        guard tracksRunningPrograms(defaults) else {
+            return 0
+        }
+        return min(5, max(0, defaults.object(forKey: iconCountKey) as? Int ?? iconCountDefault))
+    }
+
+    static func inspectsProcesses(tracking: Bool, paneCards: Bool, iconCount: Int) -> Bool {
+        tracking && (paneCards || iconCount > 0)
     }
 }

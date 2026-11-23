@@ -51,6 +51,8 @@ public struct MessageKind: RawRepresentable, Hashable, Sendable, CustomStringCon
     public static let clearProgramStatus = MessageKind(rawValue: 25)
     /// Changes rendering rate without reattaching; old helpers ignore this optional request.
     public static let setFrameRate = MessageKind(rawValue: 26)
+    /// Starts or stops the foreground-process poll; old helpers ignore this optional request.
+    public static let setInfoReports = MessageKind(rawValue: 27)
 
     // Link directory messages.
     public static let linkHello = MessageKind(rawValue: 128)

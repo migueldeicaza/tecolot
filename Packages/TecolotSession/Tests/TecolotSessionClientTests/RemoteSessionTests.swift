@@ -248,6 +248,65 @@ struct RemoteSessionTests {
         }
     }
 
+    @Test(arguments: [SessionCapabilities(), [.infoReports]])
+    func infoReportsWaitForHelloAndSendOnlyChanges(capabilities: SessionCapabilities) async throws {
+        var fds: [Int32] = [0, 0]
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
+            throw POSIXError(.EIO)
+        }
+        let helper = MessageChannel(readFD: fds[1], writeFD: fds[1])
+        let attaches = Mutex(0)
+        let requests = Mutex<[InfoReportMode]>([])
+        helper.onMessage = { envelope in
+            if envelope.kind == .attach {
+                attaches.withLock {
+                    $0 += 1
+                }
+            } else if envelope.kind == .setInfoReports, let message = try? envelope.decode(SetInfoReportsMessage.self) {
+                requests.withLock {
+                    $0.append(message.mode)
+                }
+            }
+        }
+        helper.start()
+        let session = RemoteSession(socket: fds[0], clientName: "test", build: "test")
+        defer { session.close()
+            helper.close()
+        }
+        session.start(size: WireGridSize(columns: 80, rows: 24), focused: true)
+        try await eventually("initial attach") {
+            attaches.withLock {
+                $0 == 1
+            }
+        }
+        session.setInfoReportMode(.live)
+        session.setInfoReportMode(.off)
+        helper.send(HelloReplyMessage(version: 1, build: "helper", capabilities: capabilities, sessionID: "test"))
+        try await eventually("hello reply") {
+            session.state.connected
+        }
+        // The helper got off at hello; off again is no change.
+        session.setInfoReportMode(.off)
+        session.setInfoReportMode(.background)
+        await withCheckedContinuation { c in
+            session.queue.async {
+                c.resume()
+            }
+        }
+        if capabilities.contains(.infoReports) {
+            try await eventually("requests after hello") {
+                requests.withLock {
+                    $0 == [.off, .background]
+                }
+            }
+        } else {
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(requests.withLock {
+                $0.isEmpty
+            })
+        }
+    }
+
     @Test(arguments: [SessionCapabilities(), [.statusOnly]])
     func oldHelperReattachAndHistoryFetchDoNotReportNewOutput(capabilities: SessionCapabilities) async throws {
         var fds: [Int32] = [0, 0]

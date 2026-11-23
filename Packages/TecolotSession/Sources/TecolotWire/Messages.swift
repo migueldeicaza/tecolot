@@ -43,8 +43,12 @@ public struct SessionCapabilities: OptionSet, Hashable, Sendable {
     /// Title, icon title and cwd snapshots independent of frame credits.
     public static let metadata = SessionCapabilities(rawValue: 1 << 9)
 
+    /// The helper reads `SetInfoReportsMessage` and can stop its
+    /// foreground-process poll. An older helper polls at all times.
+    public static let infoReports = SessionCapabilities(rawValue: 1 << 10)
+
     /// What this build of the helper handles.
-    public static let helper: SessionCapabilities = [.search, .reset, .prompts, .images, .bidi, .keyBytes, .programStatus, .statusOnly, .metadata]
+    public static let helper: SessionCapabilities = [.search, .reset, .prompts, .images, .bidi, .keyBytes, .programStatus, .statusOnly, .metadata, .infoReports]
 }
 
 public enum WireBuffer: UInt8, Hashable, Sendable {

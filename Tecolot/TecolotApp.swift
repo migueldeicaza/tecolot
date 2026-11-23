@@ -178,33 +178,6 @@ final class SecureKeyboardEntry {
     }
 }
 
-struct NewItemCommands: Commands {
-    var body: some Commands {
-        CommandGroup(replacing: .newItem) {
-            Button("New Window") {
-                WindowOpener.openWindow(spec: LaunchSpec())
-            }
-            .keyboardShortcut("n", modifiers: [.command])
-
-            Button("New Group") {
-                if let controller = TerminalWindowManager.shared.controller(for: WindowOpener.frontTerminalWindow()) {
-                    controller.newGroup()
-                } else {
-                    WindowOpener.openWindow(spec: LaunchSpec())
-                }
-            }
-            .keyboardShortcut("n", modifiers: [.command, .shift])
-
-            Button("New Tab") {
-                // Inherits working directory and profile from the current
-                // tab per the General settings
-                WindowOpener.openTab(spec: WindowOpener.inheritedTabSpec())
-            }
-            .keyboardShortcut("t", modifiers: [.command])
-        }
-    }
-}
-
 struct TabSelectionCommands: Commands {
     nonisolated static let useCommandDigitsForTabsKey = "useCommandDigitsForTabs"
     nonisolated static let useCommandDigitsForTabsDefault = true
@@ -506,21 +479,6 @@ struct TerminalCommands: Commands {
     }
 }
 
-struct TerminalPrintCommands: Commands {
-    @State private var commandState = TerminalCommandState()
-
-    var body: some Commands {
-        // No keyboard shortcut: Command-P must reach the terminal instead of
-        // opening the print panel.
-        CommandGroup(replacing: .printItem) {
-            Button("Print…") {
-                commandState.controller?.printBuffer()
-            }
-            .disabled(commandState.controller == nil)
-        }
-    }
-}
-
 struct AppInfoCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
@@ -584,13 +542,12 @@ struct TecolotApp: App {
             AppInfoCommands()
             UpdateCommands()
             SettingsCommands()
-            NewItemCommands()
+            FileCommands(profiles: model.profiles)
             GroupWindowCommands()
             TabSelectionCommands()
             SplitCommands()
             ProfileCommands(profiles: model.profiles)
             TerminalCommands()
-            TerminalPrintCommands()
         }
 
         Window("Sessions", id: SessionBrowserWindowID.value) {

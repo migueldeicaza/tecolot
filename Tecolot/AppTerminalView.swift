@@ -133,8 +133,21 @@ final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuAction
 
     nonisolated override func bufferActivated(source: Terminal) {
         super.bufferActivated(source: source)
-        if programStatusTracker.bufferActivated(source) {
+        let reset = programStatusTracker.bufferActivated(source)
+        if reset {
             eventDelivery.sendReset()
+        }
+        // A line-editor binding (Ctrl-X Ctrl-E) can start a program with no
+        // OSC 133 C mark. Such programs usually switch the screen.
+        Task { @MainActor [weak self] in
+            guard let controller = self?.sessionController else {
+                return
+            }
+            if reset {
+                controller.foregroundPollGate.reset()
+            } else {
+                controller.foregroundPollGate.arm()
+            }
         }
     }
     var fileDropShellResolver = TerminalShellResolver()

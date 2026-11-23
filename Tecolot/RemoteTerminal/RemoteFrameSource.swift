@@ -34,6 +34,14 @@ final class RemoteFrameSource: TerminalExternalFrameSource {
     var theme: (ansi: [Color], foreground: Color, background: Color)? {
         didSet { paletteCache = nil }
     }
+    /// How the palette colors 16-255 are made from `theme`.
+    var paletteStrategy: Ansi256PaletteStrategy = .xterm {
+        didSet {
+            if paletteStrategy != oldValue {
+                paletteCache = nil
+            }
+        }
+    }
 
     /// Device pixels per point of the view's display; image slices are sized
     /// in device pixels.
@@ -312,6 +320,7 @@ final class RemoteFrameSource: TerminalExternalFrameSource {
         }
         var palette = TerminalExternalFrame.makePalette(
             ansiColors: theme?.ansi,
+            strategy: paletteStrategy,
             foreground: theme?.foreground,
             background: theme?.background
         )

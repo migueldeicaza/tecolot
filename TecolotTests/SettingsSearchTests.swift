@@ -74,11 +74,14 @@ struct SettingsSearchTests {
         #expect(ids("gpu") == [.generalUseMetal])
         #expect(ids("terminfo") == [.terminalDeclareAs])
         #expect(ids("keybindings").contains(.keyboardKeyMappings))
+        // The old title, which is also the Terminal menu's wording.
+        #expect(ids("use option as meta") == [.keyboardOptionAsMeta])
     }
 
     @Test func everyWordMustMatchAndTheLastCanBeAPrefix() {
         #expect(ids("cursor bl") == [.appearanceCursor])
         #expect(ids("option meta") == [.keyboardOptionAsMeta])
+        #expect(ids("right option") == [.keyboardOptionAsMeta])
         #expect(ids("scrollback li").contains(.terminalScrollbackLines))
         #expect(ids("font zebra").isEmpty)
     }

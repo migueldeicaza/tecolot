@@ -131,6 +131,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored var directoryTracker = PaneDirectoryTracker()
     /// The shell of a persistent pane, from the helper's session information.
     @ObservationIgnored var persistentShellPID: Int32 = 0
+    /// How often the helper polls the foreground program for this pane.
+    @ObservationIgnored private(set) var remoteInfoMode = InfoReportMode.live
+    /// Skips local foreground-process polls while the shell waits at a prompt.
+    @ObservationIgnored var foregroundPollGate = ForegroundPollGate()
     /// A restored local pane waits for its saved text and directory before
     /// its shell starts.
     @ObservationIgnored var awaitingRestore = false
@@ -495,6 +499,13 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         )
     }
 
+    /// How the palette colors 16-255 are made for the current system
+    /// appearance. A per-tab theme override uses the option of the mode.
+    @MainActor
+    var effectivePaletteStrategy: Ansi256PaletteStrategy {
+        profile.ansi256PaletteStrategy(isDark: AppModel.shared.systemAppearance.isDark)
+    }
+
     /// Applies a new profile to the running session (colors, font, cursor,
     /// keyboard, scrollback); shell settings only affect future launches
     @MainActor
@@ -562,6 +573,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             ProfileApplier.apply(
                 theme: effectiveTheme,
                 opacity: effectiveBackgroundOpacity,
+                paletteStrategy: effectivePaletteStrategy,
                 to: terminal
             )
         } else {
@@ -689,6 +701,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
                 guard let self, let terminal = self.terminal as? AppTerminalView else {
                     return
                 }
+                if event.code == 133 {
+                    self.foregroundPollGate.observe(osc133: event.payload)
+                }
                 if event.code == 133, event.payload.first == 65 {
                     terminal.programStatusTracker.dropTransient()
                     if self.programStatus.uses7501 {
@@ -713,6 +728,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if !startsProcess {
             restoreBufferIfNeeded(on: terminal)
         }
+        updateWindowTitle()
         return terminal
     }
 
@@ -953,6 +969,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             terminal.programStatusProcessExited()
             (terminal as? AppTerminalView)?.programStatusTracker.processExited()
         }
+        foregroundPollGate.reset()
         programStatus.dropTransient()
         let exitedCleanly = (exitCode ?? 0) == 0
         switch profile.whenShellExits {
@@ -1169,6 +1186,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
                 return
             }
             terminal?.optionAsMetaKey = newValue
+            // Keep the functional keys with the Option keys, as
+            // `ProfileApplier` does.
+            terminal?.optionAsMetaKeyForFunctionalKeys = newValue
         }
     }
 
@@ -2432,7 +2452,19 @@ extension TerminalSessionController {
                 self.handlePersistentEvent(event)
             }
         }
+        if remoteInfoMode != .live {
+            session.setInfoReportMode(remoteInfoMode)
+        }
         return session
+    }
+
+    /// Sets how often the helper polls the foreground program for this pane.
+    func setRemoteInfoMode(_ mode: InfoReportMode) {
+        guard remoteInfoMode != mode else {
+            return
+        }
+        remoteInfoMode = mode
+        persistentView?.session.setInfoReportMode(mode)
     }
 
     /// Connects again to the session after the connection dropped.
@@ -2505,6 +2537,8 @@ extension TerminalSessionController {
             }
         }
         scheduleFocusIfNeeded()
+        // The helper polls only while a tab icon or pane header needs it.
+        workspace?.updateProcessInspection()
     }
 
     @MainActor
@@ -2529,6 +2563,7 @@ extension TerminalSessionController {
             }
             view.selectedTextBackgroundColor = ProfileApplier.nativeColor(selection)
             view.selectedTextForegroundColor = ProfileApplier.nativeColor(theme.effectiveSelectionText)
+            view.source.paletteStrategy = effectivePaletteStrategy
             view.source.theme = (ansi, theme.foreground.terminalColor, theme.background.terminalColor)
             let rgb: (SwiftTerm.Color) -> WireRGB = { color in
                 WireRGB(red: color.red, green: color.green, blue: color.blue)
@@ -2553,6 +2588,7 @@ extension TerminalSessionController {
             view.fontSmoothing = profile.fontSmoothing
             view.useBrightColors = profile.useBrightColorsForBold
             view.optionAsMetaKey = profile.optionAsMetaKey
+            view.optionAsMetaSide = profile.optionMetaSide.terminalSide
             view.backspaceSendsControlH = profile.backspaceSendsControlH
             view.allowsOsc8Links = profile.linkOsc8
         }
@@ -2593,7 +2629,11 @@ extension TerminalSessionController {
             processTerminated(source: nil, exitCode: code)
         case .info(let info):
             persistentShellPID = info.shellPID
-            updatePaneExecutablePath(info.foreground?.path)
+            // Older helpers, and the first report of an attach, still come
+            // when "Track running programs" is off.
+            if remoteInfoMode != .off {
+                updatePaneExecutablePath(info.foreground?.path)
+            }
         case .programStatus(let snapshot):
             if let previous = remoteOutputSerial, previous != snapshot.outputSerial {
                 noteOutputActivity()

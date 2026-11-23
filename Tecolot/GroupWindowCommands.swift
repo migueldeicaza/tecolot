@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 
 struct GroupWindowCommands: Commands {
-    @Environment(\.openWindow) private var openWindow
     @State private var commandState = TerminalCommandState()
     @AppStorage(GlobalAppearanceSettings.showPaneHeadersKey) private var showPaneHeaders = GlobalAppearanceSettings.showPaneHeadersDefault
     private var target: TerminalWindowCommandTarget? {
@@ -15,57 +14,6 @@ struct GroupWindowCommands: Commands {
     }
 
     var body: some Commands {
-        let _ = registerSessionBrowser()
-        CommandGroup(replacing: .saveItem) {}
-        CommandGroup(replacing: .importExport) {}
-        CommandGroup(after: .newItem) {
-            Button("Go to Directory…") {
-                owner?.openCommandPalette(scope: .directoryPicker(initialPath: nil))
-            }
-            .keyboardShortcut("g", modifiers: [.command, .shift])
-            .disabled(owner == nil)
-            Divider()
-            Button("Close") {
-                if let owner {
-                    owner.requestCloseSelectedPane()
-                } else {
-                    target?.window.performClose(nil)
-                }
-            }
-            .keyboardShortcut("w", modifiers: .command)
-            .disabled(target == nil)
-            Button("Close Tab") {
-                if let owner, let tab = owner.group.selectedTab {
-                    owner.requestCloseTab(tab)
-                }
-            }
-            .keyboardShortcut("w", modifiers: [.command, .option])
-            .disabled(owner == nil)
-            Button("Close Window") {
-                target?.window.performClose(nil)
-            }
-            .keyboardShortcut("w", modifiers: [.command, .shift])
-            .disabled(target == nil)
-            Button("Close Group") {
-                owner?.requestCloseGroup()
-            }
-            .keyboardShortcut("w", modifiers: [.command, .option, .shift])
-            .disabled(owner == nil)
-            Button("Close Group and End Sessions") {
-                owner?.requestCloseGroupAndEndSessions()
-            }
-            .disabled(owner == nil)
-            Button("Duplicate Group") {
-                if let owner {
-                    TerminalWindowManager.shared.duplicate(owner.group)
-                }
-            }
-            .disabled(owner == nil)
-            Button("Rename Group…") {
-                owner?.renameGroup()
-            }
-            .disabled(owner == nil)
-        }
         CommandGroup(after: .toolbar) {
             Button("Command Palette…") {
                 owner?.toggleCommandPalette()
@@ -161,11 +109,6 @@ struct GroupWindowCommands: Commands {
                 }
             }
             .disabled(owner == nil)
-        }
-    }
-    private func registerSessionBrowser() {
-        SessionBrowserPresentation.open = {
-            openWindow(id: SessionBrowserWindowID.value)
         }
     }
     private func moveTab(_ offset: Int) {

@@ -156,6 +156,8 @@ public final class SessionHost: @unchecked Sendable {
     private var animationTimerDeadline: UInt64?
     private var infoTimer: DispatchSourceTimer?
     private var lastSessionInfo: SessionInfoMessage?
+    /// Skips polls while the shell waits at a prompt (OSC 133).
+    private let pollGate = Mutex(ForegroundPollGate())
     private var pendingPastes: [UInt64: String] = [:]
     private var nextPasteToken: UInt64 = 1
     private var clipboardReaders: [UInt64: SessionClient] = [:]
@@ -226,6 +228,11 @@ public final class SessionHost: @unchecked Sendable {
         oscObservation = terminal.observeOscEvents(codes: [9, 777, 633, 1337, 133, 7501]) { [weak self] event in
             guard let self else {
                 return
+            }
+            if event.code == 133 {
+                pollGate.withLock {
+                    $0.observe(osc133: event.payload)
+                }
             }
             if event.code == 133, event.payload.first == 65 {
                 programStatus.dropTransient()
@@ -517,6 +524,15 @@ public final class SessionHost: @unchecked Sendable {
                 client.maximumFramesPerSecond = max(0, min(rate, 240))
                 client.needsFrame = true
                 signal()
+            case .setInfoReports:
+                let mode = try envelope.decode(SetInfoReportsMessage.self).mode
+                let wasOff = client.infoMode == .off
+                client.infoMode = mode
+                // The timer sends nothing new while the information is the same.
+                if wasOff, mode != .off, client.attached, let lastSessionInfo {
+                    client.channel.send(lastSessionInfo)
+                }
+                updateInfoTimer()
             case .clearProgramStatus:
                 programStatus.clearSeen(try envelope.decode(ClearProgramStatusMessage.self).records)
                 programStatusDidChange()
@@ -631,6 +647,10 @@ public final class SessionHost: @unchecked Sendable {
             client.lastInput = .now()
         }
         attachmentChanged()
+        // The timer sends nothing new while the information is the same.
+        if client.infoMode != .off, let lastSessionInfo {
+            client.channel.send(lastSessionInfo)
+        }
         if sizeOwner === client {
             applySize(client.size)
         }
@@ -1716,11 +1736,26 @@ public final class SessionHost: @unchecked Sendable {
 
     // MARK: - Session information
 
-    /// Polls the foreground process: every second while a client is attached,
-    /// every five seconds otherwise (for the session records).
+    /// The poll interval in seconds, or nil for no poll. A client sets its
+    /// need with `SetInfoReportsMessage`. A detached session polls every five
+    /// seconds for the session records and the busy check.
+    private var infoInterval: Int? {
+        let attached = attachedClients
+        guard !attached.isEmpty else {
+            return 5
+        }
+        if attached.contains(where: { $0.infoMode == .live }) {
+            return 1
+        }
+        if attached.contains(where: { $0.infoMode == .background }) {
+            return 5
+        }
+        return nil
+    }
+
+    /// Starts, changes or stops the foreground-process poll.
     private func updateInfoTimer() {
-        let interval = attachedClients.isEmpty ? 5 : 1
-        guard exitStatus == nil else {
+        guard exitStatus == nil, let interval = infoInterval else {
             infoTimer?.cancel()
             infoTimer = nil
             return
@@ -1733,7 +1768,17 @@ public final class SessionHost: @unchecked Sendable {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: .seconds(interval), leeway: .milliseconds(200))
         timer.setEventHandler { [weak self] in
-            self?.publishSessionInfo()
+            guard let self else {
+                return
+            }
+            // A new client must get the information once, even at a prompt.
+            if
+                lastSessionInfo != nil, !pollGate.withLock({
+                    $0.shouldProbe()
+                }) {
+                return
+            }
+            publishSessionInfo()
         }
         infoTimer = timer
         timer.resume()
@@ -1743,7 +1788,11 @@ public final class SessionHost: @unchecked Sendable {
 
     private var infoTimerInterval = 0
 
+    /// The number of foreground-process polls, for tests. Session queue only.
+    private(set) var infoProbes = 0
+
     private func publishSessionInfo() {
+        infoProbes += 1
         let pid = process.shellPid
         let info = SessionInfoMessage(
             shellPID: pid,
@@ -1751,11 +1800,15 @@ public final class SessionHost: @unchecked Sendable {
             foreground: ProcessInspector.foreground(ptyDescriptor: process.childfd),
             hasChildren: ProcessInspector.hasChildren(pid)
         )
+        // Only the shell, with no child: the polls can stop at a prompt.
+        pollGate.withLock {
+            $0.record(idle: pid > 0 && info.foreground?.pid == pid && !info.hasChildren)
+        }
         guard info != lastSessionInfo else {
             return
         }
         lastSessionInfo = info
-        for client in attachedClients {
+        for client in attachedClients where client.infoMode != .off {
             client.channel.send(info)
         }
         onSessionInfo?(info)
@@ -1947,7 +2000,17 @@ extension SessionHost: TerminalDelegate {
     }
 
     public func bufferActivated(source: Terminal) {
-        if programStatus.bufferActivated(source) {
+        let reset = programStatus.bufferActivated(source)
+        // A line-editor binding (Ctrl-X Ctrl-E) can start a program with no
+        // OSC 133 C mark. Such programs usually switch the screen.
+        pollGate.withLock {
+            if reset {
+                $0.reset()
+            } else {
+                $0.arm()
+            }
+        }
+        if reset {
             programStatusDidChange()
         }
         signal()

@@ -481,6 +481,42 @@ final class ProfileStoreTests {
         #expect(reloaded.defaultProfile.sessionPersistence == .persistent)
     }
 
+    @Test func optionMetaSideSurvivesRoundTrip() throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var profile = store.defaultProfile
+        #expect(profile.optionMetaSide == .both)
+        profile.optionMetaSide = .left
+        try store.update(profile)
+
+        let reloaded = try ProfileStore(directory: dir)
+        #expect(reloaded.defaultProfile.optionMetaSide == .left)
+        #expect(reloaded.defaultProfile.optionAsMetaKey)
+    }
+
+    @Test func absentOrUnknownOptionMetaSideIsBoth() throws {
+        for json in [#"{"name": "Old"}"#, #"{"name": "Newer", "optionMetaSide": "fn"}"#] {
+            let profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(json.utf8))
+            #expect(profile.optionMetaSide == .both)
+            #expect(profile.optionAsMetaKey)
+        }
+    }
+
+    /// The picker of the settings keeps its choice in two profile fields.
+    @Test func optionMetaKeysPickerMapsToTheProfileFields() throws {
+        var profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(#"{"name": "P"}"#.utf8))
+        #expect(OptionMetaKeys(profile: profile) == .both)
+        OptionMetaKeys.right.apply(to: &profile)
+        #expect(profile.optionAsMetaKey && profile.optionMetaSide == .right)
+        #expect(OptionMetaKeys(profile: profile) == .right)
+        // "Neither key" keeps the side for the Terminal menu's toggle.
+        OptionMetaKeys.neither.apply(to: &profile)
+        #expect(!profile.optionAsMetaKey && profile.optionMetaSide == .right)
+        #expect(OptionMetaKeys(profile: profile) == .neither)
+        OptionMetaKeys.both.apply(to: &profile)
+        #expect(profile.optionAsMetaKey && profile.optionMetaSide == .both)
+    }
+
     @Test func unknownSessionPersistenceFallsBackToStandard() throws {
         let json = #"{"name": "Newer", "sessionPersistence": "remoteHost"}"#
         let profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(json.utf8))
@@ -1207,5 +1243,49 @@ struct Osc8ProfileTests {
             ProfileApplier.apply(profile: profile, themeStore: themes, isDark: true, to: view)
             #expect(view.enableOsc8Hyperlinks == enabled)
         }
+    }
+}
+
+@Suite("Extended palette profile setting")
+@MainActor
+struct ExtendedPaletteProfileTests {
+    @Test func missingSettingIsStandardInBothModes() throws {
+        let profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(#"{"name":"Old profile"}"#.utf8))
+        #expect(profile.lightExtendedPalette == .standard)
+        #expect(profile.darkExtendedPalette == .standard)
+        #expect(profile.ansi256PaletteStrategy(isDark: true) == .xterm)
+    }
+
+    @Test func unknownValueFallsBackToStandard() throws {
+        let json = #"{"name":"Newer profile","lightExtendedPalette":"later","darkExtendedPalette":"theme"}"#
+        let profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(json.utf8))
+        #expect(profile.lightExtendedPalette == .standard)
+        #expect(profile.darkExtendedPalette == .theme)
+    }
+
+    @Test func modesAreIndependentAndSurviveEncoding() throws {
+        var profile = TerminalProfile(name: "Test")
+        profile.setExtendedPalette(.themeHarmonious, isDark: false)
+        #expect(profile.extendedPalette(isDark: false) == .themeHarmonious)
+        #expect(profile.extendedPalette(isDark: true) == .standard)
+        let data = try JSONEncoder().encode(profile)
+        #expect(try JSONDecoder().decode(TerminalProfile.self, from: data) == profile)
+    }
+
+    @Test func modeOfAppearanceAppliesToOpenTerminal() {
+        let view = TerminalView(frame: .zero)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let themes = ThemeStore(directory: directory)
+        var profile = TerminalProfile(name: "Test")
+        profile.setExtendedPalette(.theme, isDark: true)
+        profile.setExtendedPalette(.themeHarmonious, isDark: false)
+        ProfileApplier.apply(profile: profile, themeStore: themes, isDark: true, to: view)
+        #expect(view.ansi256PaletteStrategy == .base16Lab)
+        ProfileApplier.apply(profile: profile, themeStore: themes, isDark: false, to: view)
+        #expect(view.ansi256PaletteStrategy == .base16LabHarmonious)
+        profile.setExtendedPalette(.standard, isDark: false)
+        ProfileApplier.apply(profile: profile, themeStore: themes, isDark: false, to: view)
+        #expect(view.ansi256PaletteStrategy == .xterm)
     }
 }

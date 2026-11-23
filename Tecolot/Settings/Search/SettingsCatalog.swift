@@ -25,6 +25,7 @@ enum SettingID: String, CaseIterable, Hashable {
     case generalSecureKeyboardEntry
     case generalCopyOnSelection
     case generalUseMetal
+    case generalTrackRunningPrograms
     case generalSectionUpdates
     case generalCheckForUpdates
     case generalDownloadUpdates
@@ -322,6 +323,10 @@ extension SettingID {
             return settingEntry(self, .general, "Use Metal",
                            "Draw terminal text with the GPU.",
                            keywords: ["rendering", "renderer", "gpu", "graphics", "performance", "hardware acceleration"])
+        case .generalTrackRunningPrograms:
+            return settingEntry(self, .general, "Track running programs",
+                           "Check which program runs in each pane. Tab icons, generated tab titles, pane headers, the Sessions window and the busy check use it. Turn off to save CPU.",
+                           keywords: ["process", "foreground", "detect app", "running app", "polling", "cpu", "battery", "tab icons"])
         case .generalSectionUpdates:
             return sectionEntry(self, .general, "Updates", "Choose how Tecolot checks for and downloads updates.",
                            keywords: ["software update", "sparkle", "new version"], requiresUpdater: true)
@@ -544,11 +549,13 @@ extension SettingID {
         case .appearanceLightTheme:
             return settingEntry(self, .appearance, "Light mode",
                            "Choose or make the theme for the system light appearance.",
-                           keywords: ["light theme", "color scheme", "colors", "palette", "new theme"])
+                           keywords: ["light theme", "color scheme", "colors", "palette", "new theme",
+                                      "extended palette", "256 colors", "color cube", "xterm colors"])
         case .appearanceDarkTheme:
             return settingEntry(self, .appearance, "Dark mode",
                            "Choose or make the theme for the system dark appearance.",
-                           keywords: ["dark theme", "color scheme", "colors", "palette", "new theme"])
+                           keywords: ["dark theme", "color scheme", "colors", "palette", "new theme",
+                                      "extended palette", "256 colors", "color cube", "xterm colors"])
         case .appearanceWindowChrome:
             return settingEntry(self, .appearance, "Match window chrome to theme",
                            "Use the theme colors for the title bar, tabs and toolbar controls.",
@@ -635,9 +642,10 @@ extension SettingID {
             return pageEntry(self, .keyboardAndMouse, "Set the Option and Delete keys, the pointer and key mappings.",
                         keywords: ["keys", "shortcuts", "input"])
         case .keyboardOptionAsMeta:
-            return settingEntry(self, .keyboardAndMouse, "Use Option as Meta key",
-                           "Send Meta with the Option key, for programs such as Emacs.",
-                           keywords: ["alt", "escape prefix", "esc+", "emacs", "special characters"])
+            return settingEntry(self, .keyboardAndMouse, "Option key as Meta",
+                           "Select the Option keys that send Meta, for programs such as Emacs. The other key types the characters of the keyboard layout.",
+                           keywords: ["use option as meta", "alt", "escape prefix", "esc+", "emacs", "special characters",
+                                      "left option", "right option", "altgr", "layout", "norwegian", "german", "pipe"])
         case .keyboardDeleteSendsControlH:
             return settingEntry(self, .keyboardAndMouse, "Delete sends Control-H",
                            "Send Control-H, not DEL, when you press Delete.",

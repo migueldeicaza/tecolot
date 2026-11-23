@@ -113,8 +113,12 @@ struct ProfileTextSettingsFields: View {
         guard !isEditing else {
             return
         }
-        update {
-            $0.backgroundOpacity = backgroundOpacityPreview
+        let opacity = backgroundOpacityPreview
+        let save = update
+        DispatchQueue.main.async {
+            save {
+                $0.backgroundOpacity = opacity
+            }
         }
     }
 

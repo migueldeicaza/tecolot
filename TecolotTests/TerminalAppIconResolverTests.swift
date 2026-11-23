@@ -10,6 +10,9 @@ struct TerminalAppIconResolverTests {
         #expect(TerminalAppIconResolver.identity(forExecutablePath: versions.appendingPathComponent("2.1.294").path) == "claude")
         #expect(TerminalAppIconResolver.identity(forExecutablePath: "/opt/bin/python3.13") == "python3")
         #expect(TerminalAppIconResolver.identity(forExecutablePath: "/opt/bin/python3.13.1") == "python3")
+        #expect(TerminalAppIconResolver.identity(forExecutablePath: "/usr/bin/perl5.34") == "perl")
+        #expect(TerminalAppIconResolver.identity(forExecutablePath: "/opt/bin/php8.4") == "php")
+        #expect(TerminalAppIconResolver.identity(forExecutablePath: "/opt/bin/ruby3.3") == "ruby")
         #expect(TerminalAppIconResolver.identity(forExecutablePath: "/tmp/2.1.294") == "2.1.294")
         #expect(TerminalAppIconResolver.identity(forExecutablePath: "/tmp/claude/versions/2.1.294") == "2.1.294")
         #expect(TerminalAppIconResolver.identity(forExecutablePath: "/opt/bin/python3.13-helper") == "python3.13-helper")
@@ -36,25 +39,64 @@ struct TerminalAppIconResolverTests {
         #expect(TerminalAppIconResolver.identity(forExecutablePath: "") == nil)
         #expect(TerminalAppIconResolver.identity(forExecutablePath: "/opt/bin/Node") == "node")
         #expect(TerminalAppIconResolver.identity(forExecutablePath: "/Applications/Example.app/Contents/MacOS/Example") == "example")
+        #expect(TerminalAppIconResolver.identity(forExecutablePath: "/Users/example/.local/bin/agy") == "agy")
     }
 
     @Test func brandMappingUsesOnlyBundledArtwork() {
         #expect(TerminalAppIconResolver.brandAssetName(for: "bun") == "TerminalBrand-bun")
         #expect(TerminalAppIconResolver.brandAssetName(for: "git") == "TerminalBrand-git")
         #expect(TerminalAppIconResolver.brandAssetName(for: "lazygit") == nil)
-        #expect(TerminalAppIconResolver.brandAssetName(for: "node") == nil)
+        #expect(TerminalAppIconResolver.brandAssetName(for: "node") == "TerminalBrand-node")
+        #expect(TerminalAppIconResolver.brandAssetName(for: "nodejs") == "TerminalBrand-node")
+        #expect(TerminalAppIconResolver.brandAssetName(for: "python3") == "TerminalBrand-python")
+        #expect(TerminalAppIconResolver.brandAssetName(for: "ipython") == "TerminalBrand-python")
         #expect(TerminalAppIconResolver.bundleIdentifiers(for: "claude") == ["com.anthropic.claudefordesktop"])
+        #expect(TerminalAppIconResolver.bundleIdentifiers(for: "agy") == ["com.google.antigravity"])
+        #expect(TerminalAppIconResolver.isRecognizedCommand("agy"))
+        #expect(ProgramGlyphCatalog.entry(forExecutablePath: "/Users/example/.local/bin/agy").id == "agy")
         #expect(TerminalAppIconResolver.bundleIdentifiers(for: "git").isEmpty)
     }
 
     @Test func bundledBrandImagesLoadFromTheApp() throws {
-        for command in ["bun", "git"] {
+        for command in ["bun", "git", "perl", "python", "php", "node", "ruby", "dotnet", "hermes", "opencode", "pi", "htop"] {
             let name = try #require(TerminalAppIconResolver.brandAssetName(for: command))
             let image = try #require(NSImage(named: name))
             #expect(image.size.width > 0)
             #expect(image.size.height > 0)
-            #expect(!image.isTemplate)
+            #expect(image.isTemplate == ["pi", "htop"].contains(command))
         }
+    }
+
+    @Test func newProgramIconsAreSelectedByExecutableName() {
+        for (executable, brand) in [
+            ("perl5.34", "perl"),
+            ("python3.14", "python"),
+            ("php8.4", "php"),
+            ("nodejs", "node"),
+            ("ruby3.3", "ruby"),
+            ("dotnet", "dotnet"),
+            ("hermes", "hermes"),
+            ("opencode", "opencode"),
+            ("pi", "pi"),
+            ("htop", "htop")
+        ] {
+            let path = "/opt/bin/" + executable
+            let identity = TerminalAppIconResolver.identity(forExecutablePath: path) ?? ""
+            #expect(TerminalAppIconResolver.isRecognizedCommand(identity))
+            #expect(TerminalAppIconResolver.brandAssetName(for: identity) == "TerminalBrand-" + brand)
+            #expect(TerminalAppIconResolver.prefersBrandIcon(identity))
+            #expect(ProgramGlyphCatalog.entry(forExecutablePath: path).id == brand)
+        }
+    }
+
+    @Test func antigravityUsesInstalledAppIconWhenAvailable() {
+        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.antigravity") else {
+            return
+        }
+        let expectedSize = NSWorkspace.shared.icon(forFile: app.path).size
+        let resolver = TerminalAppIconResolver()
+        #expect(resolver.icon(forExecutablePath: "/Users/example/.local/bin/agy").size == expectedSize)
+        #expect(resolver.tabGlyph(for: "agy").size == expectedSize)
     }
 
     @Test func executableInsideAppUsesAppIcon() throws {

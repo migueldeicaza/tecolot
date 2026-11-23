@@ -150,24 +150,39 @@ struct ReviewEfficiencyTests {
     }
 
     @Test func unchangedIconPreferencesDoNotReinspectProcesses() {
-        var preferences = PaneIconInspectionPreferences(iconCount: 3)
+        var preferences = PaneIconInspectionPreferences(iconCount: 3, tracking: true)
         var applied: [Int] = []
         for _ in 0..<30 {
-            preferences.update(iconCount: 3) {
+            preferences.update(iconCount: 3, tracking: true) {
                 applied.append(3)
             }
         }
         #expect(applied.isEmpty)
-        preferences.update(iconCount: 0) {
+        preferences.update(iconCount: 0, tracking: true) {
             applied.append(0)
         }
-        preferences.update(iconCount: 0) {
+        preferences.update(iconCount: 0, tracking: true) {
             applied.append(0)
         }
-        preferences.update(iconCount: 5) {
+        preferences.update(iconCount: 5, tracking: true) {
             applied.append(5)
         }
         #expect(applied == [0, 5])
+    }
+
+    @Test func trackingChangeReinspectsProcesses() {
+        var preferences = PaneIconInspectionPreferences(iconCount: 3, tracking: true)
+        var applied: [Bool] = []
+        preferences.update(iconCount: 3, tracking: false) {
+            applied.append(false)
+        }
+        preferences.update(iconCount: 3, tracking: false) {
+            applied.append(false)
+        }
+        preferences.update(iconCount: 3, tracking: true) {
+            applied.append(true)
+        }
+        #expect(applied == [false, true])
     }
 
     @Test func unchangedPaneVisibilityDoesNotResumePrompts() {

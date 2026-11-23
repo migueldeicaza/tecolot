@@ -16,6 +16,15 @@ final class TerminalAppIconResolver {
         if name.range(of: #"^python3(?:\.[0-9]+)+$"#, options: .regularExpression) != nil {
             return "python3"
         }
+        if name.range(of: #"^perl5(?:\.[0-9]+)*$"#, options: .regularExpression) != nil {
+            return "perl"
+        }
+        if name.range(of: #"^php[0-9]+(?:\.[0-9]+)*$"#, options: .regularExpression) != nil {
+            return "php"
+        }
+        if name.range(of: #"^ruby[0-9]+(?:\.[0-9]+)*$"#, options: .regularExpression) != nil {
+            return "ruby"
+        }
         if
             isClaudeVersionsDirectory(url.deletingLastPathComponent()),
             name.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil {
@@ -39,7 +48,8 @@ final class TerminalAppIconResolver {
     }
 
     nonisolated static func isRecognizedCommand(_ identity: String) -> Bool {
-        ["ssh", "mosh", "git", "lazygit", "node", "bun", "python", "python3", "codex", "claude"].contains(identity)
+        brandAssetName(for: identity) != nil
+            || ["ssh", "mosh", "lazygit", "codex", "claude", "agy"].contains(identity)
     }
 
     func icon(forExecutablePath path: String?) -> NSImage {
@@ -57,10 +67,13 @@ final class TerminalAppIconResolver {
         return image
     }
 
-    /// Small template glyphs remain legible inside a tab tile. Full app icons
-    /// continue to be available to existing callers of icon(forExecutablePath:).
+    /// Small glyphs remain legible inside a tab tile. Antigravity uses its
+    /// installed app icon; other full app icons stay in icon(forExecutablePath:).
     func tabGlyph(for identity: String) -> NSImage {
-        bundledBrandIcon(identity) ?? symbolIcon(identity)
+        if identity == "agy", let image = installedAppIcon(identity) {
+            return image
+        }
+        return bundledBrandIcon(identity) ?? symbolIcon(identity)
     }
 
     private func enclosingAppIcon(_ path: String?) -> NSImage? {
@@ -92,6 +105,7 @@ final class TerminalAppIconResolver {
         let bundles: [String: [String]] = [
             "codex": ["com.openai.codex"],
             "claude": ["com.anthropic.claudefordesktop"],
+            "agy": ["com.google.antigravity"],
             "python": ["org.python.IDLE"],
             "python3": ["org.python.IDLE"]
         ]
@@ -111,14 +125,22 @@ final class TerminalAppIconResolver {
     /// commands, the brand icon has priority over the icon of that app.
     /// Add a command here when its icon shows the wrong app.
     static func prefersBrandIcon(_ identity: String) -> Bool {
-        identity == "git"
+        brandAssetName(for: identity) != nil && identity != "bun"
     }
 
-    static func brandAssetName(for identity: String) -> String? {
-        guard ["bun", "git"].contains(identity) else {
+    nonisolated static func brandAssetName(for identity: String) -> String? {
+        let brand: String
+        switch identity {
+        case "bun", "git", "perl", "php", "ruby", "dotnet", "hermes", "opencode", "pi", "htop":
+            brand = identity
+        case "python", "python3", "ipython", "ipython3":
+            brand = "python"
+        case "node", "nodejs":
+            brand = "node"
+        default:
             return nil
         }
-        return "TerminalBrand-" + identity
+        return "TerminalBrand-" + brand
     }
 
     private func symbolIcon(_ identity: String) -> NSImage {
@@ -136,7 +158,7 @@ final class TerminalAppIconResolver {
             return "arrow.triangle.branch"
         case "node", "bun", "python", "python3":
             return "chevron.left.forwardslash.chevron.right"
-        case "codex", "claude":
+        case "codex", "claude", "agy":
             return "sparkles"
         case "less", "more":
             return "doc.text"

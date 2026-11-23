@@ -20,6 +20,15 @@ struct TerminalForegroundJobIconResolverTests {
         #expect(resolver.executablePath(for: snapshot([less]), descriptor: 4) == git.executablePath)
     }
 
+    @Test func shellIsIdleOnlyWhenItIsAloneInTheGroup() {
+        let zsh = process(100, "/bin/zsh")
+        #expect(TerminalPaneWorkspace.isIdleShell(snapshot([zsh]), shellPid: 100))
+        // A prompt runs $(__git_ps1): git is in the shell's group.
+        #expect(!TerminalPaneWorkspace.isIdleShell(snapshot([zsh, process(101, "/usr/bin/git")]), shellPid: 100))
+        #expect(!TerminalPaneWorkspace.isIdleShell(snapshot([process(200, "/usr/bin/vim")], group: 200), shellPid: 100))
+        #expect(!TerminalPaneWorkspace.isIdleShell(nil, shellPid: 100))
+    }
+
     @Test func missingLeaderStillShowsPager() {
         var resolver = TerminalForegroundJobIconResolver()
         #expect(resolver.executablePath(for: snapshot([process(101, "/usr/bin/less")]), descriptor: 4) == "/usr/bin/less")
@@ -29,6 +38,12 @@ struct TerminalForegroundJobIconResolverTests {
         var resolver = TerminalForegroundJobIconResolver()
         #expect(resolver.executablePath(for: snapshot([process(100, "/usr/bin/less"), process(101, "/usr/bin/git")]), descriptor: 4) == "/usr/bin/git")
         #expect(resolver.executablePath(for: snapshot([process(101, "/usr/bin/git")]), descriptor: 4) == "/usr/bin/git")
+    }
+
+    @Test func antigravityIsSelectedFromForegroundGroup() {
+        var resolver = TerminalForegroundJobIconResolver()
+        let agy = process(101, "/Users/example/.local/bin/agy")
+        #expect(resolver.executablePath(for: snapshot([process(100, "/usr/bin/less"), agy]), descriptor: 4) == agy.executablePath)
     }
 
     @Test func newGroupOrDescriptorClearsRememberedCommand() {

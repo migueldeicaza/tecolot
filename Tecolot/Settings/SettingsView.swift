@@ -183,6 +183,12 @@ struct SettingsView: View {
                 }
             }
         }
+        // A precaution: each keystroke can change the rows, and a new
+        // outline view for each set of pages does not update old rows.
+        // SwiftUI stopped once at an "unexpected type" assertion in
+        // HeterogeneousViewIDs during an outline list update. The cause
+        // is not known, and this line is not a confirmed fix.
+        .id(pages)
     }
 
     private func openFirstSearchResult() {
@@ -296,7 +302,9 @@ struct SettingsView: View {
         if
             let section = ProfileSettingsSection(destination: destination),
             let profile = activeProfile {
-            ProfileSettingsPage(section: section, profile: profile, update: updateActiveProfile)
+            ProfileSettingsPage(section: section, profile: profile, update: { mutate in
+                updateProfile(profile.id, mutate)
+            })
                 .navigationSubtitle("\(profile.name) profile")
         } else {
             ContentUnavailableView {
@@ -381,8 +389,11 @@ struct SettingsView: View {
 
     /// Returns false when the change could not be stored, so callers that
     /// coordinate multi-step operations (theme forking) can roll back.
-    private func updateActiveProfile(_ mutate: (inout TerminalProfile) -> Void) -> Bool {
-        guard var profile = activeProfile else {
+    private func updateProfile(
+        _ id: TerminalProfile.ID,
+        _ mutate: (inout TerminalProfile) -> Void
+    ) -> Bool {
+        guard var profile = profiles.profile(withID: id) else {
             return false
         }
         mutate(&profile)

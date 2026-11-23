@@ -14,6 +14,7 @@ struct GeneralSettingsView: View {
     @State private var startupSelectionRevision = 0
     @AppStorage(TerminalSessionController.useMetalRendererKey) private var useMetalRenderer = TerminalSessionController.useMetalRendererDefault
     @AppStorage(TerminalSessionController.copyOnSelectKey) private var copyOnSelect = TerminalSessionController.copyOnSelectDefault
+    @AppStorage(TabStripPreferences.trackRunningProgramsKey) private var trackRunningPrograms = TabStripPreferences.trackRunningProgramsDefault
     @State private var errorMessage: String?
 
     @MainActor
@@ -115,6 +116,14 @@ struct GeneralSettingsView: View {
             Section("Rendering") {
                 Toggle(SettingID.generalUseMetal.title, isOn: metalRendererBinding)
                     .settingsAnchor(.generalUseMetal)
+            }
+            Section("Running programs") {
+                Toggle(SettingID.generalTrackRunningPrograms.title, isOn: $trackRunningPrograms)
+                    .settingsAnchor(.generalTrackRunningPrograms)
+                Text("Checks which program runs in each pane. Tab icons, generated tab titles, pane headers, the Sessions window and the busy check when you close a group use it. When it is off, these do not show the program, and Tecolot uses less CPU on this Mac and on remote hosts.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .settingsAnchor(.generalTrackRunningPrograms)
             }
             if UpdaterModel.shared.updatesEnabled {
                 Section(SettingID.generalSectionUpdates.title) {

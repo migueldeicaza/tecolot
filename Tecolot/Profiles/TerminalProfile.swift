@@ -42,8 +42,8 @@ public enum SessionPersistence: String, Codable, CaseIterable, Sendable, CustomS
     /// The shell runs in the app and ends when its pane closes
     case standard
     /// The shell runs in a persistent session (tecolot-sessiond): closing the
-    /// pane or quitting the app detaches, and File > Attach to Session shows
-    /// it again
+    /// pane or quitting the app detaches, and File > Sessions > Attach to Session
+    /// shows it again
     case persistent
 
     public var description: String {
@@ -78,6 +78,32 @@ public enum AskBeforeClosing: String, Codable, CaseIterable, Sendable, CustomStr
 ///
 /// Raw string values are persisted so future versions can add components
 /// without changing the profile document format.
+/// The Option keys that are Meta while a profile's `optionAsMetaKey` is
+/// true. The raw values are stored in profiles: do not change them. Tecolot
+/// owns this type, so that a change to SwiftTerm's `OptionMetaSide` does not
+/// change the stored choice.
+public enum OptionMetaKeySide: String, Codable, CaseIterable, Sendable {
+    /// The left and the right Option keys are Meta.
+    case both
+    /// The left Option key is Meta; the right one goes to the layout.
+    case left
+    /// The right Option key is Meta; the left one goes to the layout.
+    case right
+}
+
+#if os(macOS)
+    extension OptionMetaKeySide {
+        /// The value for SwiftTerm's `optionAsMetaSide`.
+        var terminalSide: OptionMetaSide {
+            switch self {
+            case .both: return .both
+            case .left: return .left
+            case .right: return .right
+            }
+        }
+    }
+#endif
+
 public enum TerminalTitleComponent: String, Codable, CaseIterable, Hashable, Sendable {
     case activeTitle
     case workingDirectory
@@ -153,6 +179,43 @@ public struct TerminalKeyBinding: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+/// How a profile makes palette colors 16-255 (the 6x6x6 color cube and
+/// the gray ramp). Colors 0-15 always come from the theme.
+public enum ExtendedPaletteMode: String, Codable, CaseIterable, Sendable {
+    /// The standard xterm colors, the same for all themes.
+    case standard
+    /// Colors from the theme, interpolated in LAB. The cube and the gray
+    /// ramp go from dark to light, also on a light theme.
+    case theme
+    /// Colors from the theme, interpolated in LAB. The cube and the gray
+    /// ramp go from the background to the foreground, so on a light theme
+    /// they go from light to dark. On a dark theme this is the same as
+    /// `theme`.
+    case themeHarmonious
+
+    public var title: String {
+        switch self {
+        case .standard:
+            "Standard"
+        case .theme:
+            "From Theme"
+        case .themeHarmonious:
+            "From Theme, Background to Foreground"
+        }
+    }
+
+    public var strategy: Ansi256PaletteStrategy {
+        switch self {
+        case .standard:
+            .xterm
+        case .theme:
+            .base16Lab
+        case .themeHarmonious:
+            .base16LabHarmonious
+        }
+    }
+}
+
 public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     /// Display name, unique within a store
@@ -165,6 +228,10 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var lightThemeName: String
     /// Name of the TerminalTheme used when the system is in Dark Mode
     public var darkThemeName: String
+    /// How palette colors 16-255 are made in Light Mode
+    public var lightExtendedPalette: ExtendedPaletteMode
+    /// How palette colors 16-255 are made in Dark Mode
+    public var darkExtendedPalette: ExtendedPaletteMode
     /// Font family name; nil uses the system monospaced font
     public var fontFamily: String?
     /// Font size in points
@@ -202,6 +269,9 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
 
     // MARK: Keyboard
     public var optionAsMetaKey: Bool
+    /// The Option keys that are Meta while `optionAsMetaKey` is true. The
+    /// other key types the characters of the keyboard layout.
+    public var optionMetaSide: OptionMetaKeySide
     public var backspaceSendsControlH: Bool
     public var hidePointerWhileTyping: Bool
     public var keyBindings: [TerminalKeyBinding]
@@ -232,6 +302,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.name = name
         self.lightThemeName = TerminalProfile.defaultThemeName(isDark: false)
         self.darkThemeName = TerminalProfile.defaultThemeName(isDark: true)
+        self.lightExtendedPalette = defaults.extendedPalette
+        self.darkExtendedPalette = defaults.extendedPalette
         self.fontFamily = defaults.fontFamily
         self.fontSize = defaults.fontSize
         self.fontSmoothing = defaults.fontSmoothing
@@ -249,6 +321,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.askBeforeClosing = defaults.askBeforeClosing
         self.sessionPersistence = defaults.sessionPersistence
         self.optionAsMetaKey = defaults.optionAsMetaKey
+        self.optionMetaSide = defaults.optionMetaSide
         self.backspaceSendsControlH = defaults.backspaceSendsControlH
         self.hidePointerWhileTyping = defaults.hidePointerWhileTyping
         self.keyBindings = defaults.keyBindings
@@ -282,6 +355,26 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         }
     }
 
+    /// How palette colors 16-255 are made for the given system appearance
+    public func extendedPalette(isDark: Bool) -> ExtendedPaletteMode {
+        isDark ? darkExtendedPalette : lightExtendedPalette
+    }
+
+    /// Sets how palette colors 16-255 are made for the given system appearance
+    public mutating func setExtendedPalette(_ mode: ExtendedPaletteMode, isDark: Bool) {
+        if isDark {
+            darkExtendedPalette = mode
+        } else {
+            lightExtendedPalette = mode
+        }
+    }
+
+    /// The SwiftTerm strategy for palette colors 16-255 in the given
+    /// system appearance.
+    public func ansi256PaletteStrategy(isDark: Bool) -> Ansi256PaletteStrategy {
+        extendedPalette(isDark: isDark).strategy
+    }
+
     /// Replaces each slot that uses `oldName` with the result of
     /// `replacement` for the mode of that slot. Returns true if a slot changed.
     @discardableResult
@@ -300,6 +393,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     /// The defaults applied to new profiles and to fields missing from
     /// persisted data written by older versions
     static var standardValues: (
+        extendedPalette: ExtendedPaletteMode,
         fontFamily: String?,
         fontSize: Double,
         fontSmoothing: Bool,
@@ -317,6 +411,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         askBeforeClosing: AskBeforeClosing,
         sessionPersistence: SessionPersistence,
         optionAsMetaKey: Bool,
+        optionMetaSide: OptionMetaKeySide,
         backspaceSendsControlH: Bool,
         hidePointerWhileTyping: Bool,
         linkOsc8: Bool,
@@ -330,6 +425,9 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         keyBindings: [TerminalKeyBinding]
     ) {
         (
+            // Colors 16-255 are the standard xterm colors, as in other
+            // terminals (issue #77).
+            extendedPalette: .standard,
             fontFamily: nil,
             fontSize: 12,
             fontSmoothing: true,
@@ -347,6 +445,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
             askBeforeClosing: .onlyIfProcessesRunning,
             sessionPersistence: .standard,
             optionAsMetaKey: true,
+            optionMetaSide: .both,
             backspaceSendsControlH: false,
             hidePointerWhileTyping: true,
             linkOsc8: true,
@@ -364,11 +463,12 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, name, fontFamily
         case lightThemeName = "themeName", darkThemeName, fontSize, fontSmoothing
+        case lightExtendedPalette, darkExtendedPalette
         case useBrightColorsForBold, cursorStyle, backgroundOpacity
         case useThemeColorsForWindowChrome
         case columns, rows, scrollbackLines, titleOverride, titleComponents
         case shell, whenShellExits, askBeforeClosing, sessionPersistence
-        case optionAsMetaKey, backspaceSendsControlH, hidePointerWhileTyping, keyBindings
+        case optionAsMetaKey, optionMetaSide, backspaceSendsControlH, hidePointerWhileTyping, keyBindings
         case linkOsc8, screenChecksumReports, termName, termProgram, termVersion
         case environmentVariables, bellStyle, allowsNotifications
     }
@@ -390,6 +490,15 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
             self.darkThemeName = try c.decodeIfPresent (String.self, forKey: .darkThemeName)
                 ?? TerminalProfile.defaultThemeName(isDark: true)
         }
+        // An unknown value (from a newer version) falls back to the default.
+        self.lightExtendedPalette = (try? c.decodeIfPresent(ExtendedPaletteMode.self, forKey: .lightExtendedPalette))
+            .flatMap {
+                $0
+            } ?? defaults.extendedPalette
+        self.darkExtendedPalette = (try? c.decodeIfPresent(ExtendedPaletteMode.self, forKey: .darkExtendedPalette))
+            .flatMap {
+                $0
+            } ?? defaults.extendedPalette
         self.fontFamily = try c.decodeIfPresent (String.self, forKey: .fontFamily) ?? defaults.fontFamily
         self.fontSize = try c.decodeIfPresent (Double.self, forKey: .fontSize) ?? defaults.fontSize
         self.fontSmoothing = try c.decodeIfPresent (Bool.self, forKey: .fontSmoothing) ?? defaults.fontSmoothing
@@ -424,6 +533,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
                 $0
             } ?? defaults.sessionPersistence
         self.optionAsMetaKey = try c.decodeIfPresent (Bool.self, forKey: .optionAsMetaKey) ?? defaults.optionAsMetaKey
+        self.optionMetaSide = (try? c.decodeIfPresent (OptionMetaKeySide.self, forKey: .optionMetaSide)) ?? defaults.optionMetaSide
         self.backspaceSendsControlH = try c.decodeIfPresent (Bool.self, forKey: .backspaceSendsControlH) ?? defaults.backspaceSendsControlH
         self.hidePointerWhileTyping = try c.decodeIfPresent(
             Bool.self,
@@ -456,6 +566,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode (name, forKey: .name)
         try c.encode (lightThemeName, forKey: .lightThemeName)
         try c.encode (darkThemeName, forKey: .darkThemeName)
+        try c.encode(lightExtendedPalette, forKey: .lightExtendedPalette)
+        try c.encode(darkExtendedPalette, forKey: .darkExtendedPalette)
         try c.encodeIfPresent (fontFamily, forKey: .fontFamily)
         try c.encode (fontSize, forKey: .fontSize)
         try c.encode (fontSmoothing, forKey: .fontSmoothing)
@@ -474,6 +586,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode (askBeforeClosing, forKey: .askBeforeClosing)
         try c.encode (sessionPersistence, forKey: .sessionPersistence)
         try c.encode (optionAsMetaKey, forKey: .optionAsMetaKey)
+        try c.encode (optionMetaSide, forKey: .optionMetaSide)
         try c.encode (backspaceSendsControlH, forKey: .backspaceSendsControlH)
         try c.encode(hidePointerWhileTyping, forKey: .hidePointerWhileTyping)
         try c.encode (keyBindings, forKey: .keyBindings)

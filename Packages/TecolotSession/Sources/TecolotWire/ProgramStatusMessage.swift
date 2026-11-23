@@ -190,3 +190,35 @@ public struct SetFrameRateMessage: WireMessage {
         writer.varint(maximumFramesPerSecond)
     }
 }
+
+/// How often a client needs `SessionInfoMessage` reports.
+public enum InfoReportMode: UInt8, Sendable, Hashable {
+    /// No reports. The helper does not poll for this client.
+    case off = 0
+    /// Reports every five seconds, for the busy check and the Sessions window.
+    case background = 1
+    /// Reports every second, for visible tab icons and pane headers.
+    case live = 2
+}
+
+/// Tells the helper how often this client needs `SessionInfoMessage`.
+/// When all attached clients send `off`, the helper stops its poll.
+/// Sent only to infoReports-capable helpers; older helpers ignore the unknown kind.
+public struct SetInfoReportsMessage: WireMessage, Hashable {
+    /// The optional envelope kind, sent only after capability negotiation.
+    public static let kind = MessageKind.setInfoReports
+    /// The report rate that this client needs.
+    public var mode: InfoReportMode
+    /// Builds a request to change the report rate.
+    public init(mode: InfoReportMode) {
+        self.mode = mode
+    }
+    /// Decodes the mode. An unknown mode from a newer client is `live`.
+    public init(from reader: inout WireReader) throws(WireError) {
+        mode = InfoReportMode(rawValue: try reader.u8()) ?? .live
+    }
+    /// Encodes the mode.
+    public func encode(to writer: inout WireWriter) {
+        writer.u8(mode.rawValue)
+    }
+}

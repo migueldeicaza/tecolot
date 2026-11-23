@@ -63,9 +63,20 @@ public enum ProfileApplier {
         /// Applies just the colors of a theme to a running terminal view;
         /// this is the hot path used while previewing themes in a picker
         @MainActor
-        public static func apply (theme: TerminalTheme, opacity: Double = 1.0, to view: TerminalView) {
+        public static func apply (
+            theme: TerminalTheme,
+            opacity: Double = 1.0,
+            paletteStrategy: Ansi256PaletteStrategy,
+            to view: TerminalView
+        ) {
             guard theme.isValid else {
                 return
+            }
+            // Set the strategy before the colors, so that SwiftTerm builds
+            // colors 16-255 from the new theme with the new strategy.
+            // The view redraws all of the screen when the strategy changes.
+            if view.ansi256PaletteStrategy != paletteStrategy {
+                view.ansi256PaletteStrategy = paletteStrategy
             }
             view.installColors (theme.ansi.map {
                 $0.terminalColor
@@ -108,7 +119,12 @@ public enum ProfileApplier {
             to view: TerminalView
         ) {
             let themeName = sessionThemeOverride ?? profile.themeName (isDark: isDark)
-            apply (theme: themeStore.theme (named: themeName), opacity: profile.backgroundOpacity, to: view)
+            apply (
+                theme: themeStore.theme (named: themeName),
+                opacity: profile.backgroundOpacity,
+                paletteStrategy: profile.ansi256PaletteStrategy (isDark: isDark),
+                to: view
+            )
 
             view.font = font (for: profile)
             #if os(macOS)
@@ -118,6 +134,14 @@ public enum ProfileApplier {
             view.enableOsc8Hyperlinks = profile.linkOsc8
             view.enableRectangularAreaChecksum = profile.screenChecksumReports
             view.optionAsMetaKey = profile.optionAsMetaKey
+            #if os(macOS)
+                view.optionAsMetaSide = profile.optionMetaSide.terminalSide
+                // While Option is Meta, an Option key that the side excludes
+                // stays Meta on the keys that the layout composes nothing for
+                // (Backspace, Escape, arrows). While Option is not Meta, no
+                // key is Meta, as before the side setting.
+                view.optionAsMetaKeyForFunctionalKeys = profile.optionAsMetaKey
+            #endif
             view.backspaceSendsControlH = profile.backspaceSendsControlH
             let cursorStyleParameter: Int
             switch profile.cursorStyle {

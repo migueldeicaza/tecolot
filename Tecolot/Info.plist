@@ -8,6 +8,10 @@
 	<string>t9PlgdwMwWdpVF/M+SQM5CpHWlv0unmCMBV8/StKxEA=</string>
 	<key>TecolotCrashReportDSN</key>
 	<string>$(TECOLOT_CRASH_REPORT_DSN)</string>
+        <key>NSPhotoLibraryUsageDescription</key>
+        <string>Allow command-line applications to access your Photos library</string>
+        <key>NSPhotoLibraryAddUsageDescription</key>
+        <string>Allow command-line applications to add photos to your Photos library</string>
 	<key>NSAppleScriptEnabled</key>
 	<true/>
 	<key>OSAScriptingDefinition</key>
