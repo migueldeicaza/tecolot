@@ -6,10 +6,14 @@ extension ProfileSettingsPage {
     var windowSettings: some View {
         Form {
             Section {
-                TextField(SettingID.windowColumns.title, value: binding(\.columns), format: .number)
-                    .settingsAnchor(.windowColumns)
-                TextField(SettingID.windowRows.title, value: binding(\.rows), format: .number)
-                    .settingsAnchor(.windowRows)
+                CommittedIntegerField(SettingID.windowColumns.title, value: profile.columns) { columns in
+                    update { $0.columns = columns }
+                }
+                .settingsAnchor(.windowColumns)
+                CommittedIntegerField(SettingID.windowRows.title, value: profile.rows) { rows in
+                    update { $0.rows = rows }
+                }
+                .settingsAnchor(.windowRows)
             }
             Section(SettingID.windowSectionTitle.title) {
                 TextField(SettingID.windowCustomTitle.title, text: Binding(
