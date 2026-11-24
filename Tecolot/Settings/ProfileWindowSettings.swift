@@ -6,13 +6,17 @@ extension ProfileSettingsPage {
     var windowSettings: some View {
         Form {
             Section {
+                // The identity makes a new draft when the user selects a
+                // different profile, so an edit stays with its profile.
                 CommittedIntegerField(SettingID.windowColumns.title, value: profile.columns) { columns in
                     update { $0.columns = columns }
                 }
+                .id(profile.id)
                 .settingsAnchor(.windowColumns)
                 CommittedIntegerField(SettingID.windowRows.title, value: profile.rows) { rows in
                     update { $0.rows = rows }
                 }
+                .id(profile.id)
                 .settingsAnchor(.windowRows)
             }
             Section(SettingID.windowSectionTitle.title) {

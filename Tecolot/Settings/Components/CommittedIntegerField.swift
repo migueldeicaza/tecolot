@@ -1,22 +1,30 @@
 import SwiftUI
 
-/// An integer text field that edits a local draft and only stores it when the
-/// user presses Return or leaves the field.
+/// An integer text field that edits a local draft. It stores the draft only
+/// when the user presses Return, when the focus goes out of the field, or
+/// when the field goes out of the view.
 ///
-/// A plain value-formatted `TextField` writes every keystroke back to its
-/// binding, so intermediate values such as the 0 left when changing 30 to 40
-/// reach profile validation and are rejected. A draft below `minimum` is
-/// discarded on commit and the field shows the stored value again.
+/// A `TextField` with a value format writes each keystroke to its binding.
+/// Thus profile validation gets values that the user did not finish, such as
+/// the 0 that stays when you change 30 to 40, and rejects them.
+///
+/// When the draft is less than `minimum`, or when `commit` returns false, the
+/// field ignores the draft and shows the stored value again.
+///
+/// Give the field the identity of the object that it edits, for example
+/// `.id(profile.id)`. Then a different object gets a new field with a new
+/// draft, and the old field stores its draft in the old object.
 struct CommittedIntegerField: View {
     let title: String
     let value: Int
     var minimum: Int = 1
-    let commit: (Int) -> Void
+    /// Stores a value. Returns false when the value was not stored.
+    let commit: (Int) -> Bool
 
     @State private var draft: Int
     @FocusState private var isFocused: Bool
 
-    init(_ title: String, value: Int, minimum: Int = 1, commit: @escaping (Int) -> Void) {
+    init(_ title: String, value: Int, minimum: Int = 1, commit: @escaping (Int) -> Bool) {
         self.title = title
         self.value = value
         self.minimum = minimum
@@ -38,6 +46,9 @@ struct CommittedIntegerField: View {
                     draft = newValue
                 }
             }
+            // The window can close, or the page can change, before the
+            // focus change arrives. Store the draft here to keep the edit.
+            .onDisappear(perform: commitDraft)
     }
 
     private func commitDraft() {
@@ -45,8 +56,12 @@ struct CommittedIntegerField: View {
             draft = value
             return
         }
-        if draft != value {
-            commit(draft)
+        guard draft != value else {
+            return
+        }
+        if !commit(draft) {
+            // The store did not accept the value. Show the stored value.
+            draft = value
         }
     }
 }
