@@ -13,7 +13,6 @@ struct TabsSettingsView: View {
     @AppStorage(SidebarPreferences.gestureKey) private var sidebarGesture = SidebarPreferences.gestureDefault
     @AppStorage(TabStripPreferences.colorModeKey) private var color = TabStripPreferences.colorModeDefault.rawValue
     @AppStorage(TabStripPreferences.animationStyleKey) private var animation = TabStripPreferences.animationStyleDefault
-    @AppStorage(TabStripPreferences.preferGeneratedTitlesKey) private var generatedTitles = TabStripPreferences.preferGeneratedTitlesDefault
 
     private var style: Binding<String> {
         Binding(get: {
@@ -69,8 +68,7 @@ struct TabsSettingsView: View {
                     Text("Never").tag("never")
                 }
                 .settingsAnchor(.tabsIconColor)
-                Toggle(SettingID.tabsGeneratedTitles.title, isOn: $generatedTitles)
-                    .settingsAnchor(.tabsGeneratedTitles)
+                TitleSourcePicker(setting: .tabsGeneratedTitles)
                 Picker(SettingID.tabsAnimationStyle.title, selection: $animation) {
                     Text("Natural").tag("natural")
                     Text("Snappy").tag("snappy")

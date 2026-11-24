@@ -11,7 +11,8 @@ extension ProfileSettingsPage {
                 TextField(SettingID.windowRows.title, value: binding(\.rows), format: .number)
                     .settingsAnchor(.windowRows)
             }
-            Section(SettingID.windowSectionTitle.title) {
+            Section {
+                TitleSourcePicker(setting: .windowTitleSource)
                 TextField(SettingID.windowCustomTitle.title, text: Binding(
                     get: {
                         profile.titleOverride ?? ""
@@ -40,10 +41,21 @@ extension ProfileSettingsPage {
                     ))
                     .settingsAnchor(titleComponentSetting(component))
                 }
+            } header: {
+                Text(SettingID.windowSectionTitle.title)
+            } footer: {
+                Text(Self.titleFootnote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
+    private static var titleFootnote: String {
+        let source = TabStripPreferences.TitleSource.self
+        return "“\(source.settingTitle)” applies to all profiles. Pane headers always show the items above. "
+            + "Tabs and windows show them when “\(source.settingTitle)” is set to “\(source.profile.title)”."
+    }
 
     private func titleComponentSetting(_ component: TerminalTitleComponent) -> SettingID {
         switch component {
@@ -64,5 +76,6 @@ extension ProfileSettingsPage {
 #Preview("Window Settings") {
     ProfileSettingsPagePreview(section: .window)
         .environmentObject(SettingsPreviewData.themes)
+        .defaultAppStorage(SettingsPreviewData.defaults)
         .frame(width: 560, height: 430)
 }
