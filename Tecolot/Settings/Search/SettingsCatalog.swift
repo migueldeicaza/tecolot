@@ -97,6 +97,7 @@ enum SettingID: String, CaseIterable, Hashable {
     case windowColumns
     case windowRows
     case windowSectionTitle
+    case windowTitleSource
     case windowCustomTitle
     case windowTitleActiveTitle
     case windowTitleWorkingDirectory
@@ -263,6 +264,25 @@ private func settingEntry(
 }
 
 extension SettingID {
+    /// The words people use for the title that a program sets with an
+    /// escape sequence. "program title" and "window title" are not here:
+    /// Active title and the Window › Title section must come first for them.
+    fileprivate static let titleSourceKeywords = [
+        "OSC", "OSC 0", "OSC 2", "escape sequence", "terminal title", "xterm title",
+        "computed title", "generated title", "automatic title",
+    ]
+
+    fileprivate static let titleSourceSummary =
+        "Show the running program and folder, or the items of the profile Title section."
+
+    /// The summary of a profile title item. The item always changes the pane
+    /// header, and changes tabs and windows only for one Title shows value.
+    fileprivate static func titleItemSummary(_ action: String) -> String {
+        let source = TabStripPreferences.TitleSource.self
+        return "\(action) in the pane header. Tabs and windows also show it when "
+            + "“\(source.settingTitle)” is set to “\(source.profile.title)”."
+    }
+
     /// The switch has no default case, so a new ID without metadata does
     /// not compile. Use `entry`, which reads the catalog that is built once.
     fileprivate var makeEntry: SettingsSearchEntry {
@@ -372,9 +392,9 @@ extension SettingID {
                            "Color tab icons always, only for active tabs or panes, or never.",
                            keywords: ["colour", "monochrome", "gray icons", "tint"])
         case .tabsGeneratedTitles:
-            return settingEntry(self, .tabs, in: .tabsSectionLook, "Prefer generated tab titles",
-                           "Name tabs from the running program and folder, not from the title a program sets.",
-                           keywords: ["tab name", "automatic title", "rename"])
+            return settingEntry(self, .tabs, in: .tabsSectionLook, TabStripPreferences.TitleSource.settingTitle,
+                           Self.titleSourceSummary,
+                           keywords: Self.titleSourceKeywords + ["tab name", "rename", "prefer generated tab titles"])
         case .tabsAnimationStyle:
             return settingEntry(self, .tabs, in: .tabsSectionLook, "Animation style",
                            "Make tab animations natural or snappy, or turn them off.",
@@ -574,30 +594,34 @@ extension SettingID {
                            "Set the height of new windows in lines.",
                            keywords: ["window height", "window size", "initial size", "lines", "24"])
         case .windowSectionTitle:
-            return sectionEntry(self, .window, "Title", "Choose what the window title shows.",
+            return sectionEntry(self, .window, "Title", "Choose what the pane header, and the tab and window titles, show.",
                            keywords: ["window title", "title bar", "tab title"])
+        case .windowTitleSource:
+            return settingEntry(self, .window, in: .windowSectionTitle, TabStripPreferences.TitleSource.settingTitle,
+                           Self.titleSourceSummary + " This setting applies to all profiles.",
+                           keywords: Self.titleSourceKeywords)
         case .windowCustomTitle:
             return settingEntry(self, .window, in: .windowSectionTitle, "Custom title",
-                           "Show your own text in the window title.",
+                           Self.titleItemSummary("Show your own text"),
                            keywords: ["window name", "rename window", "title override"])
         case .windowTitleActiveTitle:
             return settingEntry(self, .window, in: .windowSectionTitle, "Active title",
-                           "Show the title that the running program sets.",
+                           Self.titleItemSummary("Show the title that the running program sets"),
                            keywords: ["program title", "process name", "terminal title"])
         case .windowTitleWorkingDirectory:
             return settingEntry(self, .window, in: .windowSectionTitle, "Working directory",
-                           "Show the name of the current folder in the title.",
+                           Self.titleItemSummary("Show the name of the current folder"),
                            keywords: ["cwd", "folder", "path", "current directory"])
         case .windowTitleFullPath:
             return settingEntry(self, .window, in: .windowSectionTitle, "Full path",
-                           "Show the full path of the current folder in the title.",
+                           Self.titleItemSummary("Show the full path of the current folder"),
                            keywords: ["cwd", "folder", "absolute path", "directory"])
         case .windowTitleProfileName:
             return settingEntry(self, .window, in: .windowSectionTitle, "Profile name",
-                           "Show the name of the profile in the title.")
+                           Self.titleItemSummary("Show the name of the profile"))
         case .windowTitleDimensions:
             return settingEntry(self, .window, in: .windowSectionTitle, "Dimensions",
-                           "Show the columns and rows of the terminal in the title.",
+                           Self.titleItemSummary("Show the columns and rows of the terminal"),
                            keywords: ["size", "columns", "rows", "80x24"])
 
         // MARK: Profile: Shell

@@ -91,6 +91,37 @@ nonisolated struct TabStripPreferences: Equatable {
     static let trackRunningProgramsDefault = true
     static let observedKeys = [iconCountKey, colorModeKey, fillKey, animationStyleKey, preferGeneratedTitlesKey, trackRunningProgramsKey]
     enum ColorMode: String { case always, activeTabs, activePanes, never }
+
+    /// The source of tab and window titles. The value is kept in the
+    /// `preferGeneratedTitlesKey` Bool, so existing choices stay the same.
+    enum TitleSource: String, CaseIterable {
+        /// The name of the running program and the current folder.
+        case generated
+        /// The pane title from the items of the profile Window › Title
+        /// section. The Active title item is the title that the program
+        /// sets with OSC 0 or OSC 2.
+        case profile
+
+        /// The name of the setting on the Tabs page and on the profile
+        /// Window page. The search catalog also uses it, so it cannot read
+        /// `SettingID.title`.
+        static let settingTitle = "Title shows"
+
+        init(preferGeneratedTitles: Bool) {
+            self = preferGeneratedTitles ? .generated : .profile
+        }
+
+        var prefersGeneratedTitles: Bool {
+            self == .generated
+        }
+
+        var title: String {
+            switch self {
+            case .generated: "Program and folder"
+            case .profile: "Profile title items"
+            }
+        }
+    }
     var iconCount: Int
     var colorMode: ColorMode
     var fill: Bool

@@ -94,7 +94,8 @@ final class TerminalTab: Identifiable {
         // The host adopts the tree and its divider positions before building views.
     }
 
-    /// The cached "Prefer generated tab titles" value. Window chrome tracks
+    /// The cached "Title shows" value: `true` for "Program and folder".
+    /// The value is stored in `preferGeneratedTitlesKey`. Window chrome tracks
     /// it, because the cache updates after the tab bar's own preference
     /// refresh has already read the old title.
     var prefersGeneratedTitle: Bool {

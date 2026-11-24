@@ -78,6 +78,32 @@ struct SettingsSearchTests {
         #expect(ids("use option as meta") == [.keyboardOptionAsMeta])
     }
 
+    @Test func titleSourceIsFoundByTheEscapeSequenceWords() {
+        for query in ["osc", "escape sequence", "xterm title", "prefer generated tab titles"] {
+            #expect(ids(query).contains(.tabsGeneratedTitles), "\(query)")
+        }
+        #expect(ids("osc").contains(.windowTitleSource))
+        #expect(SettingID.windowTitleSource.entry.breadcrumb == "Profile \u{203A} Window \u{203A} Title")
+    }
+
+    @Test func titleSourceDoesNotHideTheProfileTitleRows() {
+        #expect(ids("program title").first == .windowTitleActiveTitle)
+        let windowTitle = ids("window title")
+        #expect(Array(windowTitle.prefix(2)) == [.pageWindow, .windowSectionTitle])
+        #expect(!windowTitle.contains(.tabsGeneratedTitles))
+    }
+
+    @Test func titleSourceKeepsTheStoredBool() {
+        typealias Source = TabStripPreferences.TitleSource
+        #expect(Source(preferGeneratedTitles: true) == .generated)
+        #expect(Source(preferGeneratedTitles: false) == .profile)
+        #expect(Source.generated.prefersGeneratedTitles)
+        #expect(!Source.profile.prefersGeneratedTitles)
+        #expect(Source(preferGeneratedTitles: TabStripPreferences.preferGeneratedTitlesDefault) == .generated)
+        #expect(SettingID.tabsGeneratedTitles.title == Source.settingTitle)
+        #expect(SettingID.windowTitleSource.title == Source.settingTitle)
+    }
+
     @Test func everyWordMustMatchAndTheLastCanBeAPrefix() {
         #expect(ids("cursor bl") == [.appearanceCursor])
         #expect(ids("option meta") == [.keyboardOptionAsMeta])
