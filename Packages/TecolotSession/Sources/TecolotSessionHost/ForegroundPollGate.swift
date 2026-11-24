@@ -2,69 +2,128 @@
 // ForegroundPollGate.swift
 // TecolotSessionHost
 //
-// Skips foreground-process polls while the shell waits at a prompt.
-// The helper uses it for persistent and remote panes, and the app uses
-// it for local panes.
+// Stops foreground-process probes while a pane is quiet. Re-arms probes
+// on terminal output or user input. The helper uses it for persistent and
+// remote panes, and the app uses it for local panes.
 //
 
-/// Uses OSC 133 shell-integration marks to skip process polls.
+/// Runs foreground-process probes only after terminal activity.
 ///
-/// A prompt mark is `A` (prompt start) or `D` (command finished). After a
-/// prompt mark, the shell is usually the foreground program. But a prompt
-/// can start child processes, for example `starship` or `$(__git_ps1)`.
-/// Thus the polls continue until a poll finds only the shell. Then they
-/// stop until the next `C` mark (command executed).
+/// Most foreground process changes write output to the PTY or follow user
+/// input. While a pane is quiet, no probe or timer wakeup is needed.
 ///
-/// The line editor can start a program with no `C` mark, for example
-/// Ctrl-X Ctrl-E. Most of these programs use the alternate screen, so a
-/// screen switch starts the polls again (`arm()`).
+/// Activity arms a probe. Callers keep an earlier timer so continuous
+/// output does not delay the next probe. A probe settles the gate only
+/// after `settleWindow` passes with no new activity. This delay finds
+/// silent commands (for example `sleep`) that start right after an Enter
+/// echo.
 ///
-/// The gate trusts the marks only after it sees a `C` mark. If the shell
-/// sends no marks, or sends only `A`, each poll is permitted.
+/// For persistent and remote panes, a background child (`sleep 30 &`) can
+/// exit with no PTY output. When the foreground shell has a child, the
+/// settled gate requests a slow fallback probe until that child exits.
 public struct ForegroundPollGate: Sendable, Equatable {
-    private var trusted = false
-    private var atPrompt = false
-    private var settled = false
+    /// Quiet time after the last activity before a probe settles the gate.
+    /// Covers shell `fork`/`exec` after Enter and the local view's 250ms
+    /// output throttle.
+    public static let defaultSettleWindow: Duration = .milliseconds(500)
 
-    /// Creates a gate that permits each poll until it sees a `C` mark.
-    public init() {}
+    /// Next probe action for the caller.
+    public enum Schedule: Sendable, Equatable {
+        /// No probe is needed until new activity happens.
+        case idle
+        /// Probe now (initial state, reset, or re-enable).
+        case immediate
+        /// Probe after the active delay (1s live or 5s background).
+        case active
+        /// Probe after the background-child fallback delay (5s).
+        case backgroundChildren
+    }
 
-    /// Records an OSC 133 payload (the bytes after `133;`).
-    public mutating func observe(osc133 payload: some Collection<UInt8>) {
-        switch payload.first {
-        case UInt8(ascii: "A"), UInt8(ascii: "D"):
-            atPrompt = true
-            settled = false
-        case UInt8(ascii: "C"):
-            trusted = true
-            atPrompt = false
-            settled = false
-        default:
-            break
+    /// Snapshot taken when a probe starts. Pass it to `record(_:...)` so new
+    /// activity or a cancelled probe does not settle the gate too early.
+    public struct ProbeToken: Sendable, Equatable {
+        fileprivate let generation: UInt64
+        fileprivate let immediateRequest: UInt64
+        fileprivate let lastActivity: ContinuousClock.Instant?
+        fileprivate let startedAt: ContinuousClock.Instant
+    }
+
+    private let settleWindow: Duration
+    private var generation: UInt64 = 0
+    private var settledGeneration: UInt64 = 0
+    private var immediateRequest: UInt64 = 1
+    private var completedImmediateRequest: UInt64 = 0
+    private var lastActivity: ContinuousClock.Instant?
+    private var backgroundChildren = false
+
+    /// Creates a gate that requests an initial probe.
+    public init(settleWindow: Duration = defaultSettleWindow) {
+        self.settleWindow = settleWindow
+    }
+
+    /// Next probe action for the caller.
+    public var schedule: Schedule {
+        if immediateRequest != completedImmediateRequest {
+            return .immediate
+        }
+        if generation != settledGeneration {
+            return .active
+        }
+        if backgroundChildren {
+            return .backgroundChildren
+        }
+        return .idle
+    }
+
+    /// True when the gate needs a probe.
+    public var shouldProbe: Bool {
+        schedule != .idle
+    }
+
+    /// Records terminal output or user input and arms active probes.
+    public mutating func noteActivity(at now: ContinuousClock.Instant = .now) {
+        generation &+= 1
+        if let existing = lastActivity {
+            lastActivity = max(existing, now)
+        } else {
+            lastActivity = now
         }
     }
 
-    /// Starts the polls again, for example after a screen switch.
-    public mutating func arm() {
-        settled = false
+    /// Requests an immediate probe (for example on start or re-enable).
+    public mutating func requestImmediateProbe() {
+        immediateRequest &+= 1
     }
 
-    /// Returns true if a poll can find a change. This does not change the
-    /// gate: a poll that is cancelled before `record` does not count.
-    public func shouldProbe() -> Bool {
-        !(trusted && atPrompt && settled)
+    /// Captures the current state before a probe starts. A cancelled probe
+    /// does not settle the gate.
+    public func beginProbe(at now: ContinuousClock.Instant = .now) -> ProbeToken {
+        ProbeToken(
+            generation: generation,
+            immediateRequest: immediateRequest,
+            lastActivity: lastActivity,
+            startedAt: now
+        )
     }
 
-    /// Records the result of a poll. `idle` is true when the poll found
-    /// only the shell, with no other foreground program and no child.
-    public mutating func record(idle: Bool) {
-        if atPrompt, idle {
-            settled = true
+    /// Records the result of a completed probe. Set `hasBackgroundChildren`
+    /// to true only when the shell is foreground and has a child process.
+    public mutating func record(_ token: ProbeToken, hasBackgroundChildren: Bool = false) {
+        if token.immediateRequest > completedImmediateRequest {
+            completedImmediateRequest = token.immediateRequest
+        }
+        backgroundChildren = hasBackgroundChildren
+        if let activity = token.lastActivity {
+            if activity.duration(to: token.startedAt) >= settleWindow, token.generation > settledGeneration {
+                settledGeneration = token.generation
+            }
+        } else if token.generation > settledGeneration {
+            settledGeneration = token.generation
         }
     }
 
-    /// Forgets the marks (terminal reset or a new process).
+    /// Resets the gate for a new process.
     public mutating func reset() {
-        self = ForegroundPollGate()
+        self = ForegroundPollGate(settleWindow: settleWindow)
     }
 }

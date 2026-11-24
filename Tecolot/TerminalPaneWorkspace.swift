@@ -136,6 +136,7 @@ final class TerminalPaneWorkspace {
     @ObservationIgnored var appearanceSettings = GlobalAppearanceSettings()
     @ObservationIgnored private let processInspectionUpdates = ProcessInspectionUpdates()
     @ObservationIgnored private var processTask: Task<Void, Never>?
+    @ObservationIgnored private var processTaskSleeping = false
     @ObservationIgnored private var jobIconResolvers: [UUID: TerminalForegroundJobIconResolver] = [:]
     @ObservationIgnored private var iconPreferencesObserver: DefaultsValueObserver<PaneIconInspectionPreferences.Value>?
     @ObservationIgnored private var iconPreferences = PaneIconInspectionPreferences(
@@ -387,6 +388,7 @@ final class TerminalPaneWorkspace {
         processInspectionUpdates.cancel()
         processTask?.cancel()
         processTask = nil
+        processTaskSleeping = false
         for controller in controllers {
             controller.terminate()
         }
@@ -448,8 +450,9 @@ final class TerminalPaneWorkspace {
 
     private func evaluateProcessInspection() {
         let wanted = wantsProgramInfo
-        // Persistent and remote panes: the helper polls. Without visible
-        // icons, it polls slowly for the busy check and the Sessions window.
+        // Persistent and remote panes: the helper probes after activity.
+        // Without visible icons, it uses the slower delay for the busy check
+        // and the Sessions window.
         let mode: InfoReportMode = !iconPreferences.tracking ? .off : (wanted ? .live : .background)
         for controller in controllers {
             controller.setRemoteInfoMode(mode)
@@ -460,55 +463,128 @@ final class TerminalPaneWorkspace {
         guard wanted else {
             processTask?.cancel()
             processTask = nil
+            processTaskSleeping = false
             jobIconResolvers.removeAll()
             return
         }
-        guard processTask == nil else {
-            return
+        scheduleProcessInspectionIfNeeded(probeActiveImmediately: true)
+    }
+
+    nonisolated static func localProcessSchedule(
+        wantsProgramInfo: Bool,
+        panes: [(schedule: ForegroundPollGate.Schedule, hasExecutablePath: Bool)]
+    ) -> ForegroundPollGate.Schedule {
+        guard wantsProgramInfo else {
+            return .idle
         }
-        processTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    guard let self else {
-                        return
-                    }
-                    await self.inspectForegroundProcesses()
-                }
-                do {
-                    try await Task.sleep(for: .seconds(1))
-                } catch {
-                    return
+        var next: ForegroundPollGate.Schedule = .idle
+        for pane in panes {
+            switch pane.schedule {
+            case .immediate:
+                return .immediate
+            case .active, .backgroundChildren:
+                next = .active
+            case .idle:
+                if !pane.hasExecutablePath {
+                    next = .active
                 }
             }
         }
+        return next
     }
 
-    /// True when the foreground group has only the shell.
-    nonisolated static func isIdleShell(_ snapshot: TerminalForegroundJobSnapshot?, shellPid: pid_t) -> Bool {
-        guard let snapshot, snapshot.processGroup == shellPid else {
-            return false
+    private func nextLocalProcessSchedule() -> ForegroundPollGate.Schedule {
+        let localPanes = controllers.compactMap {
+            controller -> (schedule: ForegroundPollGate.Schedule, hasExecutablePath: Bool)? in
+            guard
+                controller.persistentView == nil,
+                let process = controller.terminal?.process, process.running else {
+                return nil
+            }
+            return (controller.foregroundPollGate.schedule, controller.panePresentation.executablePath != nil)
         }
-        return !snapshot.processes.isEmpty && snapshot.processes.allSatisfy {
-            $0.processID == shellPid
-        }
+        return Self.localProcessSchedule(wantsProgramInfo: wantsProgramInfo, panes: localPanes)
     }
 
-    private func inspectForegroundProcesses() async {
+    func scheduleProcessInspectionIfNeeded(probeActiveImmediately: Bool = false) {
         guard wantsProgramInfo else {
             return
         }
+        switch nextLocalProcessSchedule() {
+        case .idle:
+            return
+        case .immediate:
+            if processTask == nil || processTaskSleeping {
+                startProcessTask(immediate: true)
+            }
+        case .active, .backgroundChildren:
+            if processTask == nil {
+                startProcessTask(immediate: probeActiveImmediately)
+            }
+        }
+    }
+
+    private func startProcessTask(immediate: Bool) {
+        processTask?.cancel()
+        processTaskSleeping = !immediate
+        processTask = Task { [weak self] in
+            var shouldSleepFirst = !immediate
+            while !Task.isCancelled {
+                if shouldSleepFirst {
+                    self?.processTaskSleeping = true
+                    do {
+                        try await Task.sleep(for: .seconds(1))
+                    } catch {
+                        return
+                    }
+                    self?.processTaskSleeping = false
+                }
+                shouldSleepFirst = true
+                guard let self else {
+                    return
+                }
+                let probed = await self.inspectForegroundProcesses()
+                guard !Task.isCancelled else {
+                    return
+                }
+                switch self.nextLocalProcessSchedule() {
+                case .idle:
+                    self.processTask = nil
+                    self.processTaskSleeping = false
+                    return
+                case .immediate:
+                    // Never spin without suspending if no probe ran.
+                    shouldSleepFirst = !probed
+                case .active, .backgroundChildren:
+                    shouldSleepFirst = true
+                }
+            }
+        }
+    }
+
+    @discardableResult
+    private func inspectForegroundProcesses() async -> Bool {
+        guard wantsProgramInfo else {
+            return false
+        }
         // Recheck after each suspension; no process syscalls for hidden groups.
         let panes = controllers
-        let descriptors = panes.map { controller -> Int32? in
-            guard let process = controller.terminal?.process, process.running else {
+        let probes = panes.map { controller -> (descriptor: Int32, token: ForegroundPollGate.ProbeToken)? in
+            guard
+                controller.persistentView == nil,
+                let process = controller.terminal?.process, process.running else {
                 return nil
             }
-            // At a shell prompt (OSC 133) the program cannot change: keep the last path.
-            guard controller.panePresentation.executablePath == nil || controller.foregroundPollGate.shouldProbe() else {
+            // Quiet panes keep the last executable path until new output or input.
+            guard controller.panePresentation.executablePath == nil || controller.foregroundPollGate.shouldProbe else {
                 return nil
             }
-            return process.childfd
+            return (process.childfd, controller.foregroundPollGate.beginProbe())
         }
+        guard probes.contains(where: { $0 != nil }) else {
+            return false
+        }
+        let descriptors = probes.map { $0?.descriptor }
         let snapshots = await Task.detached(priority: .utility) {
             let inspector = SystemTerminalProcessInspector()
             return descriptors.map { descriptor -> TerminalForegroundJobSnapshot? in
@@ -525,13 +601,16 @@ final class TerminalPaneWorkspace {
             }
         }.value
         guard !Task.isCancelled, needsProcessInspection else {
-            return
+            return true
         }
         let liveIDs = Set(controllers.map(\.id))
         jobIconResolvers = jobIconResolvers.filter {
             liveIDs.contains($0.key)
         }
-        for (controller, (descriptor, snapshot)) in zip(panes, zip(descriptors, snapshots)) {
+        for (controller, (probe, snapshot)) in zip(panes, zip(probes, snapshots)) {
+            guard let probe else {
+                continue
+            }
             // A pane can start a new process while the check runs.
             guard liveIDs.contains(controller.id) else {
                 continue
@@ -543,21 +622,17 @@ final class TerminalPaneWorkspace {
             }
             let currentProcess = controller.terminal?.process
             let currentDescriptor = currentProcess?.running == true ? currentProcess?.childfd : nil
-            guard descriptor == currentDescriptor else {
+            guard probe.descriptor == currentDescriptor else {
                 continue
             }
-            // Only the shell: the polls can stop at a prompt (OSC 133). A
-            // poll that is cancelled before this line does not count.
-            // A prompt can start git or starship in the shell's group, so
-            // the shell must be the only process in the group.
-            if let process = currentProcess {
-                controller.foregroundPollGate.record(idle: Self.isIdleShell(snapshot, shellPid: process.shellPid))
-            }
+            // A probe cancelled before this line does not settle the gate.
+            controller.foregroundPollGate.record(probe.token)
             var resolver = jobIconResolvers[controller.id] ?? TerminalForegroundJobIconResolver()
-            let path = resolver.executablePath(for: snapshot, descriptor: descriptor)
+            let path = resolver.executablePath(for: snapshot, descriptor: probe.descriptor)
             jobIconResolvers[controller.id] = resolver
             controller.updatePaneExecutablePath(path)
         }
+        return true
     }
 
     func contains(_ controller: TerminalSessionController) -> Bool {

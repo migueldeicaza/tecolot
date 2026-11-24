@@ -133,22 +133,19 @@ final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuAction
 
     nonisolated override func bufferActivated(source: Terminal) {
         super.bufferActivated(source: source)
-        let reset = programStatusTracker.bufferActivated(source)
-        if reset {
+        if programStatusTracker.bufferActivated(source) {
             eventDelivery.sendReset()
         }
-        // A line-editor binding (Ctrl-X Ctrl-E) can start a program with no
-        // OSC 133 C mark. Such programs usually switch the screen.
-        Task { @MainActor [weak self] in
-            guard let controller = self?.sessionController else {
-                return
-            }
-            if reset {
-                controller.foregroundPollGate.reset()
-            } else {
-                controller.foregroundPollGate.arm()
-            }
-        }
+    }
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        super.insertText(string, replacementRange: replacementRange)
+        sessionController?.noteLocalProcessActivity()
+    }
+
+    override func paste(_ sender: Any) {
+        super.paste(sender)
+        sessionController?.noteLocalProcessActivity()
     }
     var fileDropShellResolver = TerminalShellResolver()
 
@@ -198,6 +195,7 @@ final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuAction
         // Paste semantics let applications recognize dropped image paths and
         // apply bracketed-paste framing when the application has enabled it.
         pasteText(text)
+        sessionController?.noteLocalProcessActivity()
         return true
     }
 
@@ -212,11 +210,25 @@ final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuAction
     override func mouseDown(with event: NSEvent) {
         focusTerminal()
         super.mouseDown(with: event)
+        if isReportingMouseEvents {
+            sessionController?.noteLocalProcessActivity()
+        }
     }
 
     override func rightMouseDown(with event: NSEvent) {
         focusTerminal()
         super.rightMouseDown(with: event)
+        if isReportingMouseEvents {
+            sessionController?.noteLocalProcessActivity()
+        }
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        focusTerminal()
+        super.otherMouseDown(with: event)
+        if isReportingMouseEvents {
+            sessionController?.noteLocalProcessActivity()
+        }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {

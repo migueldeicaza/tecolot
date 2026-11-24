@@ -573,9 +573,6 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
                 guard let self, let terminal = self.terminal as? AppTerminalView else {
                     return
                 }
-                if event.code == 133 {
-                    self.foregroundPollGate.observe(osc133: event.payload)
-                }
                 if event.code == 133, event.payload.first == 65 {
                     terminal.programStatusTracker.dropTransient()
                     if self.programStatus.uses7501 {
@@ -826,6 +823,21 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         let key = surface?.window?.isKeyWindow == true
         programStatus.noteOutput(tabShown: shown, windowKey: key)
         setHasActivity(programStatus.quiet)
+        if persistentView == nil {
+            noteLocalProcessActivity()
+        }
+    }
+
+    /// Re-arms local foreground-process polling after terminal output or input.
+    func noteLocalProcessActivity(immediate: Bool = false) {
+        guard persistentView == nil else {
+            return
+        }
+        foregroundPollGate.noteActivity()
+        if immediate {
+            foregroundPollGate.requestImmediateProbe()
+        }
+        workspace?.scheduleProcessInspectionIfNeeded()
     }
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
@@ -1302,6 +1314,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
 
         noteProgramKeypress()
+        noteLocalProcessActivity()
         if profile.hidePointerWhileTyping {
             NSCursor.setHiddenUntilMouseMoves(true)
         }
@@ -1656,6 +1669,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             newCols: dimensions.cols,
             newRows: dimensions.rows
         )
+        noteLocalProcessActivity(immediate: true)
     }
 
     private func restoreBufferIfNeeded(on terminal: LocalProcessTerminalView) {

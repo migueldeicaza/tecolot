@@ -20,15 +20,6 @@ struct TerminalForegroundJobIconResolverTests {
         #expect(resolver.executablePath(for: snapshot([less]), descriptor: 4) == git.executablePath)
     }
 
-    @Test func shellIsIdleOnlyWhenItIsAloneInTheGroup() {
-        let zsh = process(100, "/bin/zsh")
-        #expect(TerminalPaneWorkspace.isIdleShell(snapshot([zsh]), shellPid: 100))
-        // A prompt runs $(__git_ps1): git is in the shell's group.
-        #expect(!TerminalPaneWorkspace.isIdleShell(snapshot([zsh, process(101, "/usr/bin/git")]), shellPid: 100))
-        #expect(!TerminalPaneWorkspace.isIdleShell(snapshot([process(200, "/usr/bin/vim")], group: 200), shellPid: 100))
-        #expect(!TerminalPaneWorkspace.isIdleShell(nil, shellPid: 100))
-    }
-
     @Test func missingLeaderStillShowsPager() {
         var resolver = TerminalForegroundJobIconResolver()
         #expect(resolver.executablePath(for: snapshot([process(101, "/usr/bin/less")]), descriptor: 4) == "/usr/bin/less")
@@ -87,5 +78,26 @@ struct TerminalForegroundJobIconResolverTests {
             $0.processID == getpid() && $0.startSeconds > 0 && $0.executablePath != nil
         })
         #expect(SystemTerminalProcessInspector().foregroundProcesses(in: -1).isEmpty)
+    }
+
+    @Test func missingExecutablePathPollsAtActiveRateInsteadOfSpinning() {
+        #expect(
+            TerminalPaneWorkspace.localProcessSchedule(
+                wantsProgramInfo: true,
+                panes: [(schedule: .idle, hasExecutablePath: false)]
+            ) == .active
+        )
+        #expect(
+            TerminalPaneWorkspace.localProcessSchedule(
+                wantsProgramInfo: true,
+                panes: [(schedule: .immediate, hasExecutablePath: false)]
+            ) == .immediate
+        )
+        #expect(
+            TerminalPaneWorkspace.localProcessSchedule(
+                wantsProgramInfo: false,
+                panes: [(schedule: .immediate, hasExecutablePath: false)]
+            ) == .idle
+        )
     }
 }

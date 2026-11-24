@@ -155,9 +155,16 @@ public final class SessionHost: @unchecked Sendable {
     private var animationTimer: DispatchSourceTimer?
     private var animationTimerDeadline: UInt64?
     private var infoTimer: DispatchSourceTimer?
+    private var infoTimerDeadline: DispatchTime?
     private var lastSessionInfo: SessionInfoMessage?
-    /// Skips polls while the shell waits at a prompt (OSC 133).
-    private let pollGate = Mutex(ForegroundPollGate())
+    /// Stops foreground-process polls when the session is quiet and re-arms
+    /// them on output or input. Session queue only.
+    private var pollGate = ForegroundPollGate()
+    private var seenInfoFeed: UInt64 = 0
+    private var wasInfoReportingEnabled = false
+    /// Fallback interval (seconds) when the shell is foreground with a
+    /// background child. Overridable by tests.
+    var infoFallbackSeconds = 5
     private var pendingPastes: [UInt64: String] = [:]
     private var nextPasteToken: UInt64 = 1
     private var clipboardReaders: [UInt64: SessionClient] = [:]
@@ -228,11 +235,6 @@ public final class SessionHost: @unchecked Sendable {
         oscObservation = terminal.observeOscEvents(codes: [9, 777, 633, 1337, 133, 7501]) { [weak self] event in
             guard let self else {
                 return
-            }
-            if event.code == 133 {
-                pollGate.withLock {
-                    $0.observe(osc133: event.payload)
-                }
             }
             if event.code == 133, event.payload.first == 65 {
                 programStatus.dropTransient()
@@ -317,9 +319,6 @@ public final class SessionHost: @unchecked Sendable {
         guard Self.resolveExecutable(launch) != nil else {
             throw LaunchError(description: "cannot run \(launch.executable)")
         }
-        queue.async {
-            self.updateInfoTimer()
-        }
         let theme = launch.theme
         terminal.terminalLock.withLock {
             if let theme {
@@ -340,6 +339,9 @@ public final class SessionHost: @unchecked Sendable {
         }
         queue.async {
             self.started = true
+            self.pollGate.noteActivity()
+            self.pollGate.requestImmediateProbe()
+            self.updateInfoTimer()
         }
     }
 
@@ -702,6 +704,7 @@ public final class SessionHost: @unchecked Sendable {
         let now = DispatchTime.now()
         client.boostUntil = now + .milliseconds(100)
         client.lastInput = now
+        notePollActivity()
         guard !client.viewer, sizeOwner !== client else {
             return
         }
@@ -1009,6 +1012,10 @@ public final class SessionHost: @unchecked Sendable {
             $0.programStatusVersion
         }
         let activityFeed = feedSequence.load(ordering: .acquiring)
+        if activityFeed != seenInfoFeed {
+            seenInfoFeed = activityFeed
+            notePollActivity()
+        }
         let activityNow = DispatchTime.now()
         var currentStatus: ProgramStatusMessage?
         for client in attachedClients where client.capabilities.contains(.programStatus) {
@@ -1736,9 +1743,9 @@ public final class SessionHost: @unchecked Sendable {
 
     // MARK: - Session information
 
-    /// The poll interval in seconds, or nil for no poll. A client sets its
-    /// need with `SetInfoReportsMessage`. A detached session polls every five
-    /// seconds for the session records and the busy check.
+    /// The probe delay in seconds after activity, or nil when reports are off.
+    /// A client sets its mode with `SetInfoReportsMessage`. A detached session
+    /// uses a five-second delay for the session records and the busy check.
     private var infoInterval: Int? {
         let attached = attachedClients
         guard !attached.isEmpty else {
@@ -1753,46 +1760,77 @@ public final class SessionHost: @unchecked Sendable {
         return nil
     }
 
-    /// Starts, changes or stops the foreground-process poll.
-    private func updateInfoTimer() {
-        guard exitStatus == nil, let interval = infoInterval else {
-            infoTimer?.cancel()
-            infoTimer = nil
-            return
-        }
-        guard interval != infoTimerInterval || infoTimer == nil else {
+    /// Records terminal output or user input and re-arms the info probe.
+    private func notePollActivity() {
+        dispatchPrecondition(condition: .onQueue(queue))
+        pollGate.noteActivity()
+        updateInfoTimer()
+    }
+
+    private func cancelInfoTimer() {
+        infoTimer?.cancel()
+        infoTimer = nil
+        infoTimerDeadline = nil
+    }
+
+    /// Arms a one-shot info timer for `deadline`. Keeps an earlier deadline so
+    /// continuous output does not delay the next probe.
+    private func armInfoTimer(_ deadline: DispatchTime) {
+        if let current = infoTimerDeadline, current <= deadline, infoTimer != nil {
             return
         }
         infoTimer?.cancel()
-        infoTimerInterval = interval
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now(), repeating: .seconds(interval), leeway: .milliseconds(200))
+        timer.schedule(deadline: deadline, leeway: .milliseconds(200))
         timer.setEventHandler { [weak self] in
             guard let self else {
                 return
             }
-            // A new client must get the information once, even at a prompt.
-            if
-                lastSessionInfo != nil, !pollGate.withLock({
-                    $0.shouldProbe()
-                }) {
-                return
-            }
+            cancelInfoTimer()
             publishSessionInfo()
         }
         infoTimer = timer
+        infoTimerDeadline = deadline
         timer.resume()
-        // A newly attached client receives the current information.
-        lastSessionInfo = nil
     }
 
-    private var infoTimerInterval = 0
+    /// Starts, reschedules, or cancels the foreground-process probe timer.
+    private func updateInfoTimer() {
+        dispatchPrecondition(condition: .onQueue(queue))
+        guard exitStatus == nil, let interval = infoInterval else {
+            cancelInfoTimer()
+            if infoInterval == nil {
+                wasInfoReportingEnabled = false
+            }
+            return
+        }
+        guard started else {
+            return
+        }
+        if !wasInfoReportingEnabled {
+            wasInfoReportingEnabled = true
+            pollGate.requestImmediateProbe()
+        }
+        switch pollGate.schedule {
+        case .idle:
+            cancelInfoTimer()
+        case .immediate:
+            cancelInfoTimer()
+            publishSessionInfo()
+        case .active:
+            armInfoTimer(DispatchTime.now() + .seconds(interval))
+        case .backgroundChildren:
+            armInfoTimer(DispatchTime.now() + .seconds(max(interval, infoFallbackSeconds)))
+        }
+    }
 
     /// The number of foreground-process polls, for tests. Session queue only.
     private(set) var infoProbes = 0
 
     private func publishSessionInfo() {
+        dispatchPrecondition(condition: .onQueue(queue))
         infoProbes += 1
+        let token = pollGate.beginProbe()
         let pid = process.shellPid
         let info = SessionInfoMessage(
             shellPID: pid,
@@ -1800,18 +1838,18 @@ public final class SessionHost: @unchecked Sendable {
             foreground: ProcessInspector.foreground(ptyDescriptor: process.childfd),
             hasChildren: ProcessInspector.hasChildren(pid)
         )
-        // Only the shell, with no child: the polls can stop at a prompt.
-        pollGate.withLock {
-            $0.record(idle: pid > 0 && info.foreground?.pid == pid && !info.hasChildren)
+        // A foreground shell with a background child can lose that child with
+        // no PTY output; keep a slow fallback poll until the child exits.
+        let hasBackgroundChildren = pid > 0 && info.foreground?.pid == pid && info.hasChildren
+        pollGate.record(token, hasBackgroundChildren: hasBackgroundChildren)
+        if info != lastSessionInfo {
+            lastSessionInfo = info
+            for client in attachedClients where client.infoMode != .off {
+                client.channel.send(info)
+            }
+            onSessionInfo?(info)
         }
-        guard info != lastSessionInfo else {
-            return
-        }
-        lastSessionInfo = info
-        for client in attachedClients where client.infoMode != .off {
-            client.channel.send(info)
-        }
-        onSessionInfo?(info)
+        updateInfoTimer()
     }
 
     /// The process ID of the shell, or 0 before it starts.
@@ -2000,17 +2038,7 @@ extension SessionHost: TerminalDelegate {
     }
 
     public func bufferActivated(source: Terminal) {
-        let reset = programStatus.bufferActivated(source)
-        // A line-editor binding (Ctrl-X Ctrl-E) can start a program with no
-        // OSC 133 C mark. Such programs usually switch the screen.
-        pollGate.withLock {
-            if reset {
-                $0.reset()
-            } else {
-                $0.arm()
-            }
-        }
-        if reset {
+        if programStatus.bufferActivated(source) {
             programStatusDidChange()
         }
         signal()
