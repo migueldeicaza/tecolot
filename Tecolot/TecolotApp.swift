@@ -439,7 +439,7 @@ struct TerminalCommands: Commands {
                 Button("Find Previous") {
                     performFindAction(.previousMatch)
                 }
-                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .keyboardShortcut("g", modifiers: [.command, .control])
                 .disabled(!isEnabled)
             }
 

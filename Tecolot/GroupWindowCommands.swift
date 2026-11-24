@@ -15,6 +15,12 @@ struct GroupWindowCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .toolbar) {
+            Button("Command Palette…") {
+                owner?.toggleCommandPalette()
+            }
+            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .disabled(owner == nil)
+            Divider()
             Toggle("Show Pane Headers", isOn: $showPaneHeaders)
             Button("Toggle Tab Style") {
                 SidebarPreferences.toggleStyle()

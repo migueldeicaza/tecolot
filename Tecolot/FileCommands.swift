@@ -141,6 +141,14 @@ struct FileCommands: Commands {
                 .disabled(owner == nil)
             }
             .disabled(owner == nil)
+
+            Divider()
+
+            Button("Go to Directory…") {
+                owner?.openCommandPalette(scope: .directoryPicker(initialPath: nil))
+            }
+            .keyboardShortcut("g", modifiers: [.command, .shift])
+            .disabled(owner == nil)
         }
 
         CommandGroup(replacing: .saveItem) {
