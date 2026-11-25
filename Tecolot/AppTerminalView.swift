@@ -149,10 +149,90 @@ final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuAction
     }
     var fileDropShellResolver = TerminalShellResolver()
 
+    private var inputEchoMonitor: Task<Void, Never>?
+    private lazy var hiddenInputIndicator: NSImageView = {
+        let image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "Input hidden")
+        let indicator = NSImageView(image: image ?? NSImage())
+        indicator.toolTip = "Input hidden"
+        indicator.setAccessibilityLabel("Input hidden")
+        indicator.contentTintColor = .labelColor
+        indicator.wantsLayer = true
+        indicator.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        indicator.layer?.cornerRadius = 5
+        indicator.isHidden = true
+        addSubview(indicator, positioned: .above, relativeTo: nil)
+        return indicator
+    }()
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         sessionController?.surfaceDidMoveToWindow()
         registerForDraggedTypes([.fileURL])
+
+        inputEchoMonitor?.cancel()
+        inputEchoMonitor = nil
+        hiddenInputIndicator.isHidden = true
+        guard window != nil else { return }
+        inputEchoMonitor = Task { [weak self] in
+            while !Task.isCancelled {
+                guard self != nil else { return }
+                self?.updateHiddenInputIndicator()
+                do {
+                    try await Task.sleep(for: .milliseconds(250))
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func updateHiddenInputIndicator() {
+        guard hasHiddenLineInput,
+              let viewport = terminalContentSnapshot(region: .viewport),
+              viewport.capturedRange.contains(viewport.cursorRow) else {
+            hiddenInputIndicator.isHidden = true
+            return
+        }
+
+        // Metal draws its own cursor, so the AppKit caret frame's origin can be stale.
+        let cell = caretFrame.size
+        let row = viewport.cursorRow - viewport.capturedRange.lowerBound
+        let caret = CGRect(
+            x: CGFloat(viewport.cursorColumn) * cell.width,
+            y: bounds.maxY - CGFloat(row + 1) * cell.height,
+            width: cell.width, height: cell.height
+        )
+        guard !caret.isEmpty, bounds.intersects(caret) else {
+            hiddenInputIndicator.isHidden = true
+            return
+        }
+
+        let size = min(cell.height, 18)
+        let gap: CGFloat = 3
+        let right = caret.maxX + gap
+        let left = caret.minX - gap - size
+        let x = right + size <= bounds.maxX ? right : left
+        guard x >= bounds.minX else {
+            hiddenInputIndicator.isHidden = true
+            return
+        }
+
+        hiddenInputIndicator.frame = CGRect(
+            x: x, y: caret.midY - size / 2, width: size, height: size
+        ).integral
+        hiddenInputIndicator.isHidden = false
+    }
+
+    private var hasHiddenLineInput: Bool {
+        guard let process,
+              case let .success(descriptor?) = process.duplicatePrimaryDescriptor() else {
+            return false
+        }
+        defer { close(descriptor) }
+        var attributes = termios()
+        guard tcgetattr(descriptor, &attributes) == 0 else { return false }
+        let inputFlags = attributes.c_lflag
+        return inputFlags & tcflag_t(ICANON) != 0 && inputFlags & tcflag_t(ECHO) == 0
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
