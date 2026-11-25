@@ -379,6 +379,21 @@ struct TerminalTabSelectionAppearanceTests {
         #expect(bar.selectionSurface.layer?.backgroundColor?.alpha == 1)
     }
 
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func tabHoverPreservesTranslucentChromeAlpha(appearance: NSAppearance.Name) throws {
+        let appearance = try #require(NSAppearance(named: appearance))
+        let chrome = TabStripChrome(theme: nil, opacity: 1, key: true, appearance: appearance)
+        let tab = TerminalTab(startsProcesses: false)
+        let cell = TabItemView(tab: tab, controller: nil)
+        cell.appearance = appearance
+        cell.configure(selected: false, key: true, chrome: chrome, preferences: TabStripPreferences())
+        // Subview order in TabItemView: [rowSelection, hover, icon, titleClip, ...]
+        let hoverView = cell.subviews[1]
+        let alpha = try #require(hoverView.layer?.backgroundColor?.alpha)
+        #expect(alpha > 0 && alpha < 0.2)
+        #expect(abs(alpha - chrome.hover.alphaComponent) < 0.001)
+    }
+
     @Test func quitAlertUsesSingularAndPlural() {
         #expect(TerminalClosePolicy.quitMessage(runningPaneCount: 1) == "1 local pane asks for confirmation before closing.")
         #expect(TerminalClosePolicy.quitMessage(runningPaneCount: 2) == "2 local panes ask for confirmation before closing.")
