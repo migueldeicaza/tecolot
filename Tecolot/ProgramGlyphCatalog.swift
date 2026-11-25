@@ -22,8 +22,8 @@ nonisolated enum ProgramGlyphCatalog {
         static let rose: UInt32 = 0x92536D
     }
 
-    static let terminal = Entry(id: "terminal", displayName: "Terminal", background: Palette.charcoal)
-    static let grayBackground: UInt32 = 0xC8CED6
+    static let terminal = Entry(id: "terminal", displayName: "Terminal", background: 0x2B2D31, foreground: 0x7EE787)
+    static let grayBackground: UInt32 = 0xDCDCDC
     static let grayForeground: UInt32 = 0x5E6876
 
     /// Every id has an existing brand asset, app-icon mapping or specific
@@ -50,8 +50,8 @@ nonisolated enum ProgramGlyphCatalog {
         Entry(id: "opencode", displayName: "OpenCode", background: Palette.charcoal),
         Entry(id: "pi", displayName: "Pi", background: Palette.teal),
         Entry(id: "htop", displayName: "htop", background: Palette.teal),
-        Entry(id: "codex", displayName: "Codex", background: Palette.teal),
-        Entry(id: "claude", displayName: "Claude Code", background: Palette.rose, aliases: ["claude-code"]),
+        Entry(id: "codex", displayName: "Codex", background: 0xF8F8F8, foreground: 0x1A1A1A),
+        Entry(id: "claude", displayName: "Claude Code", background: 0xE6683D, foreground: 0xFFFFFF, aliases: ["claude-code"]),
         Entry(id: "agy", displayName: "Antigravity", background: Palette.blue),
         Entry(id: "less", displayName: "less", background: Palette.blue),
         Entry(id: "more", displayName: "more", background: Palette.blue),

@@ -605,4 +605,31 @@ struct ProgramActivityIntegrationTests {
         notifier.notify(title: "Build", body: "Opt out", from: first, now: now.addingTimeInterval(6))
         #expect(contents.count == 2)
     }
+
+    @Test func announcementTickerUsesTitleFontForMeasurementAndScrolling() throws {
+        let clip = NSView(frame: NSRect(x: 0, y: 0, width: 60, height: 18))
+        clip.wantsLayer = true
+        let title = NSTextField(labelWithString: "Tab")
+        title.font = .systemFont(ofSize: 13, weight: .medium)
+        clip.addSubview(title)
+        let mask = CAGradientLayer()
+        let ticker = TabAnnouncementTicker(clip: clip, title: title, mask: mask)
+
+        // Long enough to scroll at 13pt inside 60pt clip.
+        ticker.configure(messages: ["Waiting for approval from user"], speed: 40, reduceMotion: false)
+        let scrollingLabel = try #require(clip.subviews.compactMap { $0 as? NSTextField }.first { $0 !== title })
+        let attributedFont = scrollingLabel.attributedStringValue.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        #expect(attributedFont == title.font)
+        #expect(scrollingLabel.layer?.animation(forKey: "scroll") != nil)
+
+        // Message that fits at 13pt (width ~54pt) inside 57pt clip, but would exceed 57pt at 14pt (~59pt).
+        let fitMessage = "Approve it"
+        let width13 = (fitMessage as NSString).size(withAttributes: [.font: title.font!]).width
+        let width14 = (fitMessage as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
+        clip.frame.size.width = ceil((width13 + width14) / 2)
+        ticker.configure(messages: [fitMessage], speed: 40, reduceMotion: false)
+        let staticLabel = try #require(clip.subviews.compactMap { $0 as? NSTextField }.first { $0 !== title })
+        #expect(staticLabel.font == title.font)
+        #expect(staticLabel.layer?.animation(forKey: "scroll") == nil)
+    }
 }

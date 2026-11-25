@@ -22,7 +22,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/migueldeicaza/SwiftTerm",
-            revision: "1488fac94f52e3934ffba185b44c2395d4f95d3c"
+            revision: "b30669619244453a66b14a6b10ec859e3016d6fd"
         ),
     ],
     targets: [

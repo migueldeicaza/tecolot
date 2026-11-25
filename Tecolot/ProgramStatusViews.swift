@@ -15,9 +15,19 @@ final class ProgramStatusBadgeView: NSView {
     @available(*, unavailable) required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
     }
+    /// Suppresses the quiet output dot to match Rex; explicit notifications and
+    /// OSC 7501 states still badge the tab icon and toolbar eye.
+    private static func visibleBadge(for status: TabStatus) -> TabStatus.Badge? {
+        guard let badge = status.badge, badge > .quiet else {
+            return nil
+        }
+        return badge
+    }
+
     /// Updates glyph, color and badge transition animations only when presentation changes.
     func configure(_ status: TabStatus, background: NSColor, colored: Bool) {
-        let previous = self.status.badge
+        let previous = Self.visibleBadge(for: self.status)
+        let next = Self.visibleBadge(for: status)
         guard self.status != status || ring != background || self.colored != colored else {
             return
         }
@@ -28,13 +38,13 @@ final class ProgramStatusBadgeView: NSView {
         guard let layer else {
             return
         }
-        if previous != status.badge {
+        if previous != next {
             let fade = CATransition()
             fade.type = .fade
             fade.duration = 0.15
             layer.add(fade, forKey: "badgeFade")
         }
-        if previous == nil, status.badge != nil {
+        if previous == nil, next != nil {
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
@@ -49,7 +59,7 @@ final class ProgramStatusBadgeView: NSView {
             scale.toValue = 1
             scale.duration = 0.3
             layer.add(scale, forKey: "appear")
-        } else if previous != nil, status.badge == nil {
+        } else if previous != nil, next == nil {
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 1
             fade.toValue = 0
@@ -60,19 +70,19 @@ final class ProgramStatusBadgeView: NSView {
             scale.duration = 0.15
             layer.add(fade, forKey: "disappear")
             layer.add(scale, forKey: "disappearScale")
-        } else if previous != status.badge {
+        } else if previous != next {
             let fade = CATransition()
             fade.type = .fade
             fade.duration = 0.15
             layer.add(fade, forKey: "color")
         }
-        layer.opacity = status.badge == nil ? 0 : 1
+        layer.opacity = next == nil ? 0 : 1
     }
     override func draw(_ dirtyRect: NSRect) {
-        guard let badge = status.badge else {
+        guard let badge = Self.visibleBadge(for: status) else {
             return
         }
-        let diameter: CGFloat = badge == .quiet ? 6 : 12
+        let diameter: CGFloat = 10
         let rect = NSRect(
             x: bounds.midX - diameter / 2, y: bounds.midY - diameter / 2, width: diameter, height: diameter
         )
@@ -83,15 +93,15 @@ final class ProgramStatusBadgeView: NSView {
         if
             let name = status.badgeSymbol,
             let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(
-                .init(pointSize: 7, weight: .bold)
+                .init(pointSize: 6.5, weight: .bold)
             ) {
-            let glyph = NSImage(size: NSSize(width: 9, height: 9), flipped: false) { target in
+            let glyph = NSImage(size: NSSize(width: 8, height: 8), flipped: false) { target in
                 image.draw(in: target)
                 NSColor.white.setFill()
                 target.fill(using: .sourceIn)
                 return true
             }
-            glyph.draw(in: NSRect(x: rect.midX - 4.5, y: rect.midY - 4.5, width: 9, height: 9))
+            glyph.draw(in: NSRect(x: rect.midX - 4, y: rect.midY - 4, width: 8, height: 8))
         }
     }
 }
@@ -234,7 +244,8 @@ final class TabAnnouncementTicker {
         let messages = messages.filter {
             !$0.isEmpty
         }
-        let next = "\(messages)|\(clip.bounds.width)|\(speed)|\(reduceMotion)"
+        let font = title.font ?? NSFont.systemFont(ofSize: 13)
+        let next = "\(messages)|\(clip.bounds.width)|\(speed)|\(reduceMotion)|\(font.fontName)|\(font.pointSize)"
         guard next != signature else {
             return
         }
@@ -257,7 +268,7 @@ final class TabAnnouncementTicker {
             return
         }
         let widths = messages.map {
-            ($0 as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
+            ($0 as NSString).size(withAttributes: [.font: font]).width
         }
         let scrolls = widths.map {
             !reduceMotion && $0 > clip.bounds.width ? Double($0 + 30) / speed : 0
@@ -279,11 +290,10 @@ final class TabAnnouncementTicker {
             let label = NSTextField(
                 labelWithString: scrolls[index] == 0 ? messages[index] : messages[index] + "     " + messages[index]
             )
-            label.font = title.font
+            label.font = font
             label.textColor = title.textColor
             label.wantsLayer = true
             if scrolls[index] > 0 {
-                let font = NSFont.systemFont(ofSize: 14)
                 let space = (" " as NSString).size(withAttributes: [.font: font]).width
                 let text = NSMutableAttributedString(string: messages[index], attributes: [.font: font])
                 text.append(NSAttributedString(string: " ", attributes: [.font: font, .kern: 30 - space]))

@@ -225,7 +225,7 @@ struct TerminalTabSelectionAppearanceTests {
         #expect(bar.cells.count == 2)
         #expect(bar.selectionSurface.superview === bar.scroll.documentView)
         #expect(bar.cells.allSatisfy {
-            $0.titleField.font == NSFont.systemFont(ofSize: 14)
+            $0.titleField.font == NSFont.systemFont(ofSize: 13)
         })
         #expect(bar.cells.allSatisfy {
             $0.accessibilityRole() == .radioButton

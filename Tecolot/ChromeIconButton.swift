@@ -52,7 +52,12 @@ final class ChromeIconButton: NSButton {
     }
 
     var treatment = Treatment.pane {
-        didSet { needsDisplay = true }
+        didSet {
+            glyph.symbolConfiguration = Self.symbolConfiguration(for: treatment)
+            updateHighlightLayer()
+            updateGlyphTint()
+            needsDisplay = true
+        }
     }
     var highlightDiameter: CGFloat {
         switch treatment {
@@ -62,6 +67,17 @@ final class ChromeIconButton: NSButton {
             26
         case .toolbar:
             32
+        }
+    }
+
+    static func symbolConfiguration(for treatment: Treatment) -> NSImage.SymbolConfiguration {
+        switch treatment {
+        case .pane:
+            NSImage.SymbolConfiguration(pointSize: 11.5, weight: .medium, scale: .small)
+        case .window:
+            NSImage.SymbolConfiguration(pointSize: 13, weight: .medium, scale: .medium)
+        case .toolbar:
+            NSImage.SymbolConfiguration(pointSize: 13.5, weight: .medium, scale: .medium)
         }
     }
     /// A presented panel keeps its opener selected after the pointer leaves.
@@ -90,13 +106,19 @@ final class ChromeIconButton: NSButton {
         contentTintColor = .secondaryLabelColor
         glyph.imageAlignment = .alignCenter
         glyph.imageScaling = .scaleNone
+        glyph.symbolConfiguration = Self.symbolConfiguration(for: treatment)
         glyph.setAccessibilityElement(false)
         addSubview(glyph)
+        updateGlyphTint()
     }
 
     convenience init(treatment: Treatment) {
         self.init(frame: .zero)
         self.treatment = treatment
+        glyph.symbolConfiguration = Self.symbolConfiguration(for: treatment)
+        updateHighlightLayer()
+        updateGlyphTint()
+        needsDisplay = true
     }
 
     @available(*, unavailable)
@@ -112,8 +134,8 @@ final class ChromeIconButton: NSButton {
 
     /// Matches the measured fill contrast on composited window chrome.
     static func highlightColor(dark: Bool, increasedContrast: Bool, treatment: Treatment = .pane) -> NSColor {
-        let alpha: CGFloat = treatment == .pane ? 0.03 : 0.075
-        return (dark ? NSColor.white : .black).withAlphaComponent(increasedContrast ? max(0.16, alpha) : alpha)
+        let alpha: CGFloat = treatment == .pane ? 0.065 : 0.08
+        return (dark ? NSColor.white : .black).withAlphaComponent(increasedContrast ? max(0.18, alpha) : alpha)
     }
 
     override var image: NSImage? {
@@ -121,6 +143,7 @@ final class ChromeIconButton: NSButton {
         set {
             let template = newValue?.copy() as? NSImage
             template?.isTemplate = true
+            glyph.symbolConfiguration = Self.symbolConfiguration(for: treatment)
             glyph.image = template
             super.image = newValue
             needsDisplay = true
@@ -270,13 +293,14 @@ final class ChromeIconButton: NSButton {
         }
     }
 
-    /// Mutes pane glyphs and brightens them only during hover.
+    /// Gives toolbar/window chrome crisp contrast at rest while keeping pane actions quieter.
     private func updateGlyphTint() {
-        let fraction: CGFloat = isChromeActive ? 1 : hoverState.pressed ? 0.1 : hoverState.hovered ? (treatment == .pane ? 0.3 : 1) : 0
+        let restBlend: CGFloat = treatment == .pane ? 0 : 0.48
+        let fraction: CGFloat = isChromeActive ? 1 : hoverState.pressed ? 0.15 : hoverState.hovered ? (treatment == .pane ? 0.55 : 1) : restBlend
         effectiveAppearance.performAsCurrentDrawingAppearance {
             glyph.contentTintColor = (contentTintColor ?? .secondaryLabelColor).blended(withFraction: fraction, of: .labelColor)
         }
-        let opacity: CGFloat = treatment == .pane ? (hoverState.hovered && !hoverState.pressed ? 0.7 : 0.6) : 1
+        let opacity: CGFloat = treatment == .pane ? (hoverState.hovered && !hoverState.pressed ? 0.95 : 0.78) : 1
         glyph.alphaValue = opacity * (isEnabled ? 1 : 0.5)
     }
 

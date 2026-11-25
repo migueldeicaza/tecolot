@@ -3,11 +3,14 @@ import SwiftUI
 
 final class ThemeTitlebarControl: NSView, NSPopoverDelegate {
     private let button = ChromeIconButton(treatment: .window)
+    var treatment: ChromeIconButton.Treatment {
+        get { button.treatment }
+        set { button.treatment = newValue }
+    }
     var contentTintColor: NSColor? {
         get { button.contentTintColor }
         set { button.contentTintColor = newValue }
     }
-    private var buttonCenterY: NSLayoutConstraint!
     private weak var controller: TerminalSessionController?
     private weak var presentedController: TerminalSessionController?
     private weak var profiles: ProfileStore?
@@ -32,12 +35,11 @@ final class ThemeTitlebarControl: NSView, NSPopoverDelegate {
         button.setAccessibilityLabel("Theme")
         button.translatesAutoresizingMaskIntoConstraints = false
         addSubview(button)
-        buttonCenterY = button.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 0)
         NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 28),
-            button.heightAnchor.constraint(equalToConstant: 28),
-            button.centerXAnchor.constraint(equalTo: centerXAnchor),
-            buttonCenterY
+            button.leadingAnchor.constraint(equalTo: leadingAnchor),
+            button.trailingAnchor.constraint(equalTo: trailingAnchor),
+            button.topAnchor.constraint(equalTo: topAnchor),
+            button.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
     }
 

@@ -137,4 +137,130 @@ struct ChromeIconButtonTests {
         #expect(button.frame.size == NSSize(width: 26, height: 26))
         #expect(button.contentTintColor == .secondaryLabelColor)
     }
+
+    @Test func convenienceInitAppliesTreatmentImmediatelyWithoutHover() throws {
+        let pane = ChromeIconButton(treatment: .pane)
+        let window = ChromeIconButton(treatment: .window)
+        let toolbar = ChromeIconButton(treatment: .toolbar)
+
+        let paneGlyph = try #require(pane.subviews.first as? NSImageView)
+        let windowGlyph = try #require(window.subviews.first as? NSImageView)
+        let toolbarGlyph = try #require(toolbar.subviews.first as? NSImageView)
+
+        #expect(paneGlyph.alphaValue < 1)
+        #expect(windowGlyph.alphaValue == 1)
+        #expect(toolbarGlyph.alphaValue == 1)
+        #expect(windowGlyph.symbolConfiguration == ChromeIconButton.symbolConfiguration(for: .window))
+        #expect(toolbarGlyph.symbolConfiguration == ChromeIconButton.symbolConfiguration(for: .toolbar))
+    }
+
+    @Test func selectionSurfaceAnimatesGlassSublayerWithBoundsChange() {
+        let surface = TabSelectionSurfaceView(frame: NSRect(x: 0, y: 0, width: 120, height: 32))
+        surface.move(to: NSRect(x: 10, y: 0, width: 120, height: 32), animated: false)
+        surface.move(to: NSRect(x: 140, y: 0, width: 220, height: 32), animated: true)
+        #expect(surface.layer?.animation(forKey: "position") != nil)
+        #expect(surface.layer?.animation(forKey: "bounds") != nil)
+        if #available(macOS 26.0, *), let glass = surface.subviews.first {
+            #expect(glass.layer?.animation(forKey: "transform.scale.x") != nil)
+            #expect(glass.layer?.animation(forKey: "transform.scale.y") != nil)
+            surface.move(to: NSRect(x: 140, y: 0, width: 220, height: 32), animated: false)
+            #expect(glass.layer?.animation(forKey: "transform.scale.x") == nil)
+        }
+    }
+
+    @Test func groupButtonHoverResetsAndDrawsBehindContent() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 80),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
+        window.contentView = container
+        let button = GroupButton(frame: NSRect(x: 10, y: 10, width: 120, height: 36))
+        button.cell = GroupSelectorCell()
+        button.isBordered = false
+        button.title = "Work"
+        let insideScreenPoint = window.convertPoint(toScreen: NSPoint(x: 50, y: 28))
+        let outsideScreenPoint = window.convertPoint(toScreen: NSPoint(x: 190, y: 28))
+        button.pointerLocation = { outsideScreenPoint }
+        container.addSubview(button)
+        button.updateTrackingAreas()
+
+        // Hover is drawn inside draw(_:) before super.draw(_:), never via an overlay sublayer.
+        #expect((button.layer?.sublayers ?? []).isEmpty)
+
+        // Unrelated tracking events do not toggle hover.
+        let enter = try #require(NSEvent.enterExitEvent(
+            with: .mouseEntered,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            trackingNumber: 0,
+            userData: nil
+        ))
+        button.mouseEntered(with: enter)
+        #expect(!button.hovered)
+
+        // Turning hover on renders the highlight pill and lifecycle calls clear it.
+        button.setHovered(true)
+        #expect(button.hovered)
+        let hoveredBitmap = try #require(button.bitmapImageRepForCachingDisplay(in: button.bounds))
+        button.cacheDisplay(in: button.bounds, to: hoveredBitmap)
+        let pillSampleX = hoveredBitmap.pixelsWide - max(8, hoveredBitmap.pixelsWide / 10)
+        let pillSampleY = hoveredBitmap.pixelsHigh / 2
+        #expect(try #require(hoveredBitmap.colorAt(x: pillSampleX, y: pillSampleY)).alphaComponent > 0)
+
+        button.contextMenu = { NSMenu() }
+        let click = try #require(NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+        #expect(button.menu(for: click) != nil)
+        #expect(!button.hovered)
+        let clearedBitmap = try #require(button.bitmapImageRepForCachingDisplay(in: button.bounds))
+        button.cacheDisplay(in: button.bounds, to: clearedBitmap)
+        #expect(try #require(clearedBitmap.colorAt(x: pillSampleX, y: pillSampleY)).alphaComponent == 0)
+
+        button.setHovered(true)
+        #expect(button.hovered)
+        button.viewDidHide()
+        #expect(!button.hovered)
+
+        button.setHovered(true)
+        #expect(button.hovered)
+        button.isHidden = true
+        #expect(!button.hovered)
+
+        // Unhiding under a stationary pointer resyncs hover back on.
+        button.pointerLocation = { insideScreenPoint }
+        button.isHidden = false
+        #expect(button.hovered)
+
+        // Disabling clears hover; re-enabling under the pointer restores it.
+        button.isEnabled = false
+        #expect(!button.hovered)
+        button.isEnabled = true
+        #expect(button.hovered)
+
+        // Moving outside and resyncing via updateTrackingAreas / removal clears hover.
+        button.pointerLocation = { outsideScreenPoint }
+        button.updateTrackingAreas()
+        #expect(!button.hovered)
+
+        button.setHovered(true)
+        #expect(button.hovered)
+        button.removeFromSuperview()
+        #expect(!button.hovered)
+    }
 }

@@ -105,7 +105,7 @@ final class TerminalPaneCardView: NSView {
         }
         icon.imageScaling = .scaleProportionallyDown
         header.addSubview(icon)
-        title.font = .systemFont(ofSize: 13, weight: .medium)
+        title.font = .systemFont(ofSize: 12, weight: .medium)
         directory.font = .systemFont(ofSize: 12)
         for label in [title, directory] {
             label.lineBreakMode = .byTruncatingTail
@@ -260,13 +260,14 @@ final class TerminalPaneCardView: NSView {
         directory.toolTip = presentation.directory
         let status = controller.owningTab?.isMuted == true || !ProgramActivitySettings.shared.value.showTabs ? TabStatus.none : presentation.status
         activity.configure(status, background: headerBackground, colored: ProgramActivitySettings.shared.value.color)
-        activity.isHidden = status.badge == nil
+        activity.isHidden = status.badge.map { $0 <= .quiet } ?? true
         setAccessibilityValue(status.accessibilityValue)
         header.setAccessibilityLabel(presentation.title + " pane header")
         header.setAccessibilityValue(status.accessibilityValue)
-        icon.image = TerminalAppIconResolver.shared.icon(forExecutablePath: presentation.executablePath)
+        let iconSource = presentation.status.app ?? presentation.executablePath
+        icon.image = TerminalAppIconResolver.shared.icon(forExecutablePath: iconSource)
         icon.contentTintColor = foreground
-        icon.toolTip = TerminalAppIconResolver.identity(forExecutablePath: presentation.executablePath) ?? "Terminal"
+        icon.toolTip = TerminalAppIconResolver.identity(forExecutablePath: iconSource) ?? "Terminal"
         icon.setAccessibilityLabel(icon.toolTip ?? "Terminal")
         setAccessibilityLabel(presentation.title)
         let zoomed = state.zoomed

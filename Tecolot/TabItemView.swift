@@ -91,7 +91,7 @@ final class TabItemView: NSView {
         titleFade.endPoint = CGPoint(x: 1, y: 0.5)
         titleClip.layer?.mask = titleFade
         titleField.lineBreakMode = .byClipping
-        titleField.font = .systemFont(ofSize: 14)
+        titleField.font = .systemFont(ofSize: 13)
         titleField.isSelectable = false
         titleClip.addSubview(titleField)
         closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")
@@ -253,11 +253,12 @@ final class TabItemView: NSView {
             hover.animator().alphaValue = key && (isHovered || isPressed) ? 1 : 0
         }
         titleField.textColor = isSelected || (isHovered && key) ? .labelColor : .secondaryLabelColor
+        let fontSize: CGFloat = isSidebarRow ? SidebarPreferences().textSize : 13
         let parts = tab.titleParts
         let text = NSMutableAttributedString(
             string: parts.primary,
             attributes: [
-                .font: NSFont.systemFont(ofSize: isSidebarRow ? SidebarPreferences().textSize : 14),
+                .font: NSFont.systemFont(ofSize: fontSize, weight: isSelected ? .medium : .regular),
                 .foregroundColor: titleField.textColor ?? NSColor.labelColor,
             ]
         )
@@ -266,7 +267,7 @@ final class TabItemView: NSView {
                 NSAttributedString(
                     string: " " + directory,
                     attributes: [
-                        .font: NSFont.systemFont(ofSize: isSidebarRow ? SidebarPreferences().textSize : 14),
+                        .font: NSFont.systemFont(ofSize: fontSize),
                         .foregroundColor: isSelected || (isHovered && key)
                             ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor,
                     ]
@@ -319,10 +320,10 @@ final class TabItemView: NSView {
         statusIndicatorHost.frame = NSRect(x: bounds.width - 27, y: 8, width: 16.5, height: 16)
         // Index zero is the front card, even when the fan has several tiles.
         badgeHost.frame = NSRect(
-            x: iconCount > 0 ? 25 : 4,
-            y: isSidebarRow ? 0.25 + CGFloat(max(0, iconCount - 1)) * 1.5 : 1,
-            width: 15,
-            height: 15
+            x: iconCount > 0 ? 23 : 4,
+            y: isSidebarRow ? 1 + CGFloat(max(0, iconCount - 1)) * 1.25 : 2,
+            width: 13,
+            height: 13
         )
         statusBadge.frame = badgeHost.bounds
         workingDots.frame = statusIndicatorHost.bounds

@@ -34,13 +34,17 @@ License: CC0 1.0 Universal. The license text is in SVG-Logos-CC0.txt.
 The SVG files came from https://api.iconify.design/ with a 128 by 128
 output size.
 
-Simple Icons: Pi, htop
+Simple Icons: Pi, htop, Claude, OpenAI (Codex)
 Source: https://icon-sets.iconify.design/simple-icons/
-Icons: pi, htop.
+Icons: pi, htop, claude, openai
 License: CC0 1.0 Universal. The license text is in Simple-Icons-CC0.txt.
 The SVG files came from https://api.iconify.design/ with a 128 by 128
 output size. Their image sets render as templates in Tecolot's tab tiles.
 
-No LazyGit, Codex, or Claude artwork is included.
+Bundled brand icons are used nominatively to identify running terminal
+programs and do not imply endorsement. For commands backed by a macOS
+application (such as Claude, Codex, and Antigravity), Tecolot prefers the
+installed system application icon when present and falls back to bundled
+artwork when unavailable.
 Node.js policy: https://trademark-policy.openjsf.org/
 LazyGit has no separate logo in its official repository tree.

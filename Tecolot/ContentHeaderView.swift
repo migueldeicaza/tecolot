@@ -6,11 +6,11 @@ final class ContentHeaderView: NSView {
     let directory = WorkingDirectoryTitlebarControl()
     let glyph = NSImageView()
     let titleField = NSTextField(labelWithString: "")
-    let toggle = NSButton()
+    let toggle = ChromeIconButton(treatment: .window)
     private let activity = ChromeIconButton(treatment: .window)
     private let theme = ThemeTitlebarControl()
-    private let zoom = NSButton()
-    private let add = NSButton()
+    private let zoom = ChromeIconButton(treatment: .window)
+    private let add = ChromeIconButton(treatment: .window)
     private let paneBadge = ProgramStatusBadgeView()
     private let toggleBadge = ProgramStatusBadgeView()
     private let activityBadge = ProgramStatusBadgeView()
@@ -61,7 +61,8 @@ final class ContentHeaderView: NSView {
         titleField.stringValue = title
         directory.configure(path: pane?.titlebarWorkingDirectory, title: "", hasActivity: false)
         directory.isHidden = pane?.titlebarWorkingDirectory == nil
-        glyph.image = TerminalAppIconResolver.shared.icon(forExecutablePath: pane?.panePresentation.executablePath)
+        let iconSource = pane?.programStatus.tabStatus.app ?? pane?.panePresentation.executablePath
+        glyph.image = TerminalAppIconResolver.shared.icon(forExecutablePath: iconSource)
         let model = AppModel.shared
         theme.configure(controller: pane, profiles: model.profiles, themes: model.themes, themeIndex: model.themeIndex)
         let hidden = controller.sidebarPreferences.hidden

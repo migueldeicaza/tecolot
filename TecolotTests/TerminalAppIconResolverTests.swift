@@ -7,6 +7,9 @@ struct TerminalAppIconResolverTests {
     @Test func versionedExecutablesUseKnownIdentities() {
         let versions = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".local/share/claude/versions")
+        #expect(TerminalAppIconResolver.identity(forExecutablePath: "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe") == "claude")
+        #expect(TerminalAppIconResolver.identity(forExecutablePath: "/opt/homebrew/Caskroom/codex/0.172.0/bin/codex") == "codex")
+        #expect(TerminalAppIconResolver.identity(forExecutablePath: "/opt/bin/codex-aarch64-apple-darwin") == "codex")
         #expect(TerminalAppIconResolver.identity(forExecutablePath: versions.appendingPathComponent("2.1.294").path) == "claude")
         #expect(TerminalAppIconResolver.identity(forExecutablePath: "/opt/bin/python3.13") == "python3")
         #expect(TerminalAppIconResolver.identity(forExecutablePath: "/opt/bin/python3.13.1") == "python3")
@@ -50,7 +53,16 @@ struct TerminalAppIconResolverTests {
         #expect(TerminalAppIconResolver.brandAssetName(for: "nodejs") == "TerminalBrand-node")
         #expect(TerminalAppIconResolver.brandAssetName(for: "python3") == "TerminalBrand-python")
         #expect(TerminalAppIconResolver.brandAssetName(for: "ipython") == "TerminalBrand-python")
+        #expect(TerminalAppIconResolver.brandAssetName(for: "claude") == "TerminalBrand-claude")
+        #expect(TerminalAppIconResolver.brandAssetName(for: "claude-code") == "TerminalBrand-claude")
+        #expect(TerminalAppIconResolver.brandAssetName(for: "codex") == "TerminalBrand-codex")
         #expect(TerminalAppIconResolver.bundleIdentifiers(for: "claude") == ["com.anthropic.claudefordesktop"])
+        #expect(TerminalAppIconResolver.bundleIdentifiers(for: "codex") == ["com.openai.codex", "com.openai.chat"])
+        #expect(TerminalAppIconResolver.prefersInstalledAppIcon("claude"))
+        #expect(TerminalAppIconResolver.prefersInstalledAppIcon("codex"))
+        #expect(TerminalAppIconResolver.prefersInstalledAppIcon("agy"))
+        #expect(!TerminalAppIconResolver.prefersBrandIcon("claude"))
+        #expect(!TerminalAppIconResolver.prefersBrandIcon("codex"))
         #expect(TerminalAppIconResolver.bundleIdentifiers(for: "agy") == ["com.google.antigravity"])
         #expect(TerminalAppIconResolver.isRecognizedCommand("agy"))
         #expect(ProgramGlyphCatalog.entry(forExecutablePath: "/Users/example/.local/bin/agy").id == "agy")
@@ -58,12 +70,12 @@ struct TerminalAppIconResolverTests {
     }
 
     @Test func bundledBrandImagesLoadFromTheApp() throws {
-        for command in ["bun", "git", "perl", "python", "php", "node", "ruby", "dotnet", "hermes", "opencode", "pi", "htop"] {
+        for command in ["bun", "git", "perl", "python", "php", "node", "ruby", "dotnet", "hermes", "opencode", "pi", "htop", "claude", "codex"] {
             let name = try #require(TerminalAppIconResolver.brandAssetName(for: command))
             let image = try #require(NSImage(named: name))
             #expect(image.size.width > 0)
             #expect(image.size.height > 0)
-            #expect(image.isTemplate == ["pi", "htop"].contains(command))
+            #expect(image.isTemplate == ["pi", "htop", "claude", "codex"].contains(command))
         }
     }
 

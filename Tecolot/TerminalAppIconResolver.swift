@@ -25,6 +25,12 @@ final class TerminalAppIconResolver {
         if name.range(of: #"^ruby[0-9]+(?:\.[0-9]+)*$"#, options: .regularExpression) != nil {
             return "ruby"
         }
+        if name == "claude.exe" || name == "claude-code" {
+            return "claude"
+        }
+        if name == "codex.exe" || name.range(of: #"^codex-(?:darwin|aarch64|x86_64|arm64)"#, options: .regularExpression) != nil {
+            return "codex"
+        }
         if
             isClaudeVersionsDirectory(url.deletingLastPathComponent()),
             name.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil {
@@ -67,13 +73,37 @@ final class TerminalAppIconResolver {
         return image
     }
 
-    /// Small glyphs remain legible inside a tab tile. Antigravity uses its
-    /// installed app icon; other full app icons stay in icon(forExecutablePath:).
+    /// Resolved tab tile artwork together with whether it came from an
+    /// installed macOS application bundle (full-bleed app icon) rather than a
+    /// compact brand glyph or SF Symbol.
+    struct TabGlyph {
+        let image: NSImage
+        let isAppIcon: Bool
+    }
+
+    /// Prefers an installed macOS application icon for app-backed commands
+    /// (such as Claude, Codex, and Antigravity), falling back to bundled brand
+    /// artwork and finally an SF Symbol.
     func tabGlyph(for identity: String) -> NSImage {
-        if identity == "agy", let image = installedAppIcon(identity) {
-            return image
+        resolvedTabGlyph(for: identity).image
+    }
+
+    func resolvedTabGlyph(for identity: String) -> TabGlyph {
+        if Self.prefersInstalledAppIcon(identity), let image = installedAppIcon(identity) {
+            return TabGlyph(image: image, isAppIcon: true)
         }
-        return bundledBrandIcon(identity) ?? symbolIcon(identity)
+        return TabGlyph(image: bundledBrandIcon(identity) ?? symbolIcon(identity), isAppIcon: false)
+    }
+
+    func resolvedTabIcon(forExecutablePath path: String?) -> TabGlyph {
+        if let appIcon = enclosingAppIcon(path) {
+            return TabGlyph(image: appIcon, isAppIcon: true)
+        }
+        let identity = Self.identity(forExecutablePath: path) ?? ""
+        if Self.prefersInstalledAppIcon(identity), let appIcon = installedAppIcon(identity) {
+            return TabGlyph(image: appIcon, isAppIcon: true)
+        }
+        return TabGlyph(image: icon(forExecutablePath: path), isAppIcon: false)
     }
 
     private func enclosingAppIcon(_ path: String?) -> NSImage? {
@@ -101,15 +131,22 @@ final class TerminalAppIconResolver {
         return nil
     }
 
-    static func bundleIdentifiers(for identity: String) -> [String] {
+    nonisolated static func bundleIdentifiers(for identity: String) -> [String] {
         let bundles: [String: [String]] = [
-            "codex": ["com.openai.codex"],
+            "codex": ["com.openai.codex", "com.openai.chat"],
             "claude": ["com.anthropic.claudefordesktop"],
+            "claude-code": ["com.anthropic.claudefordesktop"],
             "agy": ["com.google.antigravity"],
             "python": ["org.python.IDLE"],
             "python3": ["org.python.IDLE"]
         ]
         return bundles[identity] ?? []
+    }
+
+    /// Commands whose installed macOS app icon is preferred over bundled brand
+    /// artwork when available; bundled artwork acts as the fallback.
+    nonisolated static func prefersInstalledAppIcon(_ identity: String) -> Bool {
+        !bundleIdentifiers(for: identity).isEmpty && !["python", "python3"].contains(identity)
     }
 
     /// Only assets with an approved source and license can use these names.
@@ -125,14 +162,16 @@ final class TerminalAppIconResolver {
     /// commands, the brand icon has priority over the icon of that app.
     /// Add a command here when its icon shows the wrong app.
     static func prefersBrandIcon(_ identity: String) -> Bool {
-        brandAssetName(for: identity) != nil && identity != "bun"
+        brandAssetName(for: identity) != nil && identity != "bun" && !prefersInstalledAppIcon(identity)
     }
 
     nonisolated static func brandAssetName(for identity: String) -> String? {
         let brand: String
         switch identity {
-        case "bun", "git", "perl", "php", "ruby", "dotnet", "hermes", "opencode", "pi", "htop":
+        case "bun", "git", "perl", "php", "ruby", "dotnet", "hermes", "opencode", "pi", "htop", "claude", "codex":
             brand = identity
+        case "claude-code":
+            brand = "claude"
         case "python", "python3", "ipython", "ipython3":
             brand = "python"
         case "node", "nodejs":

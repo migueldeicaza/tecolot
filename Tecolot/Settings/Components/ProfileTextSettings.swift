@@ -53,6 +53,17 @@ struct ProfileTextSettingsFields: View {
         .onChange(of: profile) {
             configureFontPanel()
         }
+        Toggle(SettingID.appearanceFontSmoothing.title, isOn: Binding(
+            get: {
+                profile.fontSmoothing
+            },
+            set: { newValue in
+                update {
+                    $0.fontSmoothing = newValue
+                }
+            }
+        ))
+        .settingsAnchor(.appearanceFontSmoothing)
         Picker(SettingID.appearanceCursor.title, selection: Binding(
             get: {
                 profile.cursorStyle

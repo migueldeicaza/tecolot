@@ -8,15 +8,15 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
     weak var controller: TerminalWindowController?
     let outline = SidebarOutlineView()
     let scroll = NSScrollView()
-    let toggle = NSButton()
+    let toggle = ChromeIconButton(treatment: .window)
     let activity = ChromeIconButton(treatment: .window)
     let commandPalette = ChromeIconButton(treatment: .window)
     private let theme = ThemeTitlebarControl()
-    private let zoom = NSButton()
-    private let add = NSButton()
-    private let overflow = NSButton()
-    private let filterButton = NSButton()
-    private let newGroup = NSButton()
+    private let zoom = ChromeIconButton(treatment: .window)
+    private let add = ChromeIconButton(treatment: .window)
+    private let overflow = ChromeIconButton(treatment: .window)
+    private let filterButton = ChromeIconButton(treatment: .window)
+    private let newGroup = ChromeIconButton(treatment: .window)
     let filter = NSSearchField()
     private let activityBadge = ProgramStatusBadgeView()
     private let popover = ActivityPopover()
@@ -84,7 +84,7 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         configure(add, symbol: "plus", title: "New Tab (⌘T)", action: #selector(addTab))
         configure(zoom, symbol: "arrow.down.right.and.arrow.up.left", title: "Reset Split Zoom", action: #selector(resetZoom))
         configure(overflow, symbol: "ellipsis.circle", title: "Sidebar actions", action: #selector(showOverflow))
-        configure(filterButton, symbol: "line.3.horizontal.decrease", title: "Filter", action: #selector(showFilter))
+        configure(filterButton, symbol: "line.3.horizontal.decrease.circle", title: "Filter", action: #selector(showFilter))
         configure(newGroup, symbol: "plus.rectangle.on.rectangle", title: "New Group (⇧⌘N)", action: #selector(addGroup))
         activity.addSubview(activityBadge)
         for view in [scroll, toggle, activity, commandPalette, theme, zoom, add, overflow, filterButton, newGroup, filter] {
@@ -376,7 +376,7 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         let pitch: CGFloat = 26
         let start: CGFloat = right ? 9 : bounds.width - 113
         add.frame = NSRect(x: right ? start : start + pitch * 3, y: 12, width: 26, height: 26)
-        theme.frame = NSRect(x: right ? start + pitch : start + pitch * 2, y: 12, width: 26, height: 24)
+        theme.frame = NSRect(x: right ? start + pitch : start + pitch * 2, y: 12, width: 26, height: 26)
         commandPalette.frame = NSRect(x: right ? start + pitch * 2 : start + pitch, y: 12, width: 26, height: 26)
         activity.frame = NSRect(x: right ? start + pitch * 3 : start, y: 12, width: 26, height: 26)
         let narrow = !right && bounds.width < 236
@@ -392,7 +392,7 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
             width: 29,
             height: 26
         )
-        activityBadge.frame = NSRect(x: 17, y: 0, width: 15, height: 15)
+        activityBadge.frame = NSRect(x: 15, y: 2, width: 13, height: 13)
         let filterHeight: CGFloat = filterShown ? 30 : 0
         filter.frame = NSRect(x: 10, y: 40, width: max(0, bounds.width - 20), height: 24)
         scroll.frame = NSRect(x: 0, y: 38 + filterHeight, width: bounds.width, height: max(0, bounds.height - 76 - filterHeight))
@@ -733,11 +733,13 @@ private final class SidebarGroupHeader: NSView {
     let group: TerminalTabGroup
     weak var sidebar: SidebarTabBarView?
     private let title = NSTextField(labelWithString: "")
-    private let add = NSButton()
+    private let add = ChromeIconButton(treatment: .pane)
+    private let chevron = ChromeIconButton(treatment: .pane)
     private let windowGlyph = NSImageView()
     private let badge = ProgramStatusBadgeView()
     private var editor: InlineNameField?
     private var tracking: NSTrackingArea?
+    private var hovered = false
     override var isFlipped: Bool {
         true
     }
@@ -747,7 +749,7 @@ private final class SidebarGroupHeader: NSView {
         super.init(frame: .zero)
         title.stringValue = group.name
         setAccessibilityLabel(group.name)
-        title.font = .systemFont(ofSize: 13, weight: .semibold)
+        title.font = .systemFont(ofSize: 12, weight: .semibold)
         title.textColor = .secondaryLabelColor
         title.lineBreakMode = .byTruncatingTail
         windowGlyph.image = NSImage(systemSymbolName: "macwindow", accessibilityDescription: "Shown in another window")
@@ -755,10 +757,11 @@ private final class SidebarGroupHeader: NSView {
             $0.id == sidebar.controller?.id
         } ?? true
         add.image = NSImage(systemSymbolName: "plus.circle", accessibilityDescription: "New Tab in \(group.name)")
-        add.isBordered = false
         add.target = self
         add.action = #selector(newTab)
-        for view in [title, add, badge, windowGlyph] {
+        chevron.target = self
+        chevron.action = #selector(toggleCollapse)
+        for view in [title, add, chevron, badge, windowGlyph] {
             addSubview(view)
         }
         add.isHidden = true
@@ -766,6 +769,11 @@ private final class SidebarGroupHeader: NSView {
     }
     func refresh() {
         setAccessibilityLabel(group.name)
+        chevron.image = NSImage(
+            systemSymbolName: group.isCollapsed ? "chevron.right" : "chevron.down",
+            accessibilityDescription: group.isCollapsed ? "Expand \(group.name)" : "Collapse \(group.name)"
+        )
+        chevron.isHidden = !hovered && !group.isCollapsed
         guard editor == nil else {
             return
         }
@@ -804,9 +812,10 @@ private final class SidebarGroupHeader: NSView {
     override func layout() {
         super.layout()
         title.frame = NSRect(x: 10, y: 4, width: max(0, bounds.width - 86), height: 18)
-        add.frame = NSRect(x: bounds.width - 47, y: 3, width: 22, height: 16)
-        windowGlyph.frame = NSRect(x: bounds.width - 73, y: 3, width: 16, height: 16)
-        badge.frame = NSRect(x: bounds.width - 95, y: 3, width: 15, height: 15)
+        chevron.frame = NSRect(x: bounds.width - 24, y: 2, width: 22, height: 22)
+        add.frame = NSRect(x: bounds.width - 47, y: 2, width: 22, height: 22)
+        windowGlyph.frame = NSRect(x: bounds.width - 73, y: 4, width: 16, height: 16)
+        badge.frame = NSRect(x: bounds.width - 95, y: 4, width: 15, height: 15)
         editor?.frame = title.frame
     }
     override func updateTrackingAreas() {
@@ -819,17 +828,24 @@ private final class SidebarGroupHeader: NSView {
         tracking = next
     }
     override func mouseEntered(with event: NSEvent) {
+        hovered = true
         add.isHidden = false
+        chevron.isHidden = false
     }
     override func mouseExited(with event: NSEvent) {
+        hovered = false
         add.isHidden = true
+        chevron.isHidden = !group.isCollapsed
     }
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2 {
             beginRename()
         } else {
-            sidebar?.controller?.manager.setCollapsed(!group.isCollapsed, group: group)
+            toggleCollapse()
         }
+    }
+    @objc private func toggleCollapse() {
+        sidebar?.controller?.manager.setCollapsed(!group.isCollapsed, group: group)
     }
     @objc private func newTab() {
         sidebar?.controller?.newTab(in: group)
@@ -912,11 +928,7 @@ final class SidebarOutlineView: NSOutlineView {
         return rect
     }
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {
-        guard item(atRow: row) is TerminalTabGroup else {
-            return .zero
-        }
-        let rect = rect(ofRow: row)
-        return NSRect(x: bounds.width - 32, y: rect.minY + 8, width: 22, height: 22)
+        .zero
     }
 }
 

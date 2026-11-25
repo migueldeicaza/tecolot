@@ -11,8 +11,8 @@ final class HorizontalTabBarView: NSView {
     private let track = TabTrackView()
     let selectionSurface = TabSelectionSurfaceView()
     private let theme = ThemeTitlebarControl()
-    private let zoom = NSButton()
-    private let add = NSButton()
+    private let zoom = ChromeIconButton(treatment: .toolbar)
+    private let add = ChromeIconButton(treatment: .toolbar)
     let commandPaletteButton = ChromeIconButton(treatment: .toolbar)
     let activityButton = ChromeIconButton(treatment: .toolbar)
     private let activityBadge = ProgramStatusBadgeView()
@@ -83,10 +83,11 @@ final class HorizontalTabBarView: NSView {
             self?.updateDrawingVisibility()
         }
         groupButton.cell = GroupSelectorCell()
-        groupButton.bezelStyle = .inline
-        groupButton.image = NSImage(systemSymbolName: "square.stack", accessibilityDescription: nil)
+        groupButton.isBordered = false
+        groupButton.image = NSImage(systemSymbolName: "square.stack", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .medium))
         groupButton.imagePosition = .imageLeading
-        groupButton.imageScaling = .scaleProportionallyUpOrDown
+        groupButton.imageScaling = .scaleNone
         groupButton.font = .systemFont(ofSize: 13, weight: .semibold)
         groupButton.alignment = .left
         groupButton.contentTintColor = .labelColor
@@ -97,6 +98,7 @@ final class HorizontalTabBarView: NSView {
         }
         groupButton.toolTip = "Go to Group (⌘K)"
         groupButton.setAccessibilityLabel("Go to Group")
+        theme.treatment = .toolbar
         zoom.image = NSImage(
             systemSymbolName: "arrow.down.right.and.arrow.up.left", accessibilityDescription: "Reset Split Zoom"
         )
@@ -337,14 +339,14 @@ final class HorizontalTabBarView: NSView {
         let groupWidth = usesNamedCaption ? min(190, max(105, groupButton.intrinsicContentSize.width + 8)) : 34
         groupButton.frame = NSRect(x: 85, y: usesNamedCaption ? 5 : 7, width: groupWidth, height: usesNamedCaption ? 36 : 32)
         groupEditor?.frame = groupButton.frame.insetBy(dx: 2, dy: 6)
-        add.frame = NSRect(x: bounds.width - 41, y: 6, width: 36, height: 32)
+        add.frame = NSRect(x: bounds.width - 41, y: 7, width: 35, height: 32)
         let zoomWidth: CGFloat = zoom.isHidden ? 0 : 34
         zoom.frame = NSRect(x: add.frame.minX - zoomWidth, y: 7, width: zoomWidth, height: 32)
-        theme.frame = NSRect(x: zoom.frame.minX - 34, y: 7, width: 35, height: 30)
+        theme.frame = NSRect(x: zoom.frame.minX - 34, y: 7, width: 35, height: 32)
         commandPaletteButton.frame = NSRect(x: theme.frame.minX - 34, y: 7, width: 35, height: 32)
         let activityStart = commandPaletteButton.frame.minX - 34
         activityButton.frame = NSRect(x: activityStart, y: 7, width: 35, height: 32)
-        activityBadge.frame = NSRect(x: 21, y: 0, width: 15, height: 15)
+        activityBadge.frame = NSRect(x: 19, y: 3, width: 13, height: 13)
         let start = groupButton.frame.maxX + 8
         scroll.frame = NSRect(x: start, y: 7, width: max(0, activityStart - start - 8), height: 32)
         let geometry = stripLayout
@@ -652,6 +654,20 @@ private final class TabTrackView: NSView {
 
 final class GroupButton: NSButton {
     var contextMenu: (() -> NSMenu)?
+    var pointerLocation: () -> NSPoint = { NSEvent.mouseLocation }
+    private var tracking: NSTrackingArea?
+    private(set) var hovered = false
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
     override var intrinsicContentSize: NSSize {
         if title.isEmpty {
             return NSSize(width: 34, height: 32)
@@ -659,18 +675,135 @@ final class GroupButton: NSButton {
         let width = (title as NSString).size(withAttributes: [.font: font ?? NSFont.systemFont(ofSize: 13, weight: .semibold)]).width
         return NSSize(width: ceil(width) + 42, height: 36)
     }
+
+    override var isHidden: Bool {
+        didSet {
+            synchronizeHoverWithPointer()
+        }
+    }
+
+    override var isEnabled: Bool {
+        didSet {
+            synchronizeHoverWithPointer()
+        }
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        setHovered(false)
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        synchronizeHoverWithPointer()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        synchronizeHoverWithPointer()
+        needsDisplay = true
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        synchronizeHoverWithPointer()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking {
+            removeTrackingArea(tracking)
+        }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        tracking = area
+        synchronizeHoverWithPointer()
+    }
+
+    private func synchronizeHoverWithPointer() {
+        if let window, !isHiddenOrHasHiddenAncestor, isEnabled {
+            let point = convert(window.convertPoint(fromScreen: pointerLocation()), from: nil)
+            setHovered(bounds.contains(point) && visibleRect.contains(point))
+        } else {
+            setHovered(false)
+        }
+    }
+
+    func setHovered(_ next: Bool) {
+        guard hovered != next else {
+            return
+        }
+        hovered = next
+        needsDisplay = true
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard event.trackingArea === tracking else {
+            return
+        }
+        if isEnabled, !isHiddenOrHasHiddenAncestor {
+            setHovered(true)
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard event.trackingArea === tracking else {
+            return
+        }
+        setHovered(false)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if hovered, isEnabled, !isHiddenOrHasHiddenAncestor {
+            let inset: CGFloat = title.isEmpty ? 0 : 2
+            let pillRect = bounds.insetBy(dx: 0, dy: inset)
+            if pillRect.width > 0, pillRect.height > 0 {
+                let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+                let path = NSBezierPath(roundedRect: pillRect, xRadius: pillRect.height / 2, yRadius: pillRect.height / 2)
+                ChromeIconButton.highlightColor(dark: dark, increasedContrast: contrast, treatment: .toolbar).setFill()
+                path.fill()
+                if contrast {
+                    NSColor.secondaryLabelColor.setStroke()
+                    path.lineWidth = 1
+                    path.stroke()
+                }
+            }
+        }
+        super.draw(dirtyRect)
+    }
+
     override func mouseDown(with event: NSEvent) {
         highlight(true)
-        defer { highlight(false) }
+        defer {
+            highlight(false)
+            synchronizeHoverWithPointer()
+        }
         if let action {
             NSApp.sendAction(action, to: target, from: self)
         }
     }
+
+    override func rightMouseDown(with event: NSEvent) {
+        defer { synchronizeHoverWithPointer() }
+        super.rightMouseDown(with: event)
+    }
+
     override func mouseUp(with event: NSEvent) {
         highlight(false)
+        synchronizeHoverWithPointer()
     }
+
     override func menu(for event: NSEvent) -> NSMenu? {
-        contextMenu?()
+        setHovered(false)
+        return contextMenu?()
     }
 }
 

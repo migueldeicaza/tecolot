@@ -430,7 +430,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
             extendedPalette: .standard,
             fontFamily: nil,
             fontSize: 12,
-            fontSmoothing: true,
+            fontSmoothing: false,
             useBrightColorsForBold: true,
             cursorStyle: .blinkBlock,
             backgroundOpacity: 1.0,
