@@ -93,13 +93,14 @@ final class ContentHeaderView: NSView {
     override func layout() {
         super.layout()
         let right = controller?.sidebarPreferences.style == .right
-        toggle.frame = NSRect(x: right ? bounds.width - 32 : 84, y: 4, width: 29, height: 25)
+        let fullscreen = controller?.isFullScreen ?? (window?.styleMask.contains(.fullScreen) == true)
+        toggle.frame = NSRect(x: right ? bounds.width - 32 : (fullscreen ? 4 : 84), y: 4, width: 29, height: 25)
         let end = bounds.width - (right && !toggle.isHidden ? 38 : 4)
         add.frame = NSRect(x: end - 30, y: 3, width: 30, height: 28)
         zoom.frame = NSRect(x: add.frame.minX - (zoom.isHidden ? 0 : 30), y: 3, width: zoom.isHidden ? 0 : 30, height: 28)
         theme.frame = NSRect(x: zoom.frame.minX - 30, y: 3, width: 29, height: 28)
         activity.frame = NSRect(x: theme.frame.minX - 30, y: 3, width: 29, height: 28)
-        let start: CGFloat = right || toggle.isHidden ? 82 : 120
+        let start: CGFloat = right || toggle.isHidden ? (fullscreen ? 10 : 82) : (fullscreen ? 40 : 120)
         glyph.frame = NSRect(x: start, y: 11, width: 14, height: 14)
         let titleEnd = activity.isHidden ? bounds.width - 8 : activity.frame.minX
         let available = max(0, titleEnd - start - 28)

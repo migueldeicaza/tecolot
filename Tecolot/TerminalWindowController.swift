@@ -54,18 +54,28 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
 
     private(set) var windowedFrame: NSRect?
     var restorationFrame: NSRect {
-        if enteringFullScreen || window?.styleMask.contains(.fullScreen) == true {
+        if enteringFullScreen || exitingFullScreen || enteredFullScreen || window?.styleMask.contains(.fullScreen) == true {
             return windowedFrame ?? window?.frame ?? .zero
         }
         return window?.frame ?? .zero
     }
+    var isFullScreen: Bool {
+        (enteringFullScreen || enteredFullScreen || window?.styleMask.contains(.fullScreen) == true) && !exitingFullScreen
+    }
+    private var isInFullScreenTransitionOrFullScreen: Bool {
+        enteringFullScreen || exitingFullScreen || enteredFullScreen || window?.styleMask.contains(.fullScreen) == true
+    }
     private var enteringFullScreen = false
+    private var exitingFullScreen = false
+    private var enteredFullScreen = false
+    private var lastFullScreenLayout = false
     private var observationGeneration = 0
     private let preferences: TerminalWindowPreferences
     private var trafficLightObservers: [NSObjectProtocol] = []
     private var observedTrafficLights: [NSButton] = []
     private var isPositioningTrafficLights = false
     private var trafficLightLayoutScheduled = false
+    private var trafficLightRetryCount = 0
     var groupPresenter: any GroupSwitcherPresenting = GroupSwitcherPanel()
     var commandPalettePresenter: any CommandPalettePresenting = CommandPalettePanel()
     private let resumeRemotePrompts: @MainActor () -> Void
@@ -332,9 +342,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         }
         let pane = chromeController
         window?.title = "\(selected?.title ?? "Terminal") — \(group.name)"
-        if let window {
+        applyWindowAppearance()
+        if window != nil {
             let theme = pane?.profile.useThemeColorsForWindowChrome == false ? nil : pane?.effectiveTheme
-            TerminalWindowAppearance.apply(theme: theme, to: window)
             tabBar.apply(theme: theme, opacity: pane?.effectiveBackgroundOpacity ?? 1)
         }
         let chromeFocus = Self.focusOwner(of: window?.firstResponder)
@@ -470,8 +480,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         let corners = PaneCardGeometry.topCorners(in: frames)
         trafficLightCardID = integrated ? corners.left : nil
         topRightCardID = integrated ? corners.right : nil
-        let fullscreen = window?.styleMask.contains(.fullScreen) == true
-        let leftToggle: CGFloat = sidebarPreferences.hidden && sidebarPreferences.style == .left ? (fullscreen ? 32 : 40) : 0
+        let fullscreen = isFullScreen
+        let leftToggle: CGFloat = sidebarPreferences.hidden && sidebarPreferences.style == .left ? (fullscreen ? 36 : 40) : 0
         for card in host.visibleCards {
             card.integratedWindowHeader = integrated
             card.windowLeadingInset = integrated && card.controller.id == corners.left
@@ -487,7 +497,44 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         positionTrafficLights()
     }
 
+    private func applyWindowAppearance() {
+        guard let window else {
+            return
+        }
+        let pane = chromeController
+        let theme = pane?.profile.useThemeColorsForWindowChrome == false ? nil : pane?.effectiveTheme
+        TerminalWindowAppearance.apply(theme: theme, to: window, isFullScreen: isFullScreen)
+    }
+
+    private func refreshFullScreenChromeLayout() {
+        applyWindowAppearance()
+        tabBar.needsLayout = true
+        sidebar.needsLayout = true
+        contentHeader.needsLayout = true
+        paneHeaderControls.needsLayout = true
+        content.needsLayout = true
+        content.layoutSubtreeIfNeeded()
+    }
+
+    private func restoreStandardWindowButtonsForFullScreen() {
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window?.standardWindowButton(type) else {
+                continue
+            }
+            button.isHidden = false
+            button.superview?.needsLayout = true
+        }
+    }
+
     private func layoutContent() {
+        let fullscreen = isFullScreen
+        if fullscreen != lastFullScreenLayout {
+            lastFullScreenLayout = fullscreen
+            tabBar.needsLayout = true
+            sidebar.needsLayout = true
+            contentHeader.needsLayout = true
+            paneHeaderControls.needsLayout = true
+        }
         chromeBackdrop.frame = content.bounds
         cardOutlines.frame = content.bounds
         tabBar.frame = NSRect(x: 0, y: 0, width: content.bounds.width, height: 46)
@@ -540,6 +587,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
             applyCardMask(to: contentHeader, rect: NSRect(origin: .zero, size: card.size))
         }
         animateChrome = false
+        tabBar.layoutSubtreeIfNeeded()
         sidebar.layoutSubtreeIfNeeded()
         contentHeader.layoutSubtreeIfNeeded()
         paneHeaderControls.layoutSubtreeIfNeeded()
@@ -573,21 +621,20 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         CATransaction.commit()
     }
 
-    /// Keeps the buttons centered even when AppKit lays out the titlebar again.
+    /// Keeps the buttons centered in windowed mode while leaving AppKit in charge in full screen.
     func positionTrafficLights() {
-        let fullscreen = window?.styleMask.contains(.fullScreen) == true
-        if fullscreen {
-            for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-                window?.standardWindowButton(type)?.isHidden = true
-            }
-        }
-        guard !fullscreen, !isPositioningTrafficLights else {
+        guard !isInFullScreenTransitionOrFullScreen, !isPositioningTrafficLights else {
             return
         }
         isPositioningTrafficLights = true
         defer { isPositioningTrafficLights = false }
+        var skippedDetachedButton = false
         for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
-            guard let button = window?.standardWindowButton(type), let parent = button.superview else {
+            guard let button = window?.standardWindowButton(type) else {
+                continue
+            }
+            guard let parent = button.superview, parent.window === window else {
+                skippedDetachedButton = true
                 continue
             }
             button.isHidden = false
@@ -597,6 +644,14 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
             if button.frame != frame {
                 button.frame = frame
             }
+        }
+        if skippedDetachedButton {
+            if window != nil, trafficLightRetryCount < 10 {
+                trafficLightRetryCount += 1
+                scheduleTrafficLightLayout(delay: 0.02)
+            }
+        } else {
+            trafficLightRetryCount = 0
         }
     }
 
@@ -620,7 +675,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
                 queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, !self.isPositioningTrafficLights else {
+                    guard let self, !self.isPositioningTrafficLights, !self.isInFullScreenTransitionOrFullScreen else {
                         return
                     }
                     self.scheduleTrafficLightLayout()
@@ -629,18 +684,23 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         }
     }
 
-    private func scheduleTrafficLightLayout() {
+    private func scheduleTrafficLightLayout(delay: TimeInterval = 0) {
         guard !trafficLightLayoutScheduled else {
             return
         }
         trafficLightLayoutScheduled = true
-        DispatchQueue.main.async { [weak self] in
+        let work: @MainActor () -> Void = { [weak self] in
             guard let self else {
                 return
             }
             self.trafficLightLayoutScheduled = false
             self.observeTrafficLights()
             self.positionTrafficLights()
+        }
+        if delay > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        } else {
+            DispatchQueue.main.async(execute: work)
         }
     }
 
@@ -698,10 +758,17 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     func windowWillEnterFullScreen(_ notification: Notification) {
         windowedFrame = window?.frame
         enteringFullScreen = true
+        exitingFullScreen = false
+        restoreStandardWindowButtonsForFullScreen()
+        refreshFullScreenChromeLayout()
     }
     func windowDidFailToEnterFullScreen(_ window: NSWindow) {
         enteringFullScreen = false
+        enteredFullScreen = false
+        trafficLightRetryCount = 0
         windowedFrame = nil
+        refreshFullScreenChromeLayout()
+        scheduleTrafficLightLayout()
     }
 
     /// Tests replace these. Real activation and key status depend on which
@@ -715,19 +782,33 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
 
     func windowDidEnterFullScreen(_ notification: Notification) {
         enteringFullScreen = false
+        exitingFullScreen = false
+        enteredFullScreen = true
+        restoreStandardWindowButtonsForFullScreen()
         if appIsActive(), let window {
             makeWindowKey(window)
         }
         NSApp.mainMenu?.update()
-        content.needsLayout = true
+        refreshFullScreenChromeLayout()
         manager.persistenceDidChange?(false)
+    }
+    func windowWillExitFullScreen(_ notification: Notification) {
+        exitingFullScreen = true
+        refreshFullScreenChromeLayout()
+    }
+    func windowDidFailToExitFullScreen(_ window: NSWindow) {
+        exitingFullScreen = false
+        refreshFullScreenChromeLayout()
     }
     func windowDidExitFullScreen(_ notification: Notification) {
         enteringFullScreen = false
+        exitingFullScreen = false
+        enteredFullScreen = false
+        trafficLightRetryCount = 0
         windowedFrame = nil
         NSApp.mainMenu?.update()
         manager.persistenceDidChange?(false)
-        content.needsLayout = true
+        refreshFullScreenChromeLayout()
         scheduleTrafficLightLayout()
     }
 

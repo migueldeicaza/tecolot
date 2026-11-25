@@ -372,20 +372,21 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
     override func layout() {
         super.layout()
         let right = controller?.sidebarPreferences.style == .right
-        toggle.frame = NSRect(x: right ? bounds.width - 40 : 92, y: 12, width: 29, height: 25)
+        let fullscreen = controller?.isFullScreen ?? (window?.styleMask.contains(.fullScreen) == true)
+        toggle.frame = NSRect(x: right ? bounds.width - 40 : (fullscreen ? 12 : 92), y: 12, width: 29, height: 25)
         let pitch: CGFloat = 26
         let start: CGFloat = right ? 9 : bounds.width - 113
         add.frame = NSRect(x: right ? start : start + pitch * 3, y: 12, width: 26, height: 26)
         theme.frame = NSRect(x: right ? start + pitch : start + pitch * 2, y: 12, width: 26, height: 26)
         commandPalette.frame = NSRect(x: right ? start + pitch * 2 : start + pitch, y: 12, width: 26, height: 26)
         activity.frame = NSRect(x: right ? start + pitch * 3 : start, y: 12, width: 26, height: 26)
-        let narrow = !right && bounds.width < 236
+        let narrow = !right && bounds.width < (fullscreen ? 156 : 236)
         for view in [activity, commandPalette, theme, add] {
             view.isHidden = narrow
         }
         overflow.isHidden = !narrow
         overflow.frame = NSRect(x: bounds.width - 38, y: 12, width: 29, height: 26)
-        let bottomZoom = right || bounds.width < 290
+        let bottomZoom = right || bounds.width < (fullscreen ? 210 : 290)
         zoom.frame = NSRect(
             x: bottomZoom ? bounds.width - 70 : start - 30,
             y: bottomZoom ? bounds.height - 32 : 12,

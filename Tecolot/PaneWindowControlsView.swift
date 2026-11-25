@@ -63,7 +63,8 @@ final class PaneWindowControlsView: NSView {
     override func layout() {
         super.layout()
         let right = controller?.sidebarPreferences.style == .right
-        let left: CGFloat = window?.styleMask.contains(.fullScreen) == true ? 0 : 84
+        let fullscreen = controller?.isFullScreen ?? (window?.styleMask.contains(.fullScreen) == true)
+        let left: CGFloat = fullscreen ? 4 : 84
         toggle.frame = NSRect(x: right ? bounds.width - 32 : left, y: 4.5, width: 29, height: 25)
         let end = bounds.width - (right ? 38 : 4)
         add.frame = NSRect(x: end - 30, y: 4, width: 30, height: 28)

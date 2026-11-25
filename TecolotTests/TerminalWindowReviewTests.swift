@@ -157,7 +157,15 @@ struct TerminalWindowPreferencesTests {
 @MainActor
 struct TerminalWindowTrafficLightTests {
     @Test func trafficLightsSurviveResizeAndTitlebarRelayouts() async throws {
+        let suite = "TrafficLightsResize-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        SidebarPreferences.setStyle(.above, defaults: defaults)
         let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        manager.makeWindow = {
+            TerminalWindowController(group: $0, manager: manager, defaults: defaults)
+        }
+        defer { manager.makeWindow = nil }
         let group = manager.newGroup(tab: TerminalTab(startsProcesses: false))
         let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
         let window = try #require(owner.window)
@@ -189,6 +197,142 @@ struct TerminalWindowTrafficLightTests {
         window.standardWindowButton(.closeButton)?.setFrameOrigin(.zero)
         await nextTurn()
         try check(window)
+    }
+
+    @Test func fullScreenKeepsStandardWindowButtonsVisibleAndReclaimsTabBarSpace() async throws {
+        let suite = "TrafficLightsFullScreen-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        SidebarPreferences.setStyle(.above, defaults: defaults)
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        manager.makeWindow = {
+            TerminalWindowController(group: $0, manager: manager, defaults: defaults)
+        }
+        defer { manager.makeWindow = nil }
+        let group = manager.newGroup(tab: TerminalTab(startsProcesses: false))
+        let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
+        owner.appIsActive = { false }
+        let window = try #require(owner.window)
+        defer { manager.closeGroup(group) }
+        window.setContentSize(NSSize(width: 1000, height: 640))
+        window.contentView?.layoutSubtreeIfNeeded()
+        await nextTurn()
+        #expect(owner.tabBar.groupButton.frame.minX == 85)
+        #expect(window.titlebarAppearsTransparent)
+        #expect(window.titleVisibility == .hidden)
+
+        owner.windowWillEnterFullScreen(Notification(name: NSWindow.willEnterFullScreenNotification, object: window))
+        #expect(owner.isFullScreen)
+        #expect(!window.titlebarAppearsTransparent)
+        #expect(window.titleVisibility == .visible)
+        #expect(owner.tabBar.groupButton.frame.minX == 8)
+        // Simulate AppKit positioning the buttons for the full-screen titlebar while entering.
+        let fullScreenOrigin = NSPoint(x: 7, y: 6)
+        window.standardWindowButton(.closeButton)?.setFrameOrigin(fullScreenOrigin)
+        owner.positionTrafficLights()
+        #expect(window.standardWindowButton(.closeButton)?.frame.origin == fullScreenOrigin)
+
+        owner.windowDidEnterFullScreen(Notification(name: NSWindow.didEnterFullScreenNotification, object: window))
+        await nextTurn()
+        #expect(owner.isFullScreen)
+        #expect(!window.titlebarAppearsTransparent)
+        #expect(window.titleVisibility == .visible)
+        let nativeFullScreenFrame = try #require(window.standardWindowButton(.closeButton)?.frame)
+        owner.positionTrafficLights()
+        await nextTurn()
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            let button = try #require(window.standardWindowButton(type))
+            #expect(!button.isHidden)
+        }
+        #expect(window.standardWindowButton(.closeButton)?.frame == nativeFullScreenFrame)
+        #expect(owner.tabBar.groupButton.frame.minX == 8)
+        #expect(owner.tabBar.scroll.frame.minX == owner.tabBar.groupButton.frame.maxX + 8)
+
+        owner.windowWillExitFullScreen(Notification(name: NSWindow.willExitFullScreenNotification, object: window))
+        #expect(!owner.isFullScreen)
+        #expect(window.titlebarAppearsTransparent)
+        #expect(window.titleVisibility == .hidden)
+        #expect(owner.tabBar.groupButton.frame.minX == 85)
+
+        owner.windowDidExitFullScreen(Notification(name: NSWindow.didExitFullScreenNotification, object: window))
+        window.layoutIfNeeded()
+        await nextTurn()
+        #expect(!owner.isFullScreen)
+        #expect(owner.tabBar.groupButton.frame.minX == 85)
+        try check(window)
+    }
+
+    @Test func fullScreenReclaimsTrafficLightSpaceInSidebarAndHeaderLayouts() async throws {
+        let suite = "FullScreenChrome-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        SidebarPreferences.setStyle(.left, defaults: defaults)
+        defaults.set(200, forKey: SidebarPreferences.widthKey)
+        defaults.set(false, forKey: SidebarPreferences.hiddenKey)
+        defaults.set("comfortable", forKey: GlobalAppearanceSettings.paneStyleKey)
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        manager.makeWindow = {
+            TerminalWindowController(group: $0, manager: manager, defaults: defaults)
+        }
+        defer { manager.makeWindow = nil }
+        let tab = TerminalTab(startsProcesses: false)
+        let group = manager.newGroup(tab: tab)
+        let owner = try #require(manager.openWindow(group: group) as? TerminalWindowController)
+        owner.appIsActive = { false }
+        let window = try #require(owner.window)
+        let content = try #require(window.contentView)
+        defer { manager.closeGroup(group) }
+        window.setContentSize(NSSize(width: 1180, height: 760))
+        content.layoutSubtreeIfNeeded()
+
+        // Left sidebar at narrow width (200): windowed clears traffic lights and collapses buttons.
+        #expect(owner.sidebar.toggle.frame.minX == 92)
+        #expect(content.convert(owner.sidebar.toggle.bounds, from: owner.sidebar.toggle).minX == 92)
+        #expect(owner.sidebar.activity.isHidden)
+
+        owner.windowDidEnterFullScreen(Notification(name: NSWindow.didEnterFullScreenNotification, object: window))
+        #expect(owner.sidebar.toggle.frame.minX == 12)
+        #expect(content.convert(owner.sidebar.toggle.bounds, from: owner.sidebar.toggle).minX == 12)
+        #expect(!owner.sidebar.activity.isHidden)
+
+        // Comfortable hidden left sidebar: integrated card header and pane controls keep the toggle aligned at x=12.
+        defaults.set(true, forKey: SidebarPreferences.hiddenKey)
+        owner.refreshSidebarPreferences()
+        content.layoutSubtreeIfNeeded()
+        #expect(owner.paneHeaderControls.toggle.frame.minX == 4)
+        #expect(content.convert(owner.paneHeaderControls.toggle.bounds, from: owner.paneHeaderControls.toggle).minX == 12)
+        #expect(tab.hostView.visibleCards.first?.windowLeadingInset == 36)
+
+        owner.windowDidExitFullScreen(Notification(name: NSWindow.didExitFullScreenNotification, object: window))
+        content.layoutSubtreeIfNeeded()
+        #expect(owner.paneHeaderControls.toggle.frame.minX == 84)
+        #expect(content.convert(owner.paneHeaderControls.toggle.bounds, from: owner.paneHeaderControls.toggle).minX == 92)
+        #expect(tab.hostView.visibleCards.first?.windowLeadingInset == 116)
+
+        // Compact hidden left sidebar (ContentHeaderView with toggle).
+        defaults.set("compact", forKey: GlobalAppearanceSettings.paneStyleKey)
+        await nextTurn()
+        content.layoutSubtreeIfNeeded()
+        #expect(!owner.contentHeader.isHidden)
+        #expect(owner.contentHeader.toggle.frame.minX == 84)
+        #expect(content.convert(owner.contentHeader.toggle.bounds, from: owner.contentHeader.toggle).minX == 92)
+        #expect(owner.contentHeader.glyph.frame.minX == 120)
+
+        owner.windowDidEnterFullScreen(Notification(name: NSWindow.didEnterFullScreenNotification, object: window))
+        #expect(owner.contentHeader.toggle.frame.minX == 4)
+        #expect(content.convert(owner.contentHeader.toggle.bounds, from: owner.contentHeader.toggle).minX == 12)
+        #expect(owner.contentHeader.glyph.frame.minX == 40)
+
+        // Compact right sidebar (ContentHeaderView without toggle).
+        SidebarPreferences.setStyle(.right, defaults: defaults)
+        defaults.set(false, forKey: SidebarPreferences.hiddenKey)
+        owner.refreshSidebarPreferences()
+        content.layoutSubtreeIfNeeded()
+        #expect(owner.contentHeader.glyph.frame.minX == 10)
+
+        owner.windowDidExitFullScreen(Notification(name: NSWindow.didExitFullScreenNotification, object: window))
+        content.layoutSubtreeIfNeeded()
+        #expect(owner.contentHeader.glyph.frame.minX == 82)
     }
 
     private func check(_ window: NSWindow) throws {

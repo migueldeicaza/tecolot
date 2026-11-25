@@ -336,8 +336,9 @@ final class HorizontalTabBarView: NSView {
 
     override func layout() {
         super.layout()
+        let fullscreen = controller?.isFullScreen ?? (window?.styleMask.contains(.fullScreen) == true)
         let groupWidth = usesNamedCaption ? min(190, max(105, groupButton.intrinsicContentSize.width + 8)) : 34
-        groupButton.frame = NSRect(x: 85, y: usesNamedCaption ? 5 : 7, width: groupWidth, height: usesNamedCaption ? 36 : 32)
+        groupButton.frame = NSRect(x: fullscreen ? 8 : 85, y: usesNamedCaption ? 5 : 7, width: groupWidth, height: usesNamedCaption ? 36 : 32)
         groupEditor?.frame = groupButton.frame.insetBy(dx: 2, dy: 6)
         add.frame = NSRect(x: bounds.width - 41, y: 7, width: 35, height: 32)
         let zoomWidth: CGFloat = zoom.isHidden ? 0 : 34

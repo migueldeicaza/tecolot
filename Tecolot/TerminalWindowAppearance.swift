@@ -1,14 +1,15 @@
 import AppKit
 
-/// Native chrome stays transparent; the custom strip paints its background.
+/// Keeps windowed titlebars transparent for custom chrome, while restoring the native titlebar in full screen.
 @MainActor
 enum TerminalWindowAppearance {
-    static func apply(theme: TerminalTheme?, to window: NSWindow) {
+    static func apply(theme: TerminalTheme?, to window: NSWindow, isFullScreen: Bool? = nil) {
         window.appearance = theme.flatMap {
             NSAppearance(named: $0.isDark ? .darkAqua : .aqua)
         }
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
+        let fullscreen = isFullScreen ?? window.styleMask.contains(.fullScreen)
+        window.titlebarAppearsTransparent = !fullscreen
+        window.titleVisibility = fullscreen ? .visible : .hidden
     }
 
     static func background(theme: TerminalTheme?, opacity: Double) -> NSColor {

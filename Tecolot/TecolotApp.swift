@@ -534,7 +534,9 @@ struct TecolotApp: App {
                 .environmentObject(model.themes)
                 .environmentObject(model.themeIndex)
                 .environmentObject(model.systemAppearance)
+                .windowFullScreenBehavior(.disabled)
         }
+        .windowManagerRole(.associated)
         .defaultLaunchBehavior(.suppressed)
         .defaultSize(width: 820, height: 560)
         .windowResizability(.contentMinSize)
@@ -552,7 +554,9 @@ struct TecolotApp: App {
 
         Window("Sessions", id: SessionBrowserWindowID.value) {
             SessionBrowserView()
+                .windowFullScreenBehavior(.disabled)
         }
+        .windowManagerRole(.associated)
         .defaultLaunchBehavior(.suppressed)
         .defaultSize(width: 860, height: 400)
     }
