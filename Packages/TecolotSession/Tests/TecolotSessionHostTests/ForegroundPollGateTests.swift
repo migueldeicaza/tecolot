@@ -70,10 +70,205 @@ struct ForegroundPollGateTests {
     @Test func cancelledProbeDoesNotSettleTheGate() {
         let base = ContinuousClock.now
         var gate = ForegroundPollGate(settleWindow: .milliseconds(500))
-        gate.noteActivity(at: base)
-        _ = gate.beginProbe(at: base + .seconds(1))
+        // A cancelled first probe keeps `.immediate`.
+        _ = gate.beginProbe(at: base)
         #expect(gate.schedule == .immediate)
-        gate.record(gate.beginProbe(at: base + .seconds(1)))
+        gate.record(gate.beginProbe(at: base))
+        #expect(gate.schedule == .idle)
+
+        gate.noteActivity(at: base + .seconds(1))
+        // The probe starts but is cancelled, so it records no result.
+        _ = gate.beginProbe(at: base + .seconds(2))
+        #expect(gate.schedule == .active)
+
+        gate.record(gate.beginProbe(at: base + .seconds(3)))
+        #expect(gate.schedule == .idle)
+    }
+
+    @Test func pendingExecDoesNotSettleTheGate() {
+        let base = ContinuousClock.now
+        var gate = ForegroundPollGate(settleWindow: .milliseconds(500))
+        gate.record(gate.beginProbe(at: base))
+
+        // Enter at t=1s. Exec is held, so the probe at t=2s sees the forked shell child.
+        gate.noteActivity(at: base + .seconds(1))
+        gate.record(gate.beginProbe(at: base + .seconds(2)), pendingExec: true)
+        #expect(gate.schedule == .active)
+        gate.record(gate.beginProbe(at: base + .seconds(3)), pendingExec: true)
+        #expect(gate.schedule == .active)
+
+        // Exec completes with no output. The next probe sees the program and settles.
+        gate.record(gate.beginProbe(at: base + .seconds(4)))
+        #expect(gate.schedule == .idle)
+    }
+
+    @Test func pendingExecFallsBackAfterLimitAndSettlesAfterTotalLimit() {
+        let base = ContinuousClock.now
+        var gate = ForegroundPollGate(settleWindow: .milliseconds(500))
+        gate.record(gate.beginProbe(at: base))
+
+        // A subshell or a nested shell of the same type stays a shell-image child.
+        gate.noteActivity(at: base)
+        gate.record(gate.beginProbe(at: base + .seconds(5)), pendingExec: true)
+        #expect(gate.schedule == .active)
+        // Between 10 s and 60 s, the gate moves to the slow fallback probe.
+        gate.record(gate.beginProbe(at: base + ForegroundPollGate.pendingExecLimit), pendingExec: true)
+        #expect(gate.schedule == .fallback)
+        gate.record(gate.beginProbe(at: base + .seconds(30)), pendingExec: true)
+        #expect(gate.schedule == .fallback)
+        // At 60 s or more, the gate settles fully to idle.
+        gate.record(gate.beginProbe(at: base + ForegroundPollGate.pendingExecFallbackLimit), pendingExec: true)
+        #expect(gate.schedule == .idle)
+    }
+
+    @Test func pendingExecFallbackClearsWhenProgramStartsOrActivityArrives() {
+        let base = ContinuousClock.now
+        var gate = ForegroundPollGate(settleWindow: .milliseconds(500))
+        gate.record(gate.beginProbe(at: base))
+
+        gate.noteActivity(at: base)
+        gate.record(gate.beginProbe(at: base + ForegroundPollGate.pendingExecLimit), pendingExec: true)
+        #expect(gate.schedule == .fallback)
+
+        // Program completes exec during fallback: gate settles to idle.
+        gate.record(gate.beginProbe(at: base + .seconds(15)), pendingExec: false)
+        #expect(gate.schedule == .idle)
+
+        // Re-enter fallback, then receive new activity and a < 10 s pending exec.
+        gate.noteActivity(at: base + .seconds(20))
+        gate.record(gate.beginProbe(at: base + .seconds(30)), pendingExec: true)
+        #expect(gate.schedule == .fallback)
+        gate.noteActivity(at: base + .seconds(35))
+        #expect(gate.schedule == .active)
+        gate.record(gate.beginProbe(at: base + .seconds(36)), pendingExec: true)
+        #expect(gate.schedule == .active)
+        // A probe with no pending exec settles to idle (no stale fallback).
+        gate.record(gate.beginProbe(at: base + .seconds(37)), pendingExec: false)
+        #expect(gate.schedule == .idle)
+    }
+
+    @Test func pendingExecWithoutPriorActivitySettlesToIdle() {
+        let base = ContinuousClock.now
+        var gate = ForegroundPollGate(settleWindow: .milliseconds(500))
+        gate.record(gate.beginProbe(at: base), pendingExec: true)
+        #expect(gate.schedule == .idle)
+    }
+
+    @Test func resetClearsPendingExecFallback() {
+        let base = ContinuousClock.now
+        var gate = ForegroundPollGate(settleWindow: .milliseconds(500))
+        gate.record(gate.beginProbe(at: base))
+        gate.noteActivity(at: base)
+        gate.record(gate.beginProbe(at: base + ForegroundPollGate.pendingExecLimit), pendingExec: true)
+        #expect(gate.schedule == .fallback)
+
+        gate.reset()
+        #expect(gate.schedule == .immediate)
+        gate.record(gate.beginProbe(at: base + .seconds(11)))
+        #expect(gate.schedule == .idle)
+    }
+
+    @Test func backgroundChildrenAndPendingExecFallbackStayFallbackUntilBothClear() {
+        let base = ContinuousClock.now
+        var gate = ForegroundPollGate(settleWindow: .milliseconds(500))
+        gate.record(gate.beginProbe(at: base))
+        gate.noteActivity(at: base)
+
+        gate.record(
+            gate.beginProbe(at: base + ForegroundPollGate.pendingExecLimit),
+            hasBackgroundChildren: true,
+            pendingExec: true
+        )
+        #expect(gate.schedule == .fallback)
+
+        // When only pendingExec clears, fallback stays active for background children.
+        gate.record(
+            gate.beginProbe(at: base + .seconds(15)),
+            hasBackgroundChildren: true,
+            pendingExec: false
+        )
+        #expect(gate.schedule == .fallback)
+
+        // Set both again, then clear only background children.
+        gate.record(
+            gate.beginProbe(at: base + .seconds(20)),
+            hasBackgroundChildren: true,
+            pendingExec: true
+        )
+        gate.record(
+            gate.beginProbe(at: base + .seconds(25)),
+            hasBackgroundChildren: false,
+            pendingExec: true
+        )
+        #expect(gate.schedule == .fallback)
+
+        // When both clear, the gate settles to idle.
+        gate.record(
+            gate.beginProbe(at: base + .seconds(30)),
+            hasBackgroundChildren: false,
+            pendingExec: false
+        )
+        #expect(gate.schedule == .idle)
+    }
+
+    @Test func isPendingExecMatchesForkedShellChild() {
+        let shell = "/bin/zsh"
+        #expect(ForegroundPollGate.isPendingExec(shellPID: 10, shellPath: shell, leaderPID: 11, leaderPath: shell))
+        #expect(!ForegroundPollGate.isPendingExec(shellPID: 10, shellPath: shell, leaderPID: 10, leaderPath: shell))
+        #expect(!ForegroundPollGate.isPendingExec(shellPID: 10, shellPath: shell, leaderPID: 11, leaderPath: "/bin/sleep"))
+        #expect(!ForegroundPollGate.isPendingExec(shellPID: 10, shellPath: nil, leaderPID: 11, leaderPath: shell))
+        #expect(!ForegroundPollGate.isPendingExec(shellPID: 10, shellPath: shell, leaderPID: 11, leaderPath: nil))
+        #expect(!ForegroundPollGate.isPendingExec(shellPID: 0, shellPath: shell, leaderPID: 11, leaderPath: shell))
+    }
+
+    @Test func isPendingExecRejectsLeaderWithChildrenOrOtherName() {
+        let shell = "/bin/busybox"
+        // A script of the shell's interpreter that runs a command has a child.
+        #expect(!ForegroundPollGate.isPendingExec(
+            shellPID: 10, shellPath: shell, leaderPID: 11, leaderPath: shell, leaderHasChildren: true
+        ))
+        // A busybox applet runs the shell binary but has its own name.
+        #expect(!ForegroundPollGate.isPendingExec(
+            shellPID: 10, shellPath: shell, shellName: "ash", leaderPID: 11, leaderPath: shell, leaderName: "vi"
+        ))
+        #expect(ForegroundPollGate.isPendingExec(
+            shellPID: 10, shellPath: shell, shellName: "ash", leaderPID: 11, leaderPath: shell, leaderName: "ash"
+        ))
+        // A name that is not known does not change the result.
+        #expect(ForegroundPollGate.isPendingExec(
+            shellPID: 10, shellPath: shell, shellName: "ash", leaderPID: 11, leaderPath: shell, leaderName: ""
+        ))
+        // A nested shell completed exec (`PROC_FLAG_EXEC` set), so it is not pending.
+        #expect(!ForegroundPollGate.isPendingExec(
+            shellPID: 10, shellPath: shell, leaderPID: 11, leaderPath: shell, leaderDidExec: true
+        ))
+        #expect(ForegroundPollGate.isPendingExec(
+            shellPID: 10, shellPath: shell, leaderPID: 11, leaderPath: shell, leaderDidExec: false
+        ))
+        #expect(ForegroundPollGate.isPendingExec(
+            shellPID: 10, shellPath: shell, leaderPID: 11, leaderPath: shell, leaderDidExec: nil
+        ))
+    }
+
+    @Test func tokenFromBeforeResetHasNoEffect() {
+        let base = ContinuousClock.now
+        var gate = ForegroundPollGate(settleWindow: .milliseconds(500))
+        gate.requestImmediateProbe()
+        gate.requestImmediateProbe()
+        let stale = gate.beginProbe(at: base)
+
+        gate.reset()
+        let staleAccepted = gate.record(stale)
+        #expect(!staleAccepted)
+        #expect(gate.schedule == .immediate)
+
+        let accepted = gate.record(gate.beginProbe(at: base + .seconds(1)))
+        #expect(accepted)
+        #expect(gate.schedule == .idle)
+        // A later immediate request is not hidden by the stale token.
+        gate.requestImmediateProbe()
+        #expect(gate.schedule == .immediate)
+        gate.record(gate.beginProbe(at: base + .seconds(2)))
         #expect(gate.schedule == .idle)
     }
 
@@ -82,14 +277,14 @@ struct ForegroundPollGateTests {
         var gate = ForegroundPollGate(settleWindow: .milliseconds(500))
         gate.noteActivity(at: base)
         gate.record(gate.beginProbe(at: base + .seconds(1)), hasBackgroundChildren: true)
-        #expect(gate.schedule == .backgroundChildren)
+        #expect(gate.schedule == .fallback)
         #expect(gate.shouldProbe)
 
         // New output upgrades from slow fallback back to active rate.
         gate.noteActivity(at: base + .seconds(2))
         #expect(gate.schedule == .active)
         gate.record(gate.beginProbe(at: base + .seconds(3)), hasBackgroundChildren: true)
-        #expect(gate.schedule == .backgroundChildren)
+        #expect(gate.schedule == .fallback)
 
         // Once the background child exits, the gate goes completely idle.
         gate.record(gate.beginProbe(at: base + .seconds(8)), hasBackgroundChildren: false)
@@ -113,7 +308,7 @@ struct ForegroundPollGateTests {
         let base = ContinuousClock.now
         var gate = ForegroundPollGate(settleWindow: .milliseconds(500))
         gate.record(gate.beginProbe(at: base), hasBackgroundChildren: true)
-        #expect(gate.schedule == .backgroundChildren)
+        #expect(gate.schedule == .fallback)
 
         gate.reset()
         #expect(gate.schedule == .immediate)

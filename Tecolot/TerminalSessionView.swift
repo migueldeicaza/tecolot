@@ -131,9 +131,12 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @ObservationIgnored var directoryTracker = PaneDirectoryTracker()
     /// The shell of a persistent pane, from the helper's session information.
     @ObservationIgnored var persistentShellPID: Int32 = 0
-    /// How often the helper polls the foreground program for this pane.
+    /// How the helper reports the foreground program of this pane. `.off`
+    /// stops reports to this client. The helper probes after terminal
+    /// activity, at an interval that comes from all attached clients.
     @ObservationIgnored private(set) var remoteInfoMode = InfoReportMode.live
-    /// Skips local foreground-process polls while the shell waits at a prompt.
+    /// Stops local foreground-process probes while the pane is quiet. Terminal
+    /// output and user input start the probes again.
     @ObservationIgnored var foregroundPollGate = ForegroundPollGate()
     /// A restored local pane waits for its saved text and directory before
     /// its shell starts.
@@ -957,7 +960,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         }
     }
 
-    /// Re-arms local foreground-process polling after terminal output or input.
+    /// Starts local foreground-process probes again after terminal output or input.
     func noteLocalProcessActivity(immediate: Bool = false) {
         guard persistentView == nil else {
             return
@@ -966,7 +969,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
         if immediate {
             foregroundPollGate.requestImmediateProbe()
         }
-        workspace?.scheduleProcessInspectionIfNeeded()
+        workspace?.noteLocalProcessActivity(immediate: immediate)
     }
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {

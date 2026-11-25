@@ -224,10 +224,12 @@ final class AppTerminalView: LocalProcessTerminalView, TerminalContextMenuAction
     }
 
     override func otherMouseDown(with event: NSEvent) {
-        focusTerminal()
-        super.otherMouseDown(with: event)
-        if isReportingMouseEvents {
+        if event.buttonNumber == 2, isReportingMouseEvents {
+            focusTerminal()
+            super.otherMouseDown(with: event)
             sessionController?.noteLocalProcessActivity()
+        } else {
+            super.otherMouseDown(with: event)
         }
     }
 

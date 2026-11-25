@@ -1819,7 +1819,7 @@ public final class SessionHost: @unchecked Sendable {
             publishSessionInfo()
         case .active:
             armInfoTimer(DispatchTime.now() + .seconds(interval))
-        case .backgroundChildren:
+        case .fallback:
             armInfoTimer(DispatchTime.now() + .seconds(max(interval, infoFallbackSeconds)))
         }
     }
@@ -1838,10 +1838,30 @@ public final class SessionHost: @unchecked Sendable {
             foreground: ProcessInspector.foreground(ptyDescriptor: process.childfd),
             hasChildren: ProcessInspector.hasChildren(pid)
         )
-        // A foreground shell with a background child can lose that child with
-        // no PTY output; keep a slow fallback poll until the child exits.
+        // A background child of a foreground shell can exit with no PTY
+        // output. A pending exec past the active limit also uses `.fallback`.
         let hasBackgroundChildren = pid > 0 && info.foreground?.pid == pid && info.hasChildren
-        pollGate.record(token, hasBackgroundChildren: hasBackgroundChildren)
+        // Check only the group leader. `SessionInfoMessage.foreground` shows
+        // only the leader, so an exec in a later pipeline stage does not
+        // change the session info.
+        var pendingExec = false
+        if let foreground = info.foreground, foreground.pid != pid {
+            let shellPath = ProcessInspector.executablePath(pid)
+            let pathsMatch = shellPath != nil && foreground.path == shellPath
+            let leaderDidExec = pathsMatch ? ProcessInspector.didExec(foreground.pid) : nil
+            let checkChild = pathsMatch && leaderDidExec != true
+            pendingExec = ForegroundPollGate.isPendingExec(
+                shellPID: pid,
+                shellPath: shellPath,
+                shellName: checkChild ? ProcessInspector.processName(pid) : nil,
+                leaderPID: foreground.pid,
+                leaderPath: foreground.path,
+                leaderName: foreground.name,
+                leaderHasChildren: checkChild && ProcessInspector.hasChildren(foreground.pid),
+                leaderDidExec: leaderDidExec
+            )
+        }
+        pollGate.record(token, hasBackgroundChildren: hasBackgroundChildren, pendingExec: pendingExec)
         if info != lastSessionInfo {
             lastSessionInfo = info
             for client in attachedClients where client.infoMode != .off {

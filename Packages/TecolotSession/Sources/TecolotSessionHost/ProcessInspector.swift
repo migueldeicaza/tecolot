@@ -94,4 +94,22 @@ enum ProcessInspector {
             return text.trimmingCharacters(in: .whitespacesAndNewlines)
         #endif
     }
+
+    /// True when `pid` completed an `exec` after `fork`, false when it did not,
+    /// or nil when the flag cannot be read on this platform.
+    static func didExec(_ pid: Int32) -> Bool? {
+        guard pid > 0 else {
+            return nil
+        }
+        #if canImport(Darwin)
+            var info = proc_bsdinfo()
+            let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
+            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize else {
+                return nil
+            }
+            return (info.pbi_flags & UInt32(PROC_FLAG_EXEC)) != 0
+        #else
+            return nil
+        #endif
+    }
 }

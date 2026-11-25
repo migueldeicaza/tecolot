@@ -11,6 +11,7 @@ nonisolated struct TerminalForegroundProcess: Sendable {
     let startSeconds: UInt64
     let startMicroseconds: UInt64
     let executablePath: String?
+    var didExec: Bool? = nil
 
     var identity: Identity {
         Identity(processID: processID, startSeconds: startSeconds, startMicroseconds: startMicroseconds)

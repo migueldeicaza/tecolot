@@ -75,7 +75,7 @@ struct TerminalForegroundJobIconResolverTests {
     @Test func inspectorFindsCurrentProcessInItsGroup() {
         let processes = SystemTerminalProcessInspector().foregroundProcesses(in: getpgrp())
         #expect(processes.contains {
-            $0.processID == getpid() && $0.startSeconds > 0 && $0.executablePath != nil
+            $0.processID == getpid() && $0.startSeconds > 0 && $0.executablePath != nil && $0.didExec == true
         })
         #expect(SystemTerminalProcessInspector().foregroundProcesses(in: -1).isEmpty)
     }
@@ -98,6 +98,105 @@ struct TerminalForegroundJobIconResolverTests {
                 wantsProgramInfo: false,
                 panes: [(schedule: .immediate, hasExecutablePath: false)]
             ) == .idle
+        )
+    }
+
+    @Test func localProcessSchedulePrioritizesImmediateOverActiveOverFallback() {
+        #expect(
+            TerminalPaneWorkspace.localProcessSchedule(
+                wantsProgramInfo: true,
+                panes: [(schedule: .fallback, hasExecutablePath: true)]
+            ) == .fallback
+        )
+        #expect(
+            TerminalPaneWorkspace.localProcessSchedule(
+                wantsProgramInfo: true,
+                panes: [
+                    (schedule: .fallback, hasExecutablePath: true),
+                    (schedule: .active, hasExecutablePath: true)
+                ]
+            ) == .active
+        )
+        #expect(
+            TerminalPaneWorkspace.localProcessSchedule(
+                wantsProgramInfo: true,
+                panes: [(schedule: .fallback, hasExecutablePath: false)]
+            ) == .active
+        )
+        #expect(
+            TerminalPaneWorkspace.localProcessSchedule(
+                wantsProgramInfo: true,
+                panes: [
+                    (schedule: .fallback, hasExecutablePath: true),
+                    (schedule: .immediate, hasExecutablePath: true)
+                ]
+            ) == .immediate
+        )
+    }
+
+    @Test func wakeDeadlineMatchesSchedule() {
+        let now = ContinuousClock.now
+        #expect(TerminalPaneWorkspace.wakeDeadline(for: .idle, now: now) == nil)
+        #expect(TerminalPaneWorkspace.wakeDeadline(for: .immediate, now: now) == now)
+        #expect(TerminalPaneWorkspace.wakeDeadline(for: .active, now: now) == now + .seconds(1))
+        #expect(TerminalPaneWorkspace.wakeDeadline(for: .fallback, now: now) == now + .seconds(5))
+    }
+
+    @Test func earlierDeadlineWinsForTaskRestart() {
+        let now = ContinuousClock.now
+        // No task: probeActiveImmediately starts right away for active or fallback.
+        #expect(
+            TerminalPaneWorkspace.nextTaskStartWake(
+                schedule: .active, hasTask: false, currentWake: nil,
+                probeActiveImmediately: true, now: now
+            ) == now
+        )
+        #expect(
+            TerminalPaneWorkspace.nextTaskStartWake(
+                schedule: .fallback, hasTask: false, currentWake: nil,
+                probeActiveImmediately: true, now: now
+            ) == now
+        )
+        #expect(
+            TerminalPaneWorkspace.nextTaskStartWake(
+                schedule: .fallback, hasTask: false, currentWake: nil,
+                probeActiveImmediately: false, now: now
+            ) == now + .seconds(5)
+        )
+        // During a 5 s fallback wait: resize (probeActiveImmediately) does not restart.
+        #expect(
+            TerminalPaneWorkspace.nextTaskStartWake(
+                schedule: .fallback, hasTask: true, currentWake: now + .seconds(4),
+                probeActiveImmediately: true, now: now
+            ) == nil
+        )
+        // During a 5 s fallback wait: new activity pulls wake forward to 1 s.
+        #expect(
+            TerminalPaneWorkspace.nextTaskStartWake(
+                schedule: .active, hasTask: true, currentWake: now + .seconds(4),
+                probeActiveImmediately: false, now: now
+            ) == now + .seconds(1)
+        )
+        // During a 1 s active wait: continuous output does not push wake later.
+        #expect(
+            TerminalPaneWorkspace.nextTaskStartWake(
+                schedule: .active, hasTask: true, currentWake: now + .milliseconds(400),
+                probeActiveImmediately: false, now: now
+            ) == nil
+        )
+        // During a 1 s active wait: immediate request pulls wake to now.
+        #expect(
+            TerminalPaneWorkspace.nextTaskStartWake(
+                schedule: .immediate, hasTask: true, currentWake: now + .milliseconds(400),
+                probeActiveImmediately: false, now: now
+            ) == now
+        )
+        // While a probe runs (currentWake == nil): do not restart.
+        #expect(
+            TerminalPaneWorkspace.nextTaskStartWake(
+                schedule: .immediate, hasTask: true, currentWake: nil,
+                probeActiveImmediately: true, now: now
+            ) == nil
         )
     }
 }

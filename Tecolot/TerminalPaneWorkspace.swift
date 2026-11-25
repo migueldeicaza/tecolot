@@ -136,7 +136,11 @@ final class TerminalPaneWorkspace {
     @ObservationIgnored var appearanceSettings = GlobalAppearanceSettings()
     @ObservationIgnored private let processInspectionUpdates = ProcessInspectionUpdates()
     @ObservationIgnored private var processTask: Task<Void, Never>?
-    @ObservationIgnored private var processTaskSleeping = false
+    /// Deadline of the current `processTask` sleep, or `nil` when no sleep is active.
+    @ObservationIgnored private var processTaskWake: ContinuousClock.Instant?
+    /// Identifies the current `processTask`. A cancelled task that continues
+    /// for a short time does not change `processTaskWake`.
+    @ObservationIgnored private var processTaskGeneration: UInt64 = 0
     @ObservationIgnored private var jobIconResolvers: [UUID: TerminalForegroundJobIconResolver] = [:]
     @ObservationIgnored private var iconPreferencesObserver: DefaultsValueObserver<PaneIconInspectionPreferences.Value>?
     @ObservationIgnored private var iconPreferences = PaneIconInspectionPreferences(
@@ -388,7 +392,7 @@ final class TerminalPaneWorkspace {
         processInspectionUpdates.cancel()
         processTask?.cancel()
         processTask = nil
-        processTaskSleeping = false
+        processTaskWake = nil
         for controller in controllers {
             controller.terminate()
         }
@@ -463,7 +467,7 @@ final class TerminalPaneWorkspace {
         guard wanted else {
             processTask?.cancel()
             processTask = nil
-            processTaskSleeping = false
+            processTaskWake = nil
             jobIconResolvers.removeAll()
             return
         }
@@ -482,8 +486,14 @@ final class TerminalPaneWorkspace {
             switch pane.schedule {
             case .immediate:
                 return .immediate
-            case .active, .backgroundChildren:
+            case .active:
                 next = .active
+            case .fallback:
+                if !pane.hasExecutablePath {
+                    next = .active
+                } else if next == .idle {
+                    next = .fallback
+                }
             case .idle:
                 if !pane.hasExecutablePath {
                     next = .active
@@ -491,6 +501,43 @@ final class TerminalPaneWorkspace {
             }
         }
         return next
+    }
+
+    nonisolated static func wakeDeadline(
+        for schedule: ForegroundPollGate.Schedule,
+        now: ContinuousClock.Instant
+    ) -> ContinuousClock.Instant? {
+        switch schedule {
+        case .idle:
+            return nil
+        case .immediate:
+            return now
+        case .active:
+            return now + .seconds(1)
+        case .fallback:
+            return now + .seconds(5)
+        }
+    }
+
+    /// Returns the wake deadline to start or restart the probe task, or `nil`
+    /// when the current task should continue unchanged.
+    nonisolated static func nextTaskStartWake(
+        schedule: ForegroundPollGate.Schedule,
+        hasTask: Bool,
+        currentWake: ContinuousClock.Instant?,
+        probeActiveImmediately: Bool,
+        now: ContinuousClock.Instant
+    ) -> ContinuousClock.Instant? {
+        guard let deadline = wakeDeadline(for: schedule, now: now) else {
+            return nil
+        }
+        if !hasTask {
+            return probeActiveImmediately ? now : deadline
+        }
+        guard let currentWake, deadline < currentWake else {
+            return nil
+        }
+        return deadline
     }
 
     private func nextLocalProcessSchedule() -> ForegroundPollGate.Schedule {
@@ -506,59 +553,84 @@ final class TerminalPaneWorkspace {
         return Self.localProcessSchedule(wantsProgramInfo: wantsProgramInfo, panes: localPanes)
     }
 
+    /// Starts or shortens the probe task for local pane activity. Skips the
+    /// schedule check when a task runs a probe or already wakes in 1 s or less.
+    func noteLocalProcessActivity(immediate: Bool) {
+        if processTask != nil, !immediate {
+            guard let wake = processTaskWake, wake > ContinuousClock.now + .seconds(1) else {
+                return
+            }
+        }
+        scheduleProcessInspectionIfNeeded()
+    }
+
     func scheduleProcessInspectionIfNeeded(probeActiveImmediately: Bool = false) {
         guard wantsProgramInfo else {
             return
         }
-        switch nextLocalProcessSchedule() {
-        case .idle:
+        let now = ContinuousClock.now
+        guard
+            let firstWake = Self.nextTaskStartWake(
+                schedule: nextLocalProcessSchedule(),
+                hasTask: processTask != nil,
+                currentWake: processTaskWake,
+                probeActiveImmediately: probeActiveImmediately,
+                now: now
+            ) else {
             return
-        case .immediate:
-            if processTask == nil || processTaskSleeping {
-                startProcessTask(immediate: true)
-            }
-        case .active, .backgroundChildren:
-            if processTask == nil {
-                startProcessTask(immediate: probeActiveImmediately)
-            }
         }
+        startProcessTask(firstWake: firstWake, now: now)
     }
 
-    private func startProcessTask(immediate: Bool) {
+    private func startProcessTask(firstWake: ContinuousClock.Instant, now: ContinuousClock.Instant = .now) {
         processTask?.cancel()
-        processTaskSleeping = !immediate
+        processTaskGeneration &+= 1
+        let generation = processTaskGeneration
+        let initialWake: ContinuousClock.Instant? = firstWake > now ? firstWake : nil
+        processTaskWake = initialWake
         processTask = Task { [weak self] in
-            var shouldSleepFirst = !immediate
+            var nextWake = initialWake
             while !Task.isCancelled {
-                if shouldSleepFirst {
-                    self?.processTaskSleeping = true
+                if let wake = nextWake {
+                    self?.setProcessTaskWake(wake, generation: generation)
                     do {
-                        try await Task.sleep(for: .seconds(1))
+                        try await Task.sleep(until: wake, clock: .continuous)
                     } catch {
                         return
                     }
-                    self?.processTaskSleeping = false
+                    // A cancel can come after the sleep ends and before the task continues.
+                    guard !Task.isCancelled else {
+                        return
+                    }
+                    self?.setProcessTaskWake(nil, generation: generation)
                 }
-                shouldSleepFirst = true
                 guard let self else {
                     return
                 }
                 let probed = await self.inspectForegroundProcesses()
-                guard !Task.isCancelled else {
+                guard !Task.isCancelled, self.processTaskGeneration == generation else {
                     return
                 }
-                switch self.nextLocalProcessSchedule() {
+                let schedule = self.nextLocalProcessSchedule()
+                let loopNow = ContinuousClock.now
+                switch schedule {
                 case .idle:
                     self.processTask = nil
-                    self.processTaskSleeping = false
+                    self.processTaskWake = nil
                     return
                 case .immediate:
-                    // Never spin without suspending if no probe ran.
-                    shouldSleepFirst = !probed
-                case .active, .backgroundChildren:
-                    shouldSleepFirst = true
+                    // If no probe ran, sleep before the next probe.
+                    nextWake = probed ? nil : loopNow + .seconds(1)
+                case .active, .fallback:
+                    nextWake = Self.wakeDeadline(for: schedule, now: loopNow)
                 }
             }
+        }
+    }
+
+    private func setProcessTaskWake(_ wake: ContinuousClock.Instant?, generation: UInt64) {
+        if processTaskGeneration == generation {
+            processTaskWake = wake
         }
     }
 
@@ -569,7 +641,8 @@ final class TerminalPaneWorkspace {
         }
         // Recheck after each suspension; no process syscalls for hidden groups.
         let panes = controllers
-        let probes = panes.map { controller -> (descriptor: Int32, token: ForegroundPollGate.ProbeToken)? in
+        let probes = panes.map {
+            controller -> (descriptor: Int32, shellPID: Int32, token: ForegroundPollGate.ProbeToken)? in
             guard
                 controller.persistentView == nil,
                 let process = controller.terminal?.process, process.running else {
@@ -579,25 +652,47 @@ final class TerminalPaneWorkspace {
             guard controller.panePresentation.executablePath == nil || controller.foregroundPollGate.shouldProbe else {
                 return nil
             }
-            return (process.childfd, controller.foregroundPollGate.beginProbe())
+            return (process.childfd, process.shellPid, controller.foregroundPollGate.beginProbe())
         }
         guard probes.contains(where: { $0 != nil }) else {
             return false
         }
-        let descriptors = probes.map { $0?.descriptor }
-        let snapshots = await Task.detached(priority: .utility) {
+        let targets = probes.map { probe in
+            probe.map { (descriptor: $0.descriptor, shellPID: $0.shellPID) }
+        }
+        let results = await Task.detached(priority: .utility) {
             let inspector = SystemTerminalProcessInspector()
-            return descriptors.map { descriptor -> TerminalForegroundJobSnapshot? in
+            return targets.map {
+                target -> (snapshot: TerminalForegroundJobSnapshot?, pendingExec: Bool) in
                 guard
-                    let descriptor,
-                    let group = inspector.foregroundProcessGroup(for: descriptor) else {
-                    return nil
+                    let target,
+                    let group = inspector.foregroundProcessGroup(for: target.descriptor) else {
+                    return (nil, false)
                 }
                 let processes = inspector.foregroundProcesses(in: group)
-                guard inspector.foregroundProcessGroup(for: descriptor) == group else {
-                    return nil
+                guard inspector.foregroundProcessGroup(for: target.descriptor) == group else {
+                    return (nil, false)
                 }
-                return .init(processGroup: group, processes: processes)
+                // Check every member in the foreground group so a held exec in a
+                // later pipeline stage (for example `cat x | ./tool`) is found too.
+                var pendingExec = false
+                if group != target.shellPID, !processes.isEmpty {
+                    let shellPath = inspector.executablePath(for: target.shellPID)
+                    if let shellPath, !shellPath.isEmpty {
+                        pendingExec = processes.contains { member in
+                            let match = member.didExec != true && member.executablePath == shellPath
+                            return ForegroundPollGate.isPendingExec(
+                                shellPID: target.shellPID,
+                                shellPath: shellPath,
+                                leaderPID: member.processID,
+                                leaderPath: member.executablePath,
+                                leaderHasChildren: match && inspector.hasChildren(member.processID),
+                                leaderDidExec: member.didExec
+                            )
+                        }
+                    }
+                }
+                return (.init(processGroup: group, processes: processes), pendingExec)
             }
         }.value
         guard !Task.isCancelled, needsProcessInspection else {
@@ -607,7 +702,7 @@ final class TerminalPaneWorkspace {
         jobIconResolvers = jobIconResolvers.filter {
             liveIDs.contains($0.key)
         }
-        for (controller, (probe, snapshot)) in zip(panes, zip(probes, snapshots)) {
+        for (controller, (probe, result)) in zip(panes, zip(probes, results)) {
             guard let probe else {
                 continue
             }
@@ -626,9 +721,14 @@ final class TerminalPaneWorkspace {
                 continue
             }
             // A probe cancelled before this line does not settle the gate.
-            controller.foregroundPollGate.record(probe.token)
+            // A probe from before a process restart can pass the descriptor
+            // check when the new PTY gets the same descriptor number. Then
+            // `record` rejects the token, and the result is stale.
+            guard controller.foregroundPollGate.record(probe.token, pendingExec: result.pendingExec) else {
+                continue
+            }
             var resolver = jobIconResolvers[controller.id] ?? TerminalForegroundJobIconResolver()
-            let path = resolver.executablePath(for: snapshot, descriptor: probe.descriptor)
+            let path = resolver.executablePath(for: result.snapshot, descriptor: probe.descriptor)
             jobIconResolvers[controller.id] = resolver
             controller.updatePaneExecutablePath(path)
         }

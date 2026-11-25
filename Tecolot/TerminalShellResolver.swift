@@ -50,6 +50,20 @@ struct SystemTerminalProcessInspector: TerminalProcessInspecting {
         }, encoding: .utf8)
     }
 
+    /// True when the process has one or more child processes.
+    nonisolated func hasChildren(_ processID: pid_t) -> Bool {
+        guard processID > 0 else {
+            return false
+        }
+        var children = [pid_t](repeating: 0, count: 16)
+        let filled = children.withUnsafeMutableBytes {
+            proc_listchildpids(processID, $0.baseAddress, Int32($0.count))
+        }
+        return filled > 0 && children.contains {
+            $0 > 0
+        }
+    }
+
     nonisolated func foregroundProcesses(in processGroup: pid_t) -> [TerminalForegroundProcess] {
         guard processGroup > 0 else {
             return []
@@ -90,7 +104,8 @@ struct SystemTerminalProcessInspector: TerminalProcessInspecting {
                 processID: pid,
                 startSeconds: info.pbi_start_tvsec,
                 startMicroseconds: info.pbi_start_tvusec,
-                executablePath: path
+                executablePath: path,
+                didExec: (current.pbi_flags & UInt32(PROC_FLAG_EXEC)) != 0
             )
         }
     }
