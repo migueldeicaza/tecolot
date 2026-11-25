@@ -7,7 +7,7 @@ extension ProfileSettingsPage {
             Section {
                 ProfileTextSettings(profile: profile, update: updateIgnoringResult)
                     .padding(.horizontal)
-                    .frame(maxHeight: 190)
+                    .frame(maxHeight: 230)
             }
             ThemeModeSection(isDark: false, profile: profile, themes: themes, update: update)
             ThemeModeSection(isDark: true, profile: profile, themes: themes, update: update)

@@ -597,6 +597,7 @@ final class ProfileStoreTests {
         let store = try ProfileStore(directory: dir)
         let profile = try #require(store.profile(named: "Historical Profile"))
         #expect(profile.fontSize == TerminalProfile.standardValues.fontSize)
+        #expect(profile.lineSpacing == TerminalProfile.standardValues.lineSpacing)
         #expect(profile.shell == .loginShell)
         #expect(profile.titleComponents == [.activeTitle, .workingDirectory])
         #expect(profile.termProgram == "ghostty")
@@ -1287,5 +1288,50 @@ struct ExtendedPaletteProfileTests {
         profile.setExtendedPalette(.standard, isDark: false)
         ProfileApplier.apply(profile: profile, themeStore: themes, isDark: false, to: view)
         #expect(view.ansi256PaletteStrategy == .xterm)
+    }
+}
+
+@Suite("Line spacing profile setting")
+@MainActor
+struct LineSpacingProfileTests {
+    @Test func missingSettingDefaultsToOne() throws {
+        let profile = try JSONDecoder().decode(TerminalProfile.self, from: Data(#"{"name":"Old profile"}"#.utf8))
+        #expect(profile.lineSpacing == 1.0)
+    }
+
+    @Test func customLineSpacingSurvivesEncoding() throws {
+        var profile = TerminalProfile(name: "Test")
+        profile.lineSpacing = 1.25
+        let data = try JSONEncoder().encode(profile)
+        let decoded = try JSONDecoder().decode(TerminalProfile.self, from: data)
+        #expect(decoded == profile)
+        #expect(decoded.lineSpacing == 1.25)
+    }
+
+    @Test func invalidValuesAreSanitized() throws {
+        let zero = try JSONDecoder().decode(TerminalProfile.self, from: Data(#"{"name":"P","lineSpacing":0}"#.utf8))
+        #expect(zero.lineSpacing == TerminalProfile.lineSpacingRange.lowerBound)
+
+        let negative = try JSONDecoder().decode(TerminalProfile.self, from: Data(#"{"name":"P","lineSpacing":-2.5}"#.utf8))
+        #expect(negative.lineSpacing == TerminalProfile.lineSpacingRange.lowerBound)
+
+        let huge = try JSONDecoder().decode(TerminalProfile.self, from: Data(#"{"name":"P","lineSpacing":999}"#.utf8))
+        #expect(huge.lineSpacing == TerminalProfile.lineSpacingRange.upperBound)
+
+        #expect(TerminalProfile.sanitizedLineSpacing(.nan) == 1.0)
+        #expect(TerminalProfile.sanitizedLineSpacing(.infinity) == 1.0)
+    }
+
+    @Test func changesApplyToOpenTerminal() {
+        let view = TerminalView(frame: .zero)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let themes = ThemeStore(directory: directory)
+        var profile = TerminalProfile(name: "Test")
+        for spacing in [1.25, 0.9, 1.0] {
+            profile.lineSpacing = spacing
+            ProfileApplier.apply(profile: profile, themeStore: themes, isDark: true, to: view)
+            #expect(view.lineSpacing == CGFloat(spacing))
+        }
     }
 }

@@ -236,6 +236,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
     public var fontFamily: String?
     /// Font size in points
     public var fontSize: Double
+    /// Line height multiplier (1.0 is the font's natural line height)
+    public var lineSpacing: Double
     /// macOS font smoothing (false approximates "thin strokes")
     public var fontSmoothing: Bool
     /// Render bold text using the bright variant of the ANSI color
@@ -306,6 +308,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.darkExtendedPalette = defaults.extendedPalette
         self.fontFamily = defaults.fontFamily
         self.fontSize = defaults.fontSize
+        self.lineSpacing = defaults.lineSpacing
         self.fontSmoothing = defaults.fontSmoothing
         self.useBrightColorsForBold = defaults.useBrightColorsForBold
         self.cursorStyle = defaults.cursorStyle
@@ -333,6 +336,15 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         self.environmentVariables = defaults.environmentVariables
         self.bellStyle = defaults.bellStyle
         self.allowsNotifications = defaults.allowsNotifications
+    }
+
+    public static let lineSpacingRange: ClosedRange<Double> = 0.8...2.0
+
+    public static func sanitizedLineSpacing(_ value: Double) -> Double {
+        guard value.isFinite else {
+            return standardValues.lineSpacing
+        }
+        return min(max(value, lineSpacingRange.lowerBound), lineSpacingRange.upperBound)
     }
 
     /// The theme that the "Default" group shows for each mode, and the
@@ -396,6 +408,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         extendedPalette: ExtendedPaletteMode,
         fontFamily: String?,
         fontSize: Double,
+        lineSpacing: Double,
         fontSmoothing: Bool,
         useBrightColorsForBold: Bool,
         cursorStyle: CursorStyle,
@@ -430,6 +443,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
             extendedPalette: .standard,
             fontFamily: nil,
             fontSize: 12,
+            lineSpacing: 1.0,
             fontSmoothing: false,
             useBrightColorsForBold: true,
             cursorStyle: .blinkBlock,
@@ -462,7 +476,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, fontFamily
-        case lightThemeName = "themeName", darkThemeName, fontSize, fontSmoothing
+        case lightThemeName = "themeName", darkThemeName, fontSize, lineSpacing, fontSmoothing
         case lightExtendedPalette, darkExtendedPalette
         case useBrightColorsForBold, cursorStyle, backgroundOpacity
         case useThemeColorsForWindowChrome
@@ -501,6 +515,8 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
             } ?? defaults.extendedPalette
         self.fontFamily = try c.decodeIfPresent (String.self, forKey: .fontFamily) ?? defaults.fontFamily
         self.fontSize = try c.decodeIfPresent (Double.self, forKey: .fontSize) ?? defaults.fontSize
+        let decodedLineSpacing = try c.decodeIfPresent (Double.self, forKey: .lineSpacing) ?? defaults.lineSpacing
+        self.lineSpacing = TerminalProfile.sanitizedLineSpacing (decodedLineSpacing)
         self.fontSmoothing = try c.decodeIfPresent (Bool.self, forKey: .fontSmoothing) ?? defaults.fontSmoothing
         self.useBrightColorsForBold = try c.decodeIfPresent (Bool.self, forKey: .useBrightColorsForBold) ?? defaults.useBrightColorsForBold
         // CursorStyle is deliberately not Codable in SwiftTerm; persist its tagName
@@ -570,6 +586,7 @@ public struct TerminalProfile: Identifiable, Codable, Equatable, Sendable {
         try c.encode(darkExtendedPalette, forKey: .darkExtendedPalette)
         try c.encodeIfPresent (fontFamily, forKey: .fontFamily)
         try c.encode (fontSize, forKey: .fontSize)
+        try c.encode (lineSpacing, forKey: .lineSpacing)
         try c.encode (fontSmoothing, forKey: .fontSmoothing)
         try c.encode (useBrightColorsForBold, forKey: .useBrightColorsForBold)
         try c.encode (cursorStyle.tagName, forKey: .cursorStyle)
