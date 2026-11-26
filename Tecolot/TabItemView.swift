@@ -247,7 +247,9 @@ final class TabItemView: NSView {
     }
 
     private func updateAppearance() {
-        hover.layer?.backgroundColor = chrome.hover.withAlphaComponent(isPressed ? 0.85 : 1).cgColor
+        hover.layer?.backgroundColor = chrome.hover.withAlphaComponent(
+            chrome.hover.alphaComponent * (isPressed ? 0.85 : 1)
+        ).cgColor
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.12
             hover.animator().alphaValue = key && (isHovered || isPressed) ? 1 : 0
