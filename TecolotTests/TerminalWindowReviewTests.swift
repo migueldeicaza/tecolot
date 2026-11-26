@@ -387,9 +387,7 @@ struct TerminalTabSelectionAppearanceTests {
         let cell = TabItemView(tab: tab, controller: nil)
         cell.appearance = appearance
         cell.configure(selected: false, key: true, chrome: chrome, preferences: TabStripPreferences())
-        // Subview order in TabItemView: [rowSelection, hover, icon, titleClip, ...]
-        let hoverView = cell.subviews[1]
-        let alpha = try #require(hoverView.layer?.backgroundColor?.alpha)
+        let alpha = try #require(cell.hoverView.layer?.backgroundColor?.alpha)
         #expect(alpha > 0 && alpha < 0.2)
         #expect(abs(alpha - chrome.hover.alphaComponent) < 0.001)
     }

@@ -182,10 +182,12 @@ final class TerminalPaneWorkspace {
 
     @ObservationIgnored private var didConsiderPaneTree = false
     @ObservationIgnored private var launchSpec = LaunchSpec()
+    @ObservationIgnored private var restoredDividerFractions: [UUID: CGFloat] = [:]
 
     /// Rebuilds the pane tree from a launch that carries a restored
     /// tab (restore on relaunch). Call before any pane view exists.
     /// Returns the saved divider fractions by split node.
+    @discardableResult
     func adoptPaneTree() -> [UUID: CGFloat]? {
         guard !didConsiderPaneTree else {
             return nil
@@ -217,6 +219,7 @@ final class TerminalPaneWorkspace {
             }
         }
         root = build(restored.tab.root)
+        restoredDividerFractions = fractions
         creationOrder = controllers.map(\.id)
         let ids = Set(controllers.map(\.id))
         if let focused = restored.tab.focusedPaneID, ids.contains(focused) {
@@ -228,6 +231,18 @@ final class TerminalPaneWorkspace {
         if let zoomed = restored.tab.zoomedPaneID, ids.contains(zoomed), ids.count > 1 {
             zoomedControllerID = zoomed
         }
+        return fractions
+    }
+
+    /// Adopts the restored pane tree if needed, hands its divider fractions to
+    /// the host view once, and clears the launch-time copy from the workspace.
+    func takeRestoredDividerFractions() -> [UUID: CGFloat]? {
+        adoptPaneTree()
+        guard !restoredDividerFractions.isEmpty else {
+            return nil
+        }
+        let fractions = restoredDividerFractions
+        restoredDividerFractions.removeAll()
         return fractions
     }
 
@@ -293,7 +308,7 @@ final class TerminalPaneWorkspace {
         } else {
             pendingTransition = .added(newController.id, direction)
         }
-        revision += 1
+        bumpRevision()
     }
 
     func toggleSplitZoom() {
@@ -301,7 +316,7 @@ final class TerminalPaneWorkspace {
             return
         }
         zoomedControllerID = zoomedControllerID == focused.id ? nil : focused.id
-        revision += 1
+        bumpRevision()
     }
 
     func clearSplitZoom() {
@@ -309,7 +324,7 @@ final class TerminalPaneWorkspace {
             return
         }
         zoomedControllerID = nil
-        revision += 1
+        bumpRevision()
     }
 
     func zoomSelectedSplit(_ controller: TerminalSessionController) {
@@ -319,7 +334,7 @@ final class TerminalPaneWorkspace {
             return
         }
         zoomedControllerID = controller.id
-        revision += 1
+        bumpRevision()
     }
 
     func selectPreviousSplit() {
@@ -356,6 +371,8 @@ final class TerminalPaneWorkspace {
         guard paneCount > 1, contains(controller) else {
             return false
         }
+        let closingFocused = focusedController === controller
+        let successor = closingFocused ? successorAfterClosing(controller) : nil
         let edge = zoomedControllerID == nil && hostView?.transitionsAllowed == true
             ? removalEdge(for: controller, in: root) : nil
         if edge != nil {
@@ -380,11 +397,11 @@ final class TerminalPaneWorkspace {
         if zoomedControllerID == controller.id || paneCount == 1 {
             zoomedControllerID = nil
         }
-        if focusedControllerID == controller.id, let fallback = controllers.first {
+        if closingFocused, let fallback = successor ?? controllers.first {
             markFocused(fallback)
             fallback.requestFocus()
         }
-        revision += 1
+        bumpRevision()
         return true
     }
 
@@ -741,6 +758,11 @@ final class TerminalPaneWorkspace {
         }
     }
 
+    private func bumpRevision() {
+        hostView?.snapshotDividerPositionsIfSynchronized()
+        revision += 1
+    }
+
     private func selectSplit(offset: Int) {
         let controllers = controllers
         guard
@@ -755,7 +777,7 @@ final class TerminalPaneWorkspace {
         markFocused(next)
         if zoomedControllerID != nil {
             zoomedControllerID = next.id
-            revision += 1
+            bumpRevision()
         }
         next.requestFocus()
     }
@@ -800,6 +822,241 @@ final class TerminalPaneWorkspace {
         return remove(controller, from: first) || remove(controller, from: second)
     }
 
+    /// Picks the closest pane visually before the closing pane, preferring its
+    /// own split axis first and falling back to panes after it when none precede it.
+    private func successorAfterClosing(_ controller: TerminalSessionController) -> TerminalSessionController? {
+        var frames: [(controller: TerminalSessionController, rect: CGRect)] = []
+        layoutFrames(in: root, rect: CGRect(x: 0, y: 0, width: 1, height: 1), frames: &frames)
+        let sourceFrame = frames.first {
+            $0.controller === controller
+        }?.rect
+        guard let source = sourceFrame else {
+            return nil
+        }
+        let candidates = frames.filter {
+            $0.controller !== controller
+        }
+        let directions: [TerminalPaneDirection] = parentSplitOrientation(for: controller, in: root) == .horizontal
+            ? [.up, .left, .down, .right]
+            : [.left, .up, .right, .down]
+        for direction in directions {
+            if
+                let match = Self.closestPane(
+                    in: direction,
+                    from: source,
+                    among: candidates,
+                    tolerance: 1e-5,
+                    primaryQuantum: 1e-5,
+                    tieBreak: .closeSuccessor
+                ) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private func layoutFrames(
+        in node: TerminalPaneNode,
+        rect: CGRect,
+        frames: inout [(controller: TerminalSessionController, rect: CGRect)]
+    ) {
+        switch node.content {
+        case .terminal(let controller):
+            frames.append((controller, rect))
+        case .split(let orientation, let first, let second):
+            let rawFraction = (hostView != nil
+                ? hostView?.layoutDividerFraction(for: node.id)
+                : restoredDividerFractions[node.id]) ?? 0.5
+            let fraction = rawFraction.isFinite ? min(max(rawFraction, 0), 1) : 0.5
+            switch orientation {
+            case .vertical:
+                let splitX = rect.minX + rect.width * fraction
+                let firstRect = CGRect(x: rect.minX, y: rect.minY, width: splitX - rect.minX, height: rect.height)
+                let secondRect = CGRect(x: splitX, y: rect.minY, width: rect.maxX - splitX, height: rect.height)
+                layoutFrames(in: first, rect: firstRect, frames: &frames)
+                layoutFrames(in: second, rect: secondRect, frames: &frames)
+            case .horizontal:
+                let splitY = rect.minY + rect.height * (1 - fraction)
+                let firstRect = CGRect(x: rect.minX, y: splitY, width: rect.width, height: rect.maxY - splitY)
+                let secondRect = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: splitY - rect.minY)
+                layoutFrames(in: first, rect: firstRect, frames: &frames)
+                layoutFrames(in: second, rect: secondRect, frames: &frames)
+            }
+        }
+    }
+
+    private func parentSplitOrientation(
+        for controller: TerminalSessionController,
+        in node: TerminalPaneNode
+    ) -> TerminalPaneSplit? {
+        guard case .split(let orientation, let first, let second) = node.content else {
+            return nil
+        }
+        if isTerminal(controller, in: first) || isTerminal(controller, in: second) {
+            return orientation
+        }
+        return parentSplitOrientation(for: controller, in: first)
+            ?? parentSplitOrientation(for: controller, in: second)
+    }
+
+    enum PaneNeighborTieBreak {
+        /// Prefer the pane immediately preceding in visual reading order for
+        /// "before" directions (bottom/right), and top/left for "after" directions.
+        case closeSuccessor
+        /// Prefer top/left (tree order) on ties.
+        case navigation
+    }
+
+    private struct PaneNeighborRank: Comparable {
+        let primary: Int64
+        let secondary: Int64
+        let tieBreaker: CGFloat
+
+        static func < (lhs: Self, rhs: Self) -> Bool {
+            if lhs.primary != rhs.primary {
+                return lhs.primary < rhs.primary
+            }
+            if lhs.secondary != rhs.secondary {
+                return lhs.secondary < rhs.secondary
+            }
+            return lhs.tieBreaker < rhs.tieBreaker
+        }
+    }
+
+    /// Finds the closest visible pane in `direction` from `source`.
+    /// Shared by close-successor selection and directional keyboard navigation.
+    static func closestPane(
+        in direction: TerminalPaneDirection,
+        from source: CGRect,
+        among candidates: [(controller: TerminalSessionController, rect: CGRect)],
+        tolerance: CGFloat,
+        primaryQuantum: CGFloat,
+        tieBreak: PaneNeighborTieBreak
+    ) -> TerminalSessionController? {
+        let matching = candidates.filter {
+            isInDirection($0.rect, from: source, direction: direction, tolerance: tolerance)
+        }
+        guard
+            let minPrimary = matching.map({
+                primaryDistance(of: $0.rect, from: source, direction: direction)
+            }).min() else {
+            return nil
+        }
+        return matching.min { lhs, rhs in
+            neighborRank(
+                of: lhs.rect,
+                from: source,
+                direction: direction,
+                minPrimary: minPrimary,
+                primaryQuantum: primaryQuantum,
+                secondaryQuantum: tolerance,
+                tieBreak: tieBreak
+            )
+                < neighborRank(
+                    of: rhs.rect,
+                    from: source,
+                    direction: direction,
+                    minPrimary: minPrimary,
+                    primaryQuantum: primaryQuantum,
+                    secondaryQuantum: tolerance,
+                    tieBreak: tieBreak
+                )
+        }?.controller
+    }
+
+    private static func isInDirection(
+        _ candidate: CGRect,
+        from source: CGRect,
+        direction: TerminalPaneDirection,
+        tolerance: CGFloat
+    ) -> Bool {
+        guard candidate.width > tolerance, candidate.height > tolerance else {
+            return false
+        }
+        switch direction {
+        case .up:
+            return candidate.minY >= source.maxY - tolerance
+                && candidate.maxX > source.minX + tolerance
+                && candidate.minX < source.maxX - tolerance
+        case .down:
+            return candidate.maxY <= source.minY + tolerance
+                && candidate.maxX > source.minX + tolerance
+                && candidate.minX < source.maxX - tolerance
+        case .left:
+            return candidate.maxX <= source.minX + tolerance
+                && candidate.maxY > source.minY + tolerance
+                && candidate.minY < source.maxY - tolerance
+        case .right:
+            return candidate.minX >= source.maxX - tolerance
+                && candidate.maxY > source.minY + tolerance
+                && candidate.minY < source.maxY - tolerance
+        }
+    }
+
+    private static func primaryDistance(
+        of candidate: CGRect,
+        from source: CGRect,
+        direction: TerminalPaneDirection
+    ) -> CGFloat {
+        switch direction {
+        case .up:
+            max(0, candidate.minY - source.maxY)
+        case .down:
+            max(0, source.minY - candidate.maxY)
+        case .left:
+            max(0, source.minX - candidate.maxX)
+        case .right:
+            max(0, candidate.minX - source.maxX)
+        }
+    }
+
+    private static func neighborRank(
+        of candidate: CGRect,
+        from source: CGRect,
+        direction: TerminalPaneDirection,
+        minPrimary: CGFloat,
+        primaryQuantum: CGFloat,
+        secondaryQuantum: CGFloat,
+        tieBreak: PaneNeighborTieBreak
+    ) -> PaneNeighborRank {
+        let primary = max(0, primaryDistance(of: candidate, from: source, direction: direction) - minPrimary)
+        let secondary: CGFloat
+        let tieBreaker: CGFloat
+        switch direction {
+        case .up:
+            secondary = abs(candidate.midX - source.midX)
+            tieBreaker = tieBreak == .closeSuccessor ? -candidate.minX : candidate.minX
+        case .down:
+            secondary = abs(candidate.midX - source.midX)
+            tieBreaker = candidate.minX
+        case .left:
+            secondary = abs(candidate.midY - source.midY)
+            tieBreaker = tieBreak == .closeSuccessor ? candidate.maxY : -candidate.maxY
+        case .right:
+            secondary = abs(candidate.midY - source.midY)
+            tieBreaker = -candidate.maxY
+        }
+        return PaneNeighborRank(
+            primary: quantized(primary, quantum: primaryQuantum),
+            secondary: quantized(secondary, quantum: secondaryQuantum),
+            tieBreaker: tieBreaker
+        )
+    }
+
+    private static func quantized(_ value: CGFloat, quantum: CGFloat) -> Int64 {
+        guard value.isFinite, quantum > 0 else {
+            return .max
+        }
+        let scaled = (value / quantum).rounded()
+        if scaled >= CGFloat(Int64.max) {
+            return .max
+        }
+        if scaled <= CGFloat(Int64.min) {
+            return .min
+        }
+        return Int64(scaled)
+    }
+
     /// The outer edge of the pane in its parent split: the edge away from
     /// the sibling that takes its space.
     private func removalEdge(
@@ -820,7 +1077,15 @@ final class TerminalPaneWorkspace {
 
     private func promote(_ survivor: TerminalPaneNode, into node: TerminalPaneNode) {
         if case .split = survivor.content {
+            if let fraction = restoredDividerFractions.removeValue(forKey: survivor.id) {
+                restoredDividerFractions[node.id] = fraction
+            } else {
+                restoredDividerFractions.removeValue(forKey: node.id)
+            }
             hostView?.transferDividerPosition(from: survivor.id, to: node.id)
+        } else {
+            restoredDividerFractions.removeValue(forKey: node.id)
+            hostView?.invalidateDividerPosition(for: node.id)
         }
         node.content = survivor.content
     }
@@ -910,7 +1175,10 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
     private var paneViews: [UUID: TerminalPaneCardView] = [:]
     private var splitViews: [UUID: TerminalWorkspaceSplitView] = [:]
     private var dividerFractions: [UUID: CGFloat] = [:]
-    private var pendingDividerTransfers: [(from: UUID, to: UUID)] = []
+    /// Live divider fractions snapshotted before a same-turn mutation, including
+    /// 0 and 1 for collapsed panes. Used only by close-successor geometry.
+    private var geometryDividerFractions: [UUID: CGFloat] = [:]
+    private var pendingDividerTransfers: [(from: UUID?, to: UUID)] = []
     private var unzoomedPaneFrames: [UUID: CGRect] = [:]
     private var needsDividerRestore = false
     /// The view of the pane tree.
@@ -941,7 +1209,7 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
         wantsLayer = true
         clipsToBounds = false
         workspace.hostView = self
-        if let fractions = workspace.adoptPaneTree() {
+        if let fractions = workspace.takeRestoredDividerFractions() {
             dividerFractions = fractions
             needsDividerRestore = !fractions.isEmpty
         }
@@ -1156,8 +1424,13 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
         preparedStartFrames = nil
         preparedClosedCard = nil
         saveDividerPositions()
+        geometryDividerFractions.removeAll()
         for transfer in pendingDividerTransfers {
-            dividerFractions[transfer.to] = dividerFractions.removeValue(forKey: transfer.from)
+            if let from = transfer.from {
+                dividerFractions[transfer.to] = dividerFractions.removeValue(forKey: from)
+            } else {
+                dividerFractions.removeValue(forKey: transfer.to)
+            }
         }
         pendingDividerTransfers.removeAll()
         let activeSplitIDs = splitNodeIDs(in: workspace.root)
@@ -1441,13 +1714,14 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
             return (controller, pane.convert(pane.bounds, to: self))
         }
         guard
-            let target = candidates
-                .filter({
-                    isInDirection($0.1, from: sourceFrame, direction: direction)
-                })
-                .min(by: { directionScore($0.1, from: sourceFrame, direction: direction)
-                        < directionScore($1.1, from: sourceFrame, direction: direction)
-                })?.0 else {
+            let target = TerminalPaneWorkspace.closestPane(
+                in: direction,
+                from: sourceFrame,
+                among: candidates,
+                tolerance: 0.5,
+                primaryQuantum: 2,
+                tieBreak: .navigation
+            ) else {
             if
                 workspace.zoomedControllerID != nil, splitViews.isEmpty,
                 unzoomedPaneFrames.count < workspace.paneCount {
@@ -1536,40 +1810,100 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
         return card
     }
 
-    private func saveDividerPositions() {
-        for (id, splitView) in splitViews where splitView.arrangedSubviews.count == 2 {
-            let length = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
-            let available = length - splitView.dividerThickness
-            guard available > 0 else {
-                continue
-            }
-            let first = splitView.arrangedSubviews[0]
-            let firstLength = splitView.isVertical ? first.frame.width : first.frame.height
-            // A split view that has no layout yet keeps its earlier fraction.
-            guard firstLength > 0 else {
-                continue
-            }
-            dividerFractions[id] = firstLength / available
-        }
-    }
-
-    /// The size of the first pane of a split over the available length.
-    func dividerFraction(for id: UUID) -> CGFloat? {
-        guard let splitView = splitViews[id], splitView.arrangedSubviews.count == 2 else {
-            return dividerFractions[id]
+    private func liveDividerFraction(in splitView: NSSplitView) -> CGFloat? {
+        guard splitView.arrangedSubviews.count == 2 else {
+            return nil
         }
         let length = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
         let available = length - splitView.dividerThickness
-        let first = splitView.arrangedSubviews[0]
-        let firstLength = splitView.isVertical ? first.frame.width : first.frame.height
-        guard available > 0, firstLength > 0 else {
-            return dividerFractions[id]
+        guard available > 0 else {
+            return nil
         }
-        return firstLength / available
+        let first = splitView.arrangedSubviews[0]
+        let second = splitView.arrangedSubviews[1]
+        let firstLength = splitView.isVertical ? first.frame.width : first.frame.height
+        let secondLength = splitView.isVertical ? second.frame.width : second.frame.height
+        // A split view whose subviews have no layout yet keeps its earlier fraction.
+        guard firstLength > 0 || secondLength > 0 else {
+            return nil
+        }
+        return min(max(firstLength / available, 0), 1)
+    }
+
+    private func saveDividerPositions() {
+        for (id, splitView) in splitViews {
+            // A first pane with no length can be a layout in progress, so it
+            // keeps its earlier fraction. Only the geometry query reads it as 0.
+            guard let fraction = liveDividerFraction(in: splitView), fraction > 0 else {
+                continue
+            }
+            dividerFractions[id] = fraction
+        }
+    }
+
+    func snapshotDividerPositionsIfSynchronized() {
+        guard displayedRevision == workspace.revision else {
+            return
+        }
+        saveDividerPositions()
+        if !splitViews.isEmpty {
+            geometryDividerFractions.removeAll()
+            for (id, splitView) in splitViews {
+                if let fraction = liveDividerFraction(in: splitView) {
+                    geometryDividerFractions[id] = fraction
+                }
+            }
+        }
+    }
+
+    private func resolvedTransferID(for id: UUID) -> UUID? {
+        var resolvedID: UUID? = id
+        for transfer in pendingDividerTransfers.reversed() where transfer.to == resolvedID {
+            resolvedID = transfer.from
+        }
+        return resolvedID
+    }
+
+    /// The size of the first pane of a split over the available length, for
+    /// persistence and restoration. Keeps the saved fraction when a split view
+    /// has no positive first-pane length yet (for example during layout).
+    func dividerFraction(for id: UUID) -> CGFloat? {
+        if displayedRevision != workspace.revision {
+            guard let resolvedID = resolvedTransferID(for: id) else {
+                return nil
+            }
+            return dividerFractions[resolvedID]
+        }
+        if let splitView = splitViews[id], let live = liveDividerFraction(in: splitView), live > 0 {
+            return live
+        }
+        return dividerFractions[id]
+    }
+
+    /// The current visual fraction of a split for pane-closing geometry.
+    /// Unlike `dividerFraction(for:)`, preserves 0 and 1 for collapsed panes
+    /// across same-turn closes.
+    func layoutDividerFraction(for id: UUID) -> CGFloat? {
+        if displayedRevision != workspace.revision {
+            guard let resolvedID = resolvedTransferID(for: id) else {
+                return nil
+            }
+            return geometryDividerFractions[resolvedID] ?? dividerFractions[resolvedID]
+        }
+        if let splitView = splitViews[id], let live = liveDividerFraction(in: splitView) {
+            return live
+        }
+        return dividerFractions[id]
     }
 
     func transferDividerPosition(from oldID: UUID, to newID: UUID) {
+        snapshotDividerPositionsIfSynchronized()
         pendingDividerTransfers.append((from: oldID, to: newID))
+    }
+
+    func invalidateDividerPosition(for id: UUID) {
+        snapshotDividerPositionsIfSynchronized()
+        pendingDividerTransfers.append((from: nil, to: id))
     }
 
     private func splitNodeIDs(in node: TerminalPaneNode) -> Set<UUID> {
@@ -1595,40 +1929,6 @@ final class TerminalPaneHostView: NSView, NSSplitViewDelegate {
         }
         restoreDividerPositions(in: first)
         restoreDividerPositions(in: second)
-    }
-
-    private func isInDirection(
-        _ candidate: CGRect,
-        from source: CGRect,
-        direction: TerminalPaneDirection
-    ) -> Bool {
-        switch direction {
-        case .up:
-            return candidate.minY >= source.maxY && candidate.maxX > source.minX && candidate.minX < source.maxX
-        case .down:
-            return candidate.maxY <= source.minY && candidate.maxX > source.minX && candidate.minX < source.maxX
-        case .left:
-            return candidate.maxX <= source.minX && candidate.maxY > source.minY && candidate.minY < source.maxY
-        case .right:
-            return candidate.minX >= source.maxX && candidate.maxY > source.minY && candidate.minY < source.maxY
-        }
-    }
-
-    private func directionScore(
-        _ candidate: CGRect,
-        from source: CGRect,
-        direction: TerminalPaneDirection
-    ) -> CGFloat {
-        switch direction {
-        case .up:
-            return candidate.minY - source.maxY + abs(candidate.midX - source.midX)
-        case .down:
-            return source.minY - candidate.maxY + abs(candidate.midX - source.midX)
-        case .left:
-            return source.minX - candidate.maxX + abs(candidate.midY - source.midY)
-        case .right:
-            return candidate.minX - source.maxX + abs(candidate.midY - source.midY)
-        }
     }
 
     private func equalizeSplits(in view: NSView?) {

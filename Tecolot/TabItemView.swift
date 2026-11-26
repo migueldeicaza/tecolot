@@ -13,6 +13,9 @@ final class TabItemView: NSView {
     private let rowSelection = TabSelectionSurfaceView()
     private weak var controller: TerminalWindowController?
     private let hover = NSView()
+    var hoverView: NSView {
+        hover
+    }
     private let titleClip = NSView()
     let titleField = NSTextField(labelWithString: "")
     private let titleFade = CAGradientLayer()
