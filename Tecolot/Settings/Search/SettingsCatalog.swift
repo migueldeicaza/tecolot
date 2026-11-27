@@ -85,6 +85,7 @@ enum SettingID: String, CaseIterable, Hashable {
     // Profile: Appearance
     case pageAppearance
     case appearanceFont
+    case appearanceLineSpacing
     case appearanceFontSmoothing
     case appearanceCursor
     case appearanceBrightBold
@@ -555,6 +556,10 @@ extension SettingID {
             return settingEntry(self, .appearance, "Font",
                            "Choose the terminal typeface and its size.",
                            keywords: ["typeface", "font size", "font family", "monospaced", "text size", "typography"])
+        case .appearanceLineSpacing:
+            return settingEntry(self, .appearance, "Line height",
+                           "Adjust the vertical spacing between lines of terminal text.",
+                           keywords: ["line height", "line spacing", "leading", "row height", "vertical spacing"])
         case .appearanceFontSmoothing:
             return settingEntry(self, .appearance, "Font smoothing",
                            "Thicken terminal glyph strokes with macOS font smoothing.",

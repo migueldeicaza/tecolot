@@ -127,6 +127,7 @@ public enum ProfileApplier {
             )
 
             view.font = font (for: profile)
+            applyLineSpacing (from: profile, to: view)
             #if os(macOS)
                 view.fontSmoothing = profile.fontSmoothing
             #endif
@@ -160,6 +161,14 @@ public enum ProfileApplier {
             }
             view.feed(text: "\u{1b}[\(cursorStyleParameter) q")
             view.changeScrollback (profile.scrollbackLines)
+        }
+
+        @MainActor
+        public static func applyLineSpacing (from profile: TerminalProfile, to view: TerminalView) {
+            let spacing = CGFloat (TerminalProfile.sanitizedLineSpacing (profile.lineSpacing))
+            if view.lineSpacing != spacing {
+                view.lineSpacing = spacing
+            }
         }
 
         /// The native font described by the profile, falling back to the

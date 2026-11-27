@@ -26,6 +26,7 @@ enum TerminalProfileWindowSizer {
             font: ProfileApplier.font(for: profile),
             options: ProfileApplier.terminalOptions(for: profile)
         )
+        ProfileApplier.applyLineSpacing(from: profile, to: terminal)
         defer {
             let didClose = terminal.updateUiClosed()
             assert(didClose, "The terminal sizing view did not release its UI resources")

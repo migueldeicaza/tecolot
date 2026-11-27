@@ -16,6 +16,8 @@ struct ProfileTextSettingsFields: View {
     let profile: TerminalProfile
     let update: ((inout TerminalProfile) -> Void) -> Void
     @State private var fontPanelManager = FontPanelManager()
+    @State private var lineSpacingPreview: Double
+    @State private var isEditingLineSpacing = false
     @State private var backgroundOpacityPreview: Double
     @State private var isEditingBackgroundOpacity = false
 
@@ -25,6 +27,7 @@ struct ProfileTextSettingsFields: View {
     ) {
         self.profile = profile
         self.update = update
+        _lineSpacingPreview = State(initialValue: profile.lineSpacing)
         _backgroundOpacityPreview = State(initialValue: profile.backgroundOpacity)
     }
 
@@ -52,6 +55,32 @@ struct ProfileTextSettingsFields: View {
         .onAppear(perform: configureFontPanel)
         .onChange(of: profile) {
             configureFontPanel()
+        }
+        LabeledContent(SettingID.appearanceLineSpacing.title) {
+            HStack(spacing: 8) {
+                Slider(
+                    value: $lineSpacingPreview,
+                    in: TerminalProfile.lineSpacingRange,
+                    step: 0.05,
+                    onEditingChanged: lineSpacingEditingChanged
+                )
+                .frame(maxWidth: 160)
+                Text(String(format: "%.2f×", lineSpacingPreview))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 42, alignment: .trailing)
+            }
+        }
+        .settingsAnchor(.appearanceLineSpacing)
+        .onChange(of: lineSpacingPreview) { _, newValue in
+            if !isEditingLineSpacing, newValue != profile.lineSpacing {
+                commitLineSpacing(newValue)
+            }
+        }
+        .onChange(of: profile.lineSpacing) { _, newValue in
+            if !isEditingLineSpacing {
+                lineSpacingPreview = newValue
+            }
         }
         Toggle(SettingID.appearanceFontSmoothing.title, isOn: Binding(
             get: {
@@ -112,10 +141,30 @@ struct ProfileTextSettingsFields: View {
         }
         .onChange(of: profile.id) { oldID, _ in
             TerminalSessionRegistry.shared.previewBackgroundOpacity(nil, forProfileID: oldID)
+            isEditingLineSpacing = false
+            lineSpacingPreview = profile.lineSpacing
             backgroundOpacityPreview = profile.backgroundOpacity
         }
         .onDisappear {
             TerminalSessionRegistry.shared.previewBackgroundOpacity(nil, forProfileID: profile.id)
+        }
+    }
+
+    private func lineSpacingEditingChanged(_ isEditing: Bool) {
+        isEditingLineSpacing = isEditing
+        guard !isEditing else {
+            return
+        }
+        commitLineSpacing(lineSpacingPreview)
+    }
+
+    private func commitLineSpacing(_ value: Double) {
+        let spacing = TerminalProfile.sanitizedLineSpacing(value)
+        let save = update
+        DispatchQueue.main.async {
+            save {
+                $0.lineSpacing = spacing
+            }
         }
     }
 

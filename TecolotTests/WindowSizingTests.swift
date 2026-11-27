@@ -15,14 +15,20 @@ struct WindowSizingTests {
         var taller = base
         taller.rows = 40
 
+        var spaced = base
+        spaced.lineSpacing = 1.5
+
         let baseSize = TerminalProfileWindowSizer.contentSize(for: base)
         let widerSize = TerminalProfileWindowSizer.contentSize(for: wider)
         let tallerSize = TerminalProfileWindowSizer.contentSize(for: taller)
+        let spacedSize = TerminalProfileWindowSizer.contentSize(for: spaced)
 
         #expect(widerSize.width > baseSize.width)
         #expect(widerSize.height == baseSize.height)
         #expect(tallerSize.width == baseSize.width)
         #expect(tallerSize.height > baseSize.height)
+        #expect(spacedSize.width == baseSize.width)
+        #expect(spacedSize.height > baseSize.height)
     }
 
     @Test func profileContentSizeSetsTheWindowLayoutArea() {
