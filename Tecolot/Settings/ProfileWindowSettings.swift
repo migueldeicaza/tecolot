@@ -6,10 +6,18 @@ extension ProfileSettingsPage {
     var windowSettings: some View {
         Form {
             Section {
-                TextField(SettingID.windowColumns.title, value: binding(\.columns), format: .number)
-                    .settingsAnchor(.windowColumns)
-                TextField(SettingID.windowRows.title, value: binding(\.rows), format: .number)
-                    .settingsAnchor(.windowRows)
+                // The identity makes a new draft when the user selects a
+                // different profile, so an edit stays with its profile.
+                CommittedIntegerField(SettingID.windowColumns.title, value: profile.columns) { columns in
+                    update { $0.columns = columns }
+                }
+                .id(profile.id)
+                .settingsAnchor(.windowColumns)
+                CommittedIntegerField(SettingID.windowRows.title, value: profile.rows) { rows in
+                    update { $0.rows = rows }
+                }
+                .id(profile.id)
+                .settingsAnchor(.windowRows)
             }
             Section {
                 TitleSourcePicker(setting: .windowTitleSource)
