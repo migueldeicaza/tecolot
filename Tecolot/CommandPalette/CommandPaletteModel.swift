@@ -20,6 +20,16 @@ final class CommandPaletteModel {
     /// Hovering with the pointer does not increment this counter.
     private(set) var revealCount = 0
 
+    /// Optional scroll alignment anchor for the most recent `revealCount` bump (`nil` for minimal reveal).
+    @ObservationIgnored private(set) var revealAnchor: UnitPoint?
+
+    /// Working vertical scroll offset used for page navigation; synced from `CommandPaletteView`
+    /// and updated predictively on programmatic navigation before the next layout pass.
+    @ObservationIgnored private(set) var scrollOffsetY: CGFloat = 0
+    /// Last vertical scroll offset actually reported by `CommandPaletteView`'s `ScrollView`.
+    @ObservationIgnored private(set) var observedScrollOffsetY: CGFloat = 0
+    @ObservationIgnored private(set) var viewportHeight: CGFloat = 0
+
     /// Incremented when the view should restore focus to the search field.
     private(set) var fieldFocusCount = 0
 
@@ -151,6 +161,15 @@ final class CommandPaletteModel {
         rebuild(preferredSelectionID: nil)
     }
 
+    func updateScrollViewport(offsetY: CGFloat, height: CGFloat) {
+        let clampedOffset = max(0, offsetY)
+        scrollOffsetY = clampedOffset
+        observedScrollOffsetY = clampedOffset
+        if height > 0 {
+            viewportHeight = height
+        }
+    }
+
     func moveSelection(by delta: Int) {
         let selectable = items.indices.filter {
             items[$0].isSelectable
@@ -168,7 +187,207 @@ final class CommandPaletteModel {
         }
         pointerMovedSinceLastChange = false
         selectIndex(next, triggerPreview: true)
+        syncScrollOffsetMinimally(for: next)
+        revealAnchor = nil
         revealCount += 1
+    }
+
+    func selectFirst() {
+        guard !isDirectoryLoadPending else {
+            return
+        }
+        guard let first = items.firstIndex(where: \.isSelectable) else {
+            selectedIndex = nil
+            return
+        }
+        pointerMovedSinceLastChange = false
+        selectIndex(first, triggerPreview: true)
+        scrollOffsetY = 0
+        revealAnchor = .top
+        revealCount += 1
+    }
+
+    func selectLast() {
+        guard !isDirectoryLoadPending else {
+            return
+        }
+        guard let last = items.lastIndex(where: \.isSelectable) else {
+            selectedIndex = nil
+            return
+        }
+        let (_, contentHeight) = itemLayouts()
+        let maxScrollY = max(0, contentHeight - effectiveViewportHeight)
+        pointerMovedSinceLastChange = false
+        selectIndex(last, triggerPreview: true)
+        scrollOffsetY = maxScrollY
+        revealAnchor = .bottom
+        revealCount += 1
+    }
+
+    /// Moves selection and scrolls the list by one visible page (`direction > 0` for Page Down, `< 0` for Page Up).
+    func moveSelectionByPage(_ direction: Int) {
+        guard direction != 0, !isDirectoryLoadPending else {
+            return
+        }
+        let (allLayouts, contentHeight) = itemLayouts()
+        let selectable = allLayouts.filter {
+            items[$0.index].isSelectable
+        }
+        guard let first = selectable.first, let last = selectable.last else {
+            selectedIndex = nil
+            return
+        }
+
+        let viewHeight = effectiveViewportHeight
+        let maxScrollY = max(0, contentHeight - viewHeight)
+        let currentScrollY = min(max(0, scrollOffsetY), maxScrollY)
+
+        let currentPos: Int? = selectedIndex.flatMap { selected in
+            selectable.firstIndex {
+                $0.index == selected
+            }
+        }
+        let current = currentPos.map {
+            selectable[$0]
+        }
+
+        let overlap = current?.height ?? CommandPaletteMetrics.rowHeight
+        let pageStep = max(overlap, viewHeight - overlap)
+        let step = direction > 0 ? pageStep : -pageStep
+        let newScrollY = min(max(0, currentScrollY + step), maxScrollY)
+
+        let isCurrentVisible: Bool = if let current {
+            current.bottom > currentScrollY + 0.5 && current.top < currentScrollY + viewHeight - 0.5
+        } else {
+            false
+        }
+
+        let targetY: CGFloat
+        if let current, isCurrentVisible {
+            targetY = current.top + step
+        } else if direction > 0 {
+            targetY = currentScrollY >= maxScrollY - 0.5 ? last.top : newScrollY
+        } else {
+            targetY = currentScrollY <= 0.5 ? first.top : max(0, newScrollY + viewHeight - CommandPaletteMetrics.rowHeight)
+        }
+
+        let chosen: ItemLayout
+        if direction > 0 {
+            if let currentPos {
+                if currentPos >= selectable.count - 1 || targetY >= last.top {
+                    chosen = last
+                } else {
+                    let candidates = selectable[(currentPos + 1)...]
+                    chosen = candidates.min { lhs, rhs in
+                        abs(lhs.top - targetY) < abs(rhs.top - targetY)
+                    } ?? last
+                }
+            } else if targetY >= last.top {
+                chosen = last
+            } else {
+                chosen = selectable.min { lhs, rhs in
+                    abs(lhs.top - targetY) < abs(rhs.top - targetY)
+                } ?? last
+            }
+        } else {
+            if let currentPos {
+                if currentPos == 0 || targetY <= first.top {
+                    chosen = first
+                } else {
+                    let candidates = selectable[..<currentPos]
+                    chosen = candidates.min { lhs, rhs in
+                        abs(lhs.top - targetY) < abs(rhs.top - targetY)
+                    } ?? first
+                }
+            } else if targetY <= first.top {
+                chosen = first
+            } else {
+                chosen = selectable.min { lhs, rhs in
+                    abs(lhs.top - targetY) < abs(rhs.top - targetY)
+                } ?? first
+            }
+        }
+
+        let anchor: UnitPoint
+        let finalScrollY: CGFloat
+        if chosen.index == first.index {
+            anchor = .top
+            finalScrollY = 0
+        } else if chosen.index == last.index {
+            anchor = .bottom
+            finalScrollY = maxScrollY
+        } else if viewHeight > chosen.height {
+            let normalized = min(1, max(0, (chosen.top - newScrollY) / (viewHeight - chosen.height)))
+            anchor = UnitPoint(x: 0.5, y: normalized)
+            finalScrollY = min(maxScrollY, max(0, chosen.top - normalized * (viewHeight - chosen.height)))
+        } else {
+            anchor = direction > 0 ? .bottom : .top
+            finalScrollY = newScrollY
+        }
+
+        pointerMovedSinceLastChange = false
+        selectIndex(chosen.index, triggerPreview: true)
+        scrollOffsetY = finalScrollY
+        revealAnchor = anchor
+        revealCount += 1
+    }
+
+    private struct ItemLayout {
+        let index: Int
+        let top: CGFloat
+        let height: CGFloat
+
+        var bottom: CGFloat {
+            top + height
+        }
+    }
+
+    private var effectiveViewportHeight: CGFloat {
+        if viewportHeight > 0 {
+            return viewportHeight
+        }
+        let headerTotal = CommandPaletteMetrics.headerTopInset
+            + CommandPaletteMetrics.inputHeight
+            + CommandPaletteMetrics.headerBottomInset
+        let footerTotal: CGFloat = currentScope.showsFooter ? CommandPaletteMetrics.footerHeight : 0
+        return max(
+            CommandPaletteMetrics.rowHeight,
+            CommandPaletteMetrics.maxHeight - headerTotal - footerTotal
+        )
+    }
+
+    private func itemLayouts() -> (layouts: [ItemLayout], contentHeight: CGFloat) {
+        var y = CommandPaletteMetrics.listTopPadding
+        var layouts: [ItemLayout] = []
+        layouts.reserveCapacity(items.count)
+        for (index, item) in items.enumerated() {
+            let height = item.height
+            layouts.append(ItemLayout(index: index, top: y, height: height))
+            y += height
+        }
+        let bottomPadding = currentScope.showsFooter
+            ? CommandPaletteMetrics.listBottomPaddingWithFooter
+            : CommandPaletteMetrics.listBottomPaddingWithoutFooter
+        return (layouts, y + bottomPadding)
+    }
+
+    private func syncScrollOffsetMinimally(for index: Int) {
+        let (layouts, contentHeight) = itemLayouts()
+        guard layouts.indices.contains(index) else {
+            return
+        }
+        let viewHeight = effectiveViewportHeight
+        let maxScrollY = max(0, contentHeight - viewHeight)
+        let target = layouts[index]
+        let targetTop = index == items.firstIndex(where: \.isSelectable) ? 0 : target.top
+        let targetBottom = index == items.lastIndex(where: \.isSelectable) ? contentHeight : target.bottom
+        var offset = min(max(0, scrollOffsetY), maxScrollY)
+        if targetBottom > offset + viewHeight {
+            offset = targetBottom - viewHeight
+        } else if targetTop < offset {
+            offset = targetTop
+        }
+        scrollOffsetY = min(max(0, offset), maxScrollY)
     }
 
     func selectIndex(_ index: Int?, triggerPreview: Bool) {
@@ -362,6 +581,13 @@ final class CommandPaletteModel {
             stack[stack.count - 1].selectedRowID = selectedRow?.id
         }
         pointerMovedSinceLastChange = false
+        let (_, contentHeight) = itemLayouts()
+        let maxScrollY = max(0, contentHeight - effectiveViewportHeight)
+        scrollOffsetY = min(max(0, observedScrollOffsetY), maxScrollY)
+        if let selectedIndex {
+            syncScrollOffsetMinimally(for: selectedIndex)
+        }
+        revealAnchor = nil
         revealCount += 1
         onItemsChanged?()
     }

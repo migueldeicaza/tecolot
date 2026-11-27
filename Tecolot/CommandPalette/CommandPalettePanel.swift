@@ -289,11 +289,15 @@ final class CommandPalettePanel: NSPanel, CommandPalettePresenting, NSWindowDele
         let headerTotal = CommandPaletteMetrics.headerTopInset
             + CommandPaletteMetrics.inputHeight
             + CommandPaletteMetrics.headerBottomInset
-        let footerTotal: CGFloat = (model?.currentScope.showsFooter ?? true) ? CommandPaletteMetrics.footerHeight : 0
+        let showsFooter = model?.currentScope.showsFooter ?? true
+        let footerTotal: CGFloat = showsFooter ? CommandPaletteMetrics.footerHeight : 0
         let listContentHeight = (model?.items ?? []).reduce(CGFloat(0)) {
             $0 + $1.height
         }
-        let listVerticalPadding: CGFloat = 10
+        let listVerticalPadding = CommandPaletteMetrics.listTopPadding
+            + (showsFooter
+                ? CommandPaletteMetrics.listBottomPaddingWithFooter
+                : CommandPaletteMetrics.listBottomPaddingWithoutFooter)
         let rawHeight = headerTotal + listContentHeight + listVerticalPadding + footerTotal
         return min(CommandPaletteMetrics.maxHeight, max(CommandPaletteMetrics.minHeight, rawHeight))
     }
@@ -420,6 +424,24 @@ final class CommandPalettePanel: NSPanel, CommandPalettePresenting, NSWindowDele
         case 126: // Up Arrow
             moveSelection(by: -1)
             return true
+        case 116: // Page Up
+            moveSelectionByPage(-1)
+            return true
+        case 121: // Page Down
+            moveSelectionByPage(1)
+            return true
+        case 115: // Home
+            guard model?.currentScope.isTextEntryScope != true else {
+                return false
+            }
+            selectFirst()
+            return true
+        case 119: // End
+            guard model?.currentScope.isTextEntryScope != true else {
+                return false
+            }
+            selectLast()
+            return true
         case 36, 76: // Return / Enter
             model?.executeSelected()
             return true
@@ -440,6 +462,21 @@ final class CommandPalettePanel: NSPanel, CommandPalettePresenting, NSWindowDele
     private func moveSelection(by delta: Int) {
         ignoreStationaryPointer()
         model?.moveSelection(by: delta)
+    }
+
+    private func moveSelectionByPage(_ direction: Int) {
+        ignoreStationaryPointer()
+        model?.moveSelectionByPage(direction)
+    }
+
+    private func selectFirst() {
+        ignoreStationaryPointer()
+        model?.selectFirst()
+    }
+
+    private func selectLast() {
+        ignoreStationaryPointer()
+        model?.selectLast()
     }
 }
 

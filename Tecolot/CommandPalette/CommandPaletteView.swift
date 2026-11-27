@@ -146,22 +146,48 @@ struct CommandPaletteView: View {
         }
     }
 
+    private static let topAnchorID = "__palette_top__"
+    private static let bottomAnchorID = "__palette_bottom__"
+
+    private struct ScrollViewport: Equatable {
+        let offsetY: CGFloat
+        let height: CGFloat
+    }
+
     private var list: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    Color.clear
+                        .frame(height: CommandPaletteMetrics.listTopPadding)
+                        .id(Self.topAnchorID)
+
                     ForEach(identifiedItems) { entry in
                         itemView(entry.item, index: entry.index)
                             .id(entry.id)
                     }
+
+                    Color.clear
+                        .frame(
+                            height: model.currentScope.showsFooter
+                                ? CommandPaletteMetrics.listBottomPaddingWithFooter
+                                : CommandPaletteMetrics.listBottomPaddingWithoutFooter
+                        )
+                        .id(Self.bottomAnchorID)
                 }
-                .padding(.top, 2)
-                .padding(.bottom, model.currentScope.showsFooter ? 4 : 6)
+            }
+            .onScrollGeometryChange(for: ScrollViewport.self) { geometry in
+                ScrollViewport(
+                    offsetY: geometry.visibleRect.minY,
+                    height: geometry.visibleRect.height
+                )
+            } action: { _, newValue in
+                model.updateScrollViewport(offsetY: newValue.offsetY, height: newValue.height)
             }
             .accessibilityLabel("Command Palette Results")
             .onChange(of: model.revealCount) {
                 if let targetID = scrollTargetID() {
-                    proxy.scrollTo(targetID)
+                    proxy.scrollTo(targetID, anchor: model.revealAnchor)
                 }
             }
         }
@@ -185,11 +211,15 @@ struct CommandPaletteView: View {
         guard let selectedIndex = model.selectedIndex, model.items.indices.contains(selectedIndex) else {
             return nil
         }
-        // When the very first selectable item sits directly under a leading section header,
-        // scroll to that header so the top of the list never stays clipped offscreen.
+        // When selecting the first or last selectable item, scroll to the matching list edge so
+        // padding and any leading section header never stay clipped offscreen.
         let firstSelectable = model.items.firstIndex(where: \.isSelectable)
-        if selectedIndex == firstSelectable, selectedIndex > 0, case .sectionHeader = model.items[0] {
-            return itemID(model.items[0], index: 0)
+        if selectedIndex == firstSelectable, model.revealAnchor != .bottom {
+            return Self.topAnchorID
+        }
+        let lastSelectable = model.items.lastIndex(where: \.isSelectable)
+        if selectedIndex == lastSelectable, model.revealAnchor != .top {
+            return Self.bottomAnchorID
         }
         return itemID(model.items[selectedIndex], index: selectedIndex)
     }

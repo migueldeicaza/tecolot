@@ -591,6 +591,139 @@ struct CommandPaletteModelTests {
         model.hoverIndex(other)
         #expect(model.selectedIndex == afterKey)
     }
+
+    @Test func pageNavigationAndHomeEndMoveSelectionAndScrollAnchors() throws {
+        let fixture = makeFixture()
+        defer {
+            fixture.controller.closeWindow()
+            fixture.defaults.removePersistentDomain(forName: fixture.suiteName)
+        }
+
+        let catalog = CommandPaletteCatalog(
+            owner: fixture.controller,
+            manager: fixture.manager,
+            defaults: fixture.defaults
+        )
+        let model = CommandPaletteModel(catalog: catalog, mru: CommandPaletteMRU(defaults: fixture.defaults))
+        model.reset()
+
+        let selectable = model.items.indices.filter {
+            model.items[$0].isSelectable
+        }
+        let first = try #require(selectable.first)
+        let last = try #require(selectable.last)
+        #expect(selectable.count > 15)
+        #expect(model.selectedIndex == first)
+
+        // Page Down advances by multiple rows, skips headers, and advances scrollOffsetY.
+        let revealsBeforePageDown = model.revealCount
+        model.moveSelectionByPage(1)
+        let afterFirstPage = try #require(model.selectedIndex)
+        #expect(model.items[afterFirstPage].isSelectable)
+        #expect(afterFirstPage > first + 1)
+        #expect(afterFirstPage < last)
+        #expect(model.scrollOffsetY > 0)
+        #expect(model.revealCount == revealsBeforePageDown + 1)
+
+        // Page Up returns cleanly to the top of the list.
+        model.moveSelectionByPage(-1)
+        #expect(model.selectedIndex == first)
+        #expect(model.scrollOffsetY == 0)
+        #expect(model.revealAnchor == .top)
+
+        // Repeated Page Down reaches and clamps at the last selectable item.
+        for _ in 0..<20 {
+            model.moveSelectionByPage(1)
+        }
+        #expect(model.selectedIndex == last)
+        #expect(model.revealAnchor == .bottom)
+
+        // Page Up from the bottom steps back onto an earlier page (still selectable).
+        model.moveSelectionByPage(-1)
+        let afterPageUpFromBottom = try #require(model.selectedIndex)
+        #expect(model.items[afterPageUpFromBottom].isSelectable)
+        #expect(afterPageUpFromBottom < last)
+        #expect(afterPageUpFromBottom > first)
+
+        // Home jumps to first selectable item; repeating it still bumps revealCount so trackpad scroll resets.
+        model.selectFirst()
+        #expect(model.selectedIndex == first)
+        #expect(model.revealAnchor == .top)
+        let revealsAfterHome = model.revealCount
+        model.updateScrollViewport(offsetY: 300, height: 418)
+        model.selectFirst()
+        #expect(model.selectedIndex == first)
+        #expect(model.scrollOffsetY == 0)
+        #expect(model.revealCount == revealsAfterHome + 1)
+
+        // End jumps to last selectable item; repeating it still bumps revealCount so trackpad scroll resets.
+        model.selectLast()
+        #expect(model.selectedIndex == last)
+        #expect(model.revealAnchor == .bottom)
+        let revealsAfterEnd = model.revealCount
+        model.updateScrollViewport(offsetY: 0, height: 418)
+        model.selectLast()
+        #expect(model.selectedIndex == last)
+        #expect(model.scrollOffsetY > 0)
+        #expect(model.revealCount == revealsAfterEnd + 1)
+
+        // Stationary pointer guard is re-armed by page/home/end navigation.
+        model.pointerMoved()
+        model.selectFirst()
+        model.hoverIndex(selectable[2])
+        #expect(model.selectedIndex == first)
+
+        // When user scrolled far down with trackpad while first item is selected,
+        // Page Down advances from the visible viewport rather than snapping back near the top.
+        model.selectFirst()
+        model.updateScrollViewport(offsetY: 450, height: 418)
+        model.moveSelectionByPage(1)
+        let scrolledTarget = try #require(model.selectedIndex)
+        #expect(scrolledTarget > afterFirstPage)
+
+        // When selected row is scrolled offscreen above, Page Up never moves selection downward.
+        model.selectFirst()
+        model.updateScrollViewport(offsetY: 600, height: 418)
+        model.moveSelectionByPage(-1)
+        #expect(model.selectedIndex == first)
+        #expect(model.scrollOffsetY == 0)
+
+        let earlyRow = selectable[3]
+        model.selectIndex(earlyRow, triggerPreview: false)
+        model.updateScrollViewport(offsetY: 600, height: 418)
+        model.moveSelectionByPage(-1)
+        let afterOffscreenPageUp = try #require(model.selectedIndex)
+        #expect(afterOffscreenPageUp < earlyRow)
+
+        // When selected row is scrolled offscreen below, Page Down never moves selection upward.
+        model.selectLast()
+        model.updateScrollViewport(offsetY: 0, height: 418)
+        model.moveSelectionByPage(1)
+        #expect(model.selectedIndex == last)
+        #expect(model.scrollOffsetY > 0)
+
+        // Rebuild that preserves a visible selection keeps the observed scroll offset so the next
+        // Page Down still scrolls a full page instead of snapping back toward the top.
+        model.selectFirst()
+        model.moveSelectionByPage(1)
+        let midRow = try #require(model.selectedRow)
+        let midScrollOffset = model.scrollOffsetY
+        model.updateScrollViewport(offsetY: midScrollOffset, height: 418)
+        model.rebuild(preferredSelectionID: midRow.id)
+        #expect(model.selectedRow?.id == midRow.id)
+        #expect(abs(model.scrollOffsetY - midScrollOffset) <= 1)
+        model.moveSelectionByPage(1)
+        #expect(model.scrollOffsetY > midScrollOffset + 100)
+
+        // Empty / No Results state handles all four operations safely.
+        model.setQuery("zzzz-unmatched-query")
+        #expect(model.selectedIndex == nil)
+        model.moveSelectionByPage(1)
+        model.moveSelectionByPage(-1)
+        model.selectFirst()
+        model.selectLast()
+        #expect(model.selectedIndex == nil)
+    }
 }
 
 // MARK: - Panel UI, Geometry & Keyboard
@@ -772,5 +905,141 @@ struct CommandPalettePanelTests {
             #expect(editor.selectedRange() == NSRange(location: dirPath.utf16.count, length: 0))
         }
         #expect(panel.activeModel?.textSelection == TextSelection(insertionPoint: dirPath.endIndex))
+    }
+
+    @Test func panelHandlesPageUpPageDownHomeAndEndKeys() async throws {
+        let suite = "CommandPalettePaging-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        let group = manager.newGroup(tab: TerminalTab(startsProcesses: false))
+        let controller = TerminalWindowController(group: group, manager: manager, defaults: defaults)
+        controller.window?.setFrame(NSRect(x: 200, y: 200, width: 900, height: 700), display: false)
+        controller.window?.makeKeyAndOrderFront(nil)
+        defer { controller.closeWindow() }
+
+        let panel = CommandPalettePanel(defaults: defaults)
+        defer { panel.dismiss(restoreFocus: false) }
+
+        panel.present(for: controller, manager: manager, initialScope: .root)
+        panel.makeKeyAndOrderFront(nil)
+
+        let model = try #require(panel.activeModel)
+        let selectable = model.items.indices.filter {
+            model.items[$0].isSelectable
+        }
+        let first = try #require(selectable.first)
+        let last = try #require(selectable.last)
+        #expect(model.selectedIndex == first)
+
+        func makeKeyEvent(
+            keyCode: UInt16,
+            characters: String,
+            modifiers: NSEvent.ModifierFlags = [.function]
+        ) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: 0,
+                windowNumber: panel.windowNumber,
+                context: nil,
+                characters: characters,
+                charactersIgnoringModifiers: characters,
+                isARepeat: false,
+                keyCode: keyCode
+            ))
+        }
+
+        let pageDown = try makeKeyEvent(keyCode: 121, characters: "\u{F72D}")
+        let pageUp = try makeKeyEvent(keyCode: 116, characters: "\u{F72C}")
+        let home = try makeKeyEvent(keyCode: 115, characters: "\u{F729}")
+        let end = try makeKeyEvent(keyCode: 119, characters: "\u{F72B}")
+        let shiftHome = try makeKeyEvent(keyCode: 115, characters: "\u{F729}", modifiers: [.function, .shift])
+
+        func waitUntil(_ condition: () -> Bool) async {
+            let deadline = Date().addingTimeInterval(0.6)
+            while Date() < deadline {
+                RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+                if condition() {
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+        }
+
+        // Allow SwiftUI ScrollView initial layout pass.
+        await waitUntil {
+            model.viewportHeight > 0
+        }
+        #expect(model.viewportHeight > 0)
+
+        // Page Down moves down a page and actually scrolls the ScrollView.
+        #expect(panel.handleKeyDown(pageDown))
+        let afterPageDown = try #require(model.selectedIndex)
+        #expect(afterPageDown > first + 1)
+        await waitUntil {
+            model.observedScrollOffsetY > 100
+        }
+        let pageDownOffset = model.observedScrollOffsetY
+        #expect(pageDownOffset > 100)
+
+        // Page Up returns to the top of the ScrollView.
+        #expect(panel.handleKeyDown(pageUp))
+        #expect(model.selectedIndex == first)
+        await waitUntil {
+            model.observedScrollOffsetY <= 1
+        }
+        #expect(model.observedScrollOffsetY <= 1)
+
+        // End jumps to the bottom of the list and scrolls further down than a single page.
+        #expect(panel.handleKeyDown(end))
+        #expect(model.selectedIndex == last)
+        await waitUntil {
+            model.observedScrollOffsetY > pageDownOffset
+        }
+        #expect(model.observedScrollOffsetY > pageDownOffset)
+
+        // Home jumps back to the first item and scrolls to the very top.
+        #expect(panel.handleKeyDown(home))
+        #expect(model.selectedIndex == first)
+        await waitUntil {
+            model.observedScrollOffsetY <= 1
+        }
+        #expect(model.observedScrollOffsetY <= 1)
+
+        // Modified variants (such as Shift+Home) are not intercepted.
+        #expect(!panel.handleKeyDown(shiftHome))
+
+        // Home and End pass through to the text field in text-entry scopes (e.g. Go to Directory, Rename),
+        // while Page Up / Page Down remain handled for list scrolling.
+        model.reset(initialScope: .directoryPicker(initialPath: "/tmp/"))
+        #expect(!panel.handleKeyDown(home))
+        #expect(!panel.handleKeyDown(end))
+        #expect(panel.handleKeyDown(pageDown))
+        #expect(panel.handleKeyDown(pageUp))
+
+        model.reset(initialScope: .textInput(
+            title: "Rename Tab",
+            placeholder: "Tab name…",
+            initialText: "api-server",
+            emptyActionTitle: nil,
+            submitActionPrefix: "Rename to",
+            onSubmit: { _ in },
+            onEmptyAction: nil
+        ))
+        #expect(!panel.handleKeyDown(home))
+        #expect(!panel.handleKeyDown(end))
+
+        // Keys are still consumed cleanly when the list has no results.
+        model.reset(initialScope: .root)
+        model.setQuery("zzzz-unmatched-query")
+        #expect(model.selectedIndex == nil)
+        #expect(panel.handleKeyDown(pageDown))
+        #expect(panel.handleKeyDown(pageUp))
+        #expect(panel.handleKeyDown(home))
+        #expect(panel.handleKeyDown(end))
+        #expect(model.selectedIndex == nil)
     }
 }

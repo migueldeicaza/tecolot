@@ -20,6 +20,9 @@ nonisolated enum CommandPaletteMetrics {
     static let hintHeight: CGFloat = 56
     static let footerHeight: CGFloat = 34
     static let selectionPillCornerRadius: CGFloat = 9
+    static let listTopPadding: CGFloat = 2
+    static let listBottomPaddingWithFooter: CGFloat = 4
+    static let listBottomPaddingWithoutFooter: CGFloat = 6
 }
 
 enum PaletteRowAccessory: Equatable {
@@ -169,6 +172,17 @@ enum PaletteScope {
             return true
         }
         return false
+    }
+
+    /// True when the search field edits a freeform value (such as a name, number, path, or host)
+    /// where Home/End should pass through to the text field rather than jumping the results list.
+    var isTextEntryScope: Bool {
+        switch self {
+        case .textInput, .numericInput, .directoryPicker, .sshHostPicker:
+            true
+        case .root, .groupPicker, .moveTabToGroup, .themePicker, .profilePicker, .enumPicker:
+            false
+        }
     }
 
     var initialQuery: String {
