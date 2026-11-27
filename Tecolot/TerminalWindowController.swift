@@ -352,7 +352,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         tabBar.isHidden = sidebarPreferences.style != .above
         sidebar.isHidden = sidebarPreferences.style == .above || sidebarPreferences.hidden
         resizeHandle.isHidden = sidebar.isHidden
-        contentHeader.isHidden = sidebarPreferences.style == .above || (sidebarPreferences.style == .left && !sidebarPreferences.hidden)
+        contentHeader.isHidden = sidebarPreferences.style == .above
+            || (sidebarPreferences.style == .left && !sidebarPreferences.hidden)
+            || integratesCardHeaders
+        paneHeaderControls.isHidden = !integratesCardHeaders || !sidebarPreferences.hidden
         // A hidden control cannot keep the keyboard focus. Give the focus to
         // the selected terminal.
         if
@@ -364,6 +367,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
             theme: pane?.profile.useThemeColorsForWindowChrome == false ? nil : pane?.effectiveTheme,
             opacity: pane?.effectiveBackgroundOpacity ?? 1
         )
+        sidebar.refreshThemeControl()
         contentHeader.refresh()
         paneHeaderControls.refresh()
         refreshWindowBackdrop()

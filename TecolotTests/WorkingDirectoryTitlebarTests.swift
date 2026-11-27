@@ -143,4 +143,76 @@ struct WorkingDirectoryTitlebarTests {
         button.performClick(nil)
         #expect(!controller.showThemePicker)
     }
+
+    @Test func hiddenThemeControlsDoNotStealOrOpenPopovers() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let content = try #require(window.contentView)
+        let visibleControl = ThemeTitlebarControl()
+        visibleControl.frame = NSRect(x: 20, y: 20, width: 35, height: 32)
+        let hiddenContainer = NSView(frame: NSRect(x: 80, y: 20, width: 60, height: 40))
+        hiddenContainer.isHidden = true
+        let hiddenControl = ThemeTitlebarControl()
+        hiddenControl.frame = NSRect(x: 0, y: 0, width: 35, height: 32)
+        hiddenContainer.addSubview(hiddenControl)
+        content.addSubview(visibleControl)
+        content.addSubview(hiddenContainer)
+        content.layoutSubtreeIfNeeded()
+        window.orderBack(nil)
+        defer {
+            window.orderOut(nil)
+        }
+
+        let pane = TerminalSessionController(startsProcess: false)
+        visibleControl.configure(
+            controller: pane,
+            profiles: SettingsPreviewData.profiles,
+            themes: SettingsPreviewData.themes,
+            themeIndex: SettingsPreviewData.themeIndex
+        )
+        hiddenControl.configure(
+            controller: pane,
+            profiles: SettingsPreviewData.profiles,
+            themes: SettingsPreviewData.themes,
+            themeIndex: SettingsPreviewData.themeIndex
+        )
+
+        // Clicking the visible control presents its popover; configuring the
+        // hidden sibling afterward must NOT open a competing popover or dismiss it.
+        let visibleButton = try #require(visibleControl.subviews.first as? NSButton)
+        visibleButton.performClick(nil)
+        #expect(pane.showThemePicker)
+        #expect(visibleControl.isPresentingPopover)
+
+        hiddenControl.configure(
+            controller: pane,
+            profiles: SettingsPreviewData.profiles,
+            themes: SettingsPreviewData.themes,
+            themeIndex: SettingsPreviewData.themeIndex
+        )
+        #expect(!hiddenControl.isPresentingPopover)
+        #expect(visibleControl.isPresentingPopover)
+        #expect(pane.showThemePicker)
+
+        // Switching visibility (e.g. Left sidebar → Top tabs) lets the newly
+        // visible control present cleanly on click.
+        visibleControl.isHidden = true
+        hiddenContainer.isHidden = false
+        visibleControl.configure(
+            controller: pane,
+            profiles: SettingsPreviewData.profiles,
+            themes: SettingsPreviewData.themes,
+            themeIndex: SettingsPreviewData.themeIndex
+        )
+        #expect(!visibleControl.isPresentingPopover)
+
+        let newlyVisibleButton = try #require(hiddenControl.subviews.first as? NSButton)
+        newlyVisibleButton.performClick(nil)
+        #expect(pane.showThemePicker)
+        #expect(hiddenControl.isPresentingPopover)
+    }
 }

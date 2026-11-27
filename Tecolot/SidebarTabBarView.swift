@@ -86,6 +86,7 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         configure(overflow, symbol: "ellipsis.circle", title: "Sidebar actions", action: #selector(showOverflow))
         configure(filterButton, symbol: "line.3.horizontal.decrease.circle", title: "Filter", action: #selector(showFilter))
         configure(newGroup, symbol: "plus.rectangle.on.rectangle", title: "New Group (⇧⌘N)", action: #selector(addGroup))
+        theme.fallbackAnchorView = overflow
         activity.addSubview(activityBadge)
         for view in [scroll, toggle, activity, commandPalette, theme, zoom, add, overflow, filterButton, newGroup, filter] {
             addSubview(view)
@@ -171,6 +172,16 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         terminalTheme = theme
         self.opacity = opacity
         reload()
+    }
+
+    func refreshThemeControl() {
+        let pane = controller?.group.selectedTab?.loadedWorkspace?.focusedController
+        theme.configure(
+            controller: pane,
+            profiles: AppModel.shared.profiles,
+            themes: AppModel.shared.themes,
+            themeIndex: AppModel.shared.themeIndex
+        )
     }
 
     override func viewDidChangeEffectiveAppearance() {

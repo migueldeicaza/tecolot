@@ -63,14 +63,14 @@ final class ContentHeaderView: NSView {
         directory.isHidden = pane?.titlebarWorkingDirectory == nil
         let iconSource = pane?.programStatus.tabStatus.app ?? pane?.panePresentation.executablePath
         glyph.image = TerminalAppIconResolver.shared.icon(forExecutablePath: iconSource)
-        let model = AppModel.shared
-        theme.configure(controller: pane, profiles: model.profiles, themes: model.themes, themeIndex: model.themeIndex)
         let hidden = controller.sidebarPreferences.hidden
         for view in [activity, theme, add] {
             view.isHidden = !hidden
         }
         zoom.isHidden = !hidden || controller.group.selectedTab?.loadedWorkspace?.zoomedControllerID == nil
         toggle.isHidden = !hidden
+        let model = AppModel.shared
+        theme.configure(controller: pane, profiles: model.profiles, themes: model.themes, themeIndex: model.themeIndex)
         layer?.backgroundColor = nil
         layer?.cornerRadius = 0
         let status = controller.manager.groups.flatMap(\.tabs).map(\.status).filter(\.unseen)

@@ -22,24 +22,24 @@ enum ThemeBrowserStyle {
 }
 
 enum ThemeBrowserDisplayMode: String {
-    case grid
     case strips
+    case grid
     case twoDimensional
     case threeDimensional
 
     /// Preserve the old map choice when a person first opens this version.
     static func storedValue(_ value: String?) -> ThemeBrowserDisplayMode {
         switch value {
-        case ThemeBrowserDisplayMode.grid.rawValue:
-            .grid
         case ThemeBrowserDisplayMode.strips.rawValue:
             .strips
+        case ThemeBrowserDisplayMode.grid.rawValue:
+            .grid
         case "map", ThemeBrowserDisplayMode.twoDimensional.rawValue:
             .twoDimensional
         case ThemeBrowserDisplayMode.threeDimensional.rawValue:
             .threeDimensional
         default:
-            .grid
+            .strips
         }
     }
 }
@@ -103,9 +103,30 @@ struct ThemeBrowserSections: Equatable {
 // Persisted-view-preference keys; read once per browser instance so one
 // browser's mode changes never live-flip another open browser (file-scope so
 // @State default expressions can reference them)
-private let displayModeDefaultsKey = "themeBrowserDisplayMode"
+private let displayModeDefaultsKey = "themeBrowserDisplayModeV2"
+private let legacyDisplayModeDefaultsKey = "themeBrowserDisplayMode"
 private let plotModeDefaultsKey = "themeBrowserPlotMode"
 private let hoverPreviewDefaultsKey = "themeBrowserHoverPreview"
+
+private func storedDisplayMode() -> ThemeBrowserDisplayMode {
+    let defaults = UserDefaults.standard
+    if let current = defaults.string(forKey: displayModeDefaultsKey) {
+        return ThemeBrowserDisplayMode.storedValue(current)
+    }
+    // Preserve explicit 2D/3D choices from the legacy key, while upgrading
+    // legacy "grid" (the old default) and unset defaults to Strips.
+    if let legacy = defaults.string(forKey: legacyDisplayModeDefaultsKey) {
+        switch legacy {
+        case "map", ThemeBrowserDisplayMode.twoDimensional.rawValue:
+            return .twoDimensional
+        case ThemeBrowserDisplayMode.threeDimensional.rawValue:
+            return .threeDimensional
+        default:
+            return .strips
+        }
+    }
+    return .strips
+}
 
 private func storedHoverPreviewPage() -> ThemePreviewPage? {
     guard let stored = UserDefaults.standard.string(forKey: hoverPreviewDefaultsKey) else {
@@ -147,9 +168,7 @@ struct ThemeBrowserView: View {
     @State private var importError: String?
     // Per-instance display state, seeded from and persisted to UserDefaults;
     // deliberately not @AppStorage so mode changes stay local to this browser
-    @State private var displayMode: ThemeBrowserDisplayMode = ThemeBrowserDisplayMode.storedValue(
-        UserDefaults.standard.string(forKey: displayModeDefaultsKey)
-    )
+    @State private var displayMode: ThemeBrowserDisplayMode = storedDisplayMode()
     @State private var plotMode: ThemePlotMode = ThemePlotMode(
         rawValue: UserDefaults.standard.string(forKey: plotModeDefaultsKey) ?? ""
     ) ?? .brightnessAndColorfulness
@@ -231,12 +250,12 @@ struct ThemeBrowserView: View {
                 TextField("Search themes", text: $query)
                     .textFieldStyle(.roundedBorder)
                 Picker("Display", selection: displayModeSelection) {
-                    Text("Grid")
-                        .tag(ThemeBrowserDisplayMode.grid)
-                        .help("Show theme preview cards")
                     Text("Strips")
                         .tag(ThemeBrowserDisplayMode.strips)
                         .help("Compare aligned 16-color ANSI strips side by side")
+                    Text("Grid")
+                        .tag(ThemeBrowserDisplayMode.grid)
+                        .help("Show theme preview cards")
                     Text("2D")
                         .tag(ThemeBrowserDisplayMode.twoDimensional)
                         .help("Show two-dimensional theme spaces")

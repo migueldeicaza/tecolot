@@ -123,6 +123,16 @@ final class ThemeBrowserSectionsTests {
         #expect(sections.others.map(\.name) == ["Alpha Twin", "Beta Twin"])
     }
 
+    @Test func displayModeDefaultsToStripsAndPreservesExplicitChoices() {
+        #expect(ThemeBrowserDisplayMode.storedValue(nil) == .strips)
+        #expect(ThemeBrowserDisplayMode.storedValue("unknown") == .strips)
+        #expect(ThemeBrowserDisplayMode.storedValue("strips") == .strips)
+        #expect(ThemeBrowserDisplayMode.storedValue("grid") == .grid)
+        #expect(ThemeBrowserDisplayMode.storedValue("map") == .twoDimensional)
+        #expect(ThemeBrowserDisplayMode.storedValue("twoDimensional") == .twoDimensional)
+        #expect(ThemeBrowserDisplayMode.storedValue("threeDimensional") == .threeDimensional)
+    }
+
     private func themes(named names: [String]) -> [TerminalTheme] {
         names.map { name in
             var theme = TerminalTheme.fallback
