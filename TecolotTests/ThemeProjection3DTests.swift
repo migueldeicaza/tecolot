@@ -130,6 +130,27 @@ final class ThemeProjection3DTests {
         #expect(abs(interior.position.y / interior.rawPosition.y - 1 / basis.scale) < 1e-9)
     }
 
+    @Test func fidelitySpaceProjectsInsideUnitCubeWithSixColorPalettes() throws {
+        let themes = ThemeStore.loadBundledThemes()
+        try #require(!themes.isEmpty)
+
+        let index = ThemeCatalogIndex()
+        index.update(themes: themes)
+        let catalog = try #require(index.catalog)
+        let points = ThemeProjection3D.project(
+            themes: themes, metrics: index.metrics, catalog: catalog, mode: .fidelitySpace3D
+        )
+
+        #expect(points.count == themes.count)
+        for point in points {
+            #expect(point.position.x >= -1 && point.position.x <= 1)
+            #expect(point.position.y >= -1 && point.position.y <= 1)
+            #expect(point.position.z >= -1 && point.position.z <= 1)
+            #expect(point.chromaticPalette.count == 6)
+            #expect(point.brightChromaticPalette.count == 6)
+        }
+    }
+
     private func dot(_ left: [Double], _ right: [Double]) -> Double {
         zip(left, right).reduce(0) {
             $0 + $1.0 * $1.1

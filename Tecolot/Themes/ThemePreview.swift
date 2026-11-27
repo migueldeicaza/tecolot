@@ -168,6 +168,25 @@ enum ThemePreviewPage: Int, CaseIterable, Identifiable {
             "Icon"
         }
     }
+
+    /// Maps number keys ("1"–"4", "0" for None) for live hover-preview switching.
+    /// Returns `nil` when the key is not a preview shortcut; `.some(nil)` means "None".
+    static func fromShortcutCharacter(_ characters: String) -> ThemePreviewPage?? {
+        switch characters {
+        case "0":
+            return .some(nil)
+        case "1":
+            return .some(.shell)
+        case "2":
+            return .some(.midnightCommander)
+        case "3":
+            return .some(.claudeCode)
+        case "4":
+            return .some(.icon)
+        default:
+            return nil
+        }
+    }
 }
 
 /// Shows small terminal samples that the user can page through.
@@ -214,6 +233,8 @@ struct ThemePreviewPageView: View {
     let page: ThemePreviewPage
     let theme: TerminalTheme
     var compact = false
+    /// Medium sizing tuned for hover cards and the docked inspector (~244 × 120 pt).
+    var hover = false
 
     var body: some View {
         ZStack {
@@ -221,7 +242,7 @@ struct ThemePreviewPageView: View {
             case .shell:
                 ThemePreview(
                     theme: theme,
-                    fontSize: compact ? 8 : 12,
+                    fontSize: compact ? 8 : (hover ? 10 : 12),
                     extended: !compact
                 )
             case .midnightCommander:
@@ -418,48 +439,76 @@ struct ThemeCard: View {
     let isSelected: Bool
     let isFavorite: Bool
     var samplePage: ThemePreviewPage = .shell
+    var metrics: ThemeMetrics? = nil
+    var catalog: CatalogStatistics? = nil
+    var previewSelection: Binding<ThemePreviewPage?>? = nil
     var onSelect: (() -> Void)? = nil
     var onToggleFavorite: (() -> Void)? = nil
 
     @State private var isHovering = false
+    @State private var localPreviewPage: ThemePreviewPage? = .shell
+
+    private var effectivePreviewBinding: Binding<ThemePreviewPage?> {
+        previewSelection ?? $localPreviewPage
+    }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        VStack(spacing: 4) {
+            ZStack {
+                if let onSelect {
+                    Button(action: onSelect) {
+                        previewBox
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Select \(theme.name) theme")
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                } else {
+                    previewBox
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if let onToggleFavorite {
+                    Button(action: onToggleFavorite) {
+                        Image(systemName: isFavorite ? "star.fill" : "star")
+                            .font(.caption)
+                            .foregroundStyle(isFavorite ? .yellow : .secondary)
+                            .frame(width: 22, height: 22)
+                            .background(.regularMaterial, in: Circle())
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        isFavorite ? "Remove from Favorites" : "Add to Favorites"
+                    )
+                    .opacity(isFavorite || isHovering ? 1 : 0)
+                    .allowsHitTesting(isFavorite || isHovering)
+                    .accessibilityHidden(!isFavorite && !isHovering)
+                    .padding(5)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if let metrics {
+                    ThemeInfoPopoverButton(
+                        theme: theme,
+                        metrics: metrics,
+                        catalog: catalog,
+                        previewPage: effectivePreviewBinding
+                    )
+                    .padding(4)
+                }
+            }
             if let onSelect {
                 Button(action: onSelect) {
-                    ThemeCardContent(
-                        theme: theme,
-                        isSelected: isSelected,
-                        samplePage: samplePage
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Select \(theme.name) theme")
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
-            } else {
-                ThemeCardContent(
-                    theme: theme,
-                    isSelected: isSelected,
-                    samplePage: samplePage
-                )
-            }
-            if let onToggleFavorite {
-                Button(action: onToggleFavorite) {
-                    Image(systemName: isFavorite ? "star.fill" : "star")
+                    Text(theme.name)
                         .font(.caption)
-                        .foregroundStyle(isFavorite ? .yellow : .secondary)
-                        .frame(width: 22, height: 22)
-                        .background(.regularMaterial, in: Circle())
-                        .contentShape(Circle())
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(
-                    isFavorite ? "Remove from Favorites" : "Add to Favorites"
-                )
-                .opacity(isFavorite || isHovering ? 1 : 0)
-                .allowsHitTesting(isFavorite || isHovering)
-                .accessibilityHidden(!isFavorite && !isHovering)
-                .padding(5)
+            } else {
+                Text(theme.name)
+                    .font(.caption)
+                    .lineLimit(1)
             }
         }
         .onHover { hovering in
@@ -468,41 +517,30 @@ struct ThemeCard: View {
             }
         }
     }
-}
 
-private struct ThemeCardContent: View {
-    let theme: TerminalTheme
-    let isSelected: Bool
-    let samplePage: ThemePreviewPage
-
-    var body: some View {
-        VStack(spacing: 4) {
-            ThemePreviewPageView(page: samplePage, theme: theme, compact: true)
-                .frame(height: 76)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(
-                            isSelected ? Color.accentColor : Color.primary.opacity(0.15),
-                            lineWidth: isSelected ? 2 : 1
-                        )
-                )
-                .overlay(alignment: .topLeading) {
-                    if !theme.isBuiltIn {
-                        Text("CUSTOM")
-                            .font(.caption2.bold())
-                            .foregroundStyle(.primary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(.regularMaterial, in: Capsule())
-                            .padding(5)
-                            .accessibilityLabel("Custom theme")
-                    }
+    private var previewBox: some View {
+        ThemePreviewPageView(page: samplePage, theme: theme, compact: true)
+            .frame(height: 76)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(
+                        isSelected ? Color.accentColor : Color.primary.opacity(0.15),
+                        lineWidth: isSelected ? 2 : 1
+                    )
+            )
+            .overlay(alignment: .topLeading) {
+                if !theme.isBuiltIn {
+                    Text("CUSTOM")
+                        .font(.caption2.bold())
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(.regularMaterial, in: Capsule())
+                        .padding(5)
+                        .accessibilityLabel("Custom theme")
                 }
-            Text(theme.name)
-                .font(.caption)
-                .lineLimit(1)
-        }
+            }
     }
 }
 

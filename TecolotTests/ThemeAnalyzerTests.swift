@@ -204,4 +204,113 @@ final class ThemeAnalyzerTests {
         recolored.background = ProfileColor(hex: "#000000")!
         #expect(recolored.contentHash != TerminalTheme.fallback.contentHash)
     }
+
+    @Test func faithfulPrimaryPaletteScoresHighFidelityAndVitality() {
+        let metrics = analyzer.analyze(TerminalTheme.fallback)
+
+        #expect(metrics.ansiNameFidelity > 0.85)
+        #expect(metrics.chromaticVitality > 0.70)
+        #expect(metrics.ansiArchetype == .faithful)
+        #expect(!metrics.hasRepurposedBrights)
+        #expect(metrics.ansiSlotFidelities.count == 12)
+        #expect(metrics.diffClarity > 0.50)
+    }
+
+    @Test func grayscalePaletteDoesNotScoreHighFidelity() {
+        let grays = (0..<16).map { step -> ProfileColor in
+            let value = UInt16(step * 4369)
+            return ProfileColor(red: value, green: value, blue: value)
+        }
+        let theme = TerminalTheme(
+            name: "Grayscale",
+            ansi: grays,
+            foreground: ProfileColor(hex: "#eeeeee")!,
+            background: ProfileColor(hex: "#111111")!
+        )
+
+        let metrics = analyzer.analyze(theme)
+        #expect(metrics.ansiNameFidelity == 0)
+        #expect(metrics.chromaticVitality == 0)
+        #expect(metrics.ansiArchetype == .monochromeTinted)
+    }
+
+    @Test func singleHuePhosphorPaletteClassifiesAsMonochrome() {
+        var theme = TerminalTheme.fallback
+        let ambers = ["#ff6a00", "#ffb000", "#ffc742", "#ff8c00", "#ffa033", "#ffd27f"]
+        for (offset, index) in [1, 2, 3, 4, 5, 6].enumerated() {
+            theme.ansi[index] = ProfileColor(hex: ambers[offset])!
+            theme.ansi[index + 8] = ProfileColor(hex: ambers[offset])!
+        }
+
+        let metrics = analyzer.analyze(theme)
+        #expect(metrics.chromaticVitality < 0.15)
+        #expect(metrics.ansiArchetype == .monochromeTinted)
+        #expect(metrics.diffClarity < analyzer.analyze(TerminalTheme.fallback).diffClarity)
+    }
+
+    @Test func vividRemappedPaletteClassifiesAsStylizedNotMonochrome() {
+        var theme = TerminalTheme.fallback
+        // Swap red→cyan, green→blue, yellow→magenta, blue→green, magenta→red, cyan→yellow
+        let swapped = ["#00dfdb", "#00b4ff", "#ff4297", "#00c15a", "#ff3b30", "#ffd60a"]
+        for (offset, index) in [1, 2, 3, 4, 5, 6].enumerated() {
+            theme.ansi[index] = ProfileColor(hex: swapped[offset])!
+            theme.ansi[index + 8] = ProfileColor(hex: swapped[offset])!
+        }
+
+        let metrics = analyzer.analyze(theme)
+        #expect(metrics.ansiNameFidelity < 0.30)
+        #expect(metrics.chromaticVitality > 0.60)
+        #expect(metrics.ansiArchetype == .stylizedRemapped)
+    }
+
+    @Test func solarizedBrightSlotRepurposingIsDetected() {
+        var theme = TerminalTheme.fallback
+        // Keep faithful normal slots 1…6, replace bright slots 9…14 with neutral grays
+        for index in 9...14 {
+            theme.ansi[index] = ProfileColor(hex: "#657b83")!
+        }
+
+        let metrics = analyzer.analyze(theme)
+        #expect(metrics.ansiNormalFidelity > 0.85)
+        #expect(metrics.ansiBrightFidelity < 0.20)
+        #expect(metrics.hasRepurposedBrights)
+    }
+
+    @Test func bundledThemesClassifyIntoExpectedArchetypes() throws {
+        let themes = Dictionary(uniqueKeysWithValues: ThemeStore.loadBundledThemes().map { ($0.name, $0) })
+        try #require(!themes.isEmpty)
+
+        let swiftTerm = analyzer.analyze(try #require(themes["SwiftTerm"]))
+        #expect(swiftTerm.ansiArchetype == .faithful)
+
+        if let amber = themes["Amber CRT Retro"] {
+            #expect(analyzer.analyze(amber).ansiArchetype == .monochromeTinted)
+        }
+        if let oxocarbon = themes["Oxocarbon"] {
+            #expect(analyzer.analyze(oxocarbon).ansiArchetype == .stylizedRemapped)
+        }
+        if let solarized = themes["iTerm2 Solarized Dark"] {
+            let m = analyzer.analyze(solarized)
+            #expect(m.hasRepurposedBrights)
+            #expect(m.ansiNormalFidelity > 0.85)
+        }
+
+        // Every bundled theme's archetype must strictly match the shared
+        // Fidelity × Vitality crosshair thresholds (no vivid theme labelled Soft).
+        for theme in themes.values {
+            let m = analyzer.analyze(theme)
+            let expectedFaithful = m.ansiNameFidelity >= ThemeAnalyzer.fidelityArchetypeThreshold
+            let expectedVital = m.chromaticVitality >= ThemeAnalyzer.vitalityArchetypeThreshold
+            switch (expectedFaithful, expectedVital) {
+            case (true, true):
+                #expect(m.ansiArchetype == .faithful)
+            case (true, false):
+                #expect(m.ansiArchetype == .softMuted)
+            case (false, true):
+                #expect(m.ansiArchetype == .stylizedRemapped)
+            case (false, false):
+                #expect(m.ansiArchetype == .monochromeTinted)
+            }
+        }
+    }
 }

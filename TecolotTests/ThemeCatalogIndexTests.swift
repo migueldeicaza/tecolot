@@ -228,6 +228,23 @@ final class ThemeCatalogIndexTests {
         #expect(index.metrics.count == catalog.count)
     }
 
+    @Test func fidelityAndVitalitySortsRankFaithfulBeforeMonochrome() {
+        var faithful = TerminalTheme.fallback
+        faithful.name = "Faithful"
+        var mono = TerminalTheme.fallback
+        mono.name = "Amber Mono"
+        for idx in 1...6 {
+            mono.ansi[idx] = ProfileColor(hex: "#ffb000")!
+            mono.ansi[idx + 8] = ProfileColor(hex: "#ffc742")!
+        }
+
+        let index = ThemeCatalogIndex()
+        index.update(themes: [mono, faithful])
+
+        #expect(index.sorted([mono, faithful], by: .ansiNameFidelity).map(\.name) == ["Faithful", "Amber Mono"])
+        #expect(index.sorted([mono, faithful], by: .chromaticVitality).map(\.name) == ["Faithful", "Amber Mono"])
+    }
+
     /// Themes with spread-out lightness, hue and colorfulness, including
     /// named light/dark/warm/cool extremes for the orientation tests
     static func syntheticCatalog(count: Int) -> [TerminalTheme] {

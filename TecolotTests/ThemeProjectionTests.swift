@@ -121,4 +121,47 @@ final class ThemeProjectionTests {
 
         #expect(points.first?.accent == theme.foreground)
     }
+
+    @Test func ansiFidelityProjectionSeparatesFaithfulStylizedAndMonochrome() throws {
+        let themes = ThemeStore.loadBundledThemes()
+        try #require(!themes.isEmpty)
+
+        let index = ThemeCatalogIndex()
+        index.update(themes: themes)
+        let catalog = try #require(index.catalog)
+        let points = ThemeProjection.project(
+            themes: themes, metrics: index.metrics, catalog: catalog, mode: .ansiFidelity
+        )
+        let byName = Dictionary(uniqueKeysWithValues: points.map { ($0.id, $0) })
+
+        for point in points {
+            #expect(point.chromaticPalette.count == 6)
+            #expect(point.brightChromaticPalette.count == 6)
+        }
+
+        if
+            let swiftTerm = byName["SwiftTerm"],
+            let oxocarbon = byName["Oxocarbon"],
+            let amber = byName["Amber CRT Retro"] {
+            // Higher fidelity sits further right (larger x)
+            #expect(swiftTerm.position.x > oxocarbon.position.x)
+            #expect(swiftTerm.position.x > amber.position.x)
+            // Higher chromatic vitality sits higher on screen (smaller y)
+            #expect(oxocarbon.position.y < amber.position.y)
+            #expect(swiftTerm.position.y < amber.position.y)
+        }
+    }
+
+    @Test func panClampingKeepsZoomedPlotWithinBounds() {
+        let rect = CGRect(x: 22, y: 22, width: 400, height: 300)
+
+        // At 1× zoom, pan must clamp to zero
+        let atOne = PlotGeometry.clampedPan(CGSize(width: 90, height: -50), zoom: 1.0, in: rect)
+        #expect(atOne == .zero)
+
+        // At 2× zoom, max pan is ±(rect.size / 2) = (±200, ±150)
+        let atTwo = PlotGeometry.clampedPan(CGSize(width: 500, height: -400), zoom: 2.0, in: rect)
+        #expect(abs(atTwo.width - 200) < 1e-9)
+        #expect(abs(atTwo.height - (-150)) < 1e-9)
+    }
 }

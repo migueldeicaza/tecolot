@@ -75,6 +75,14 @@ final class ThemeColorMathTests {
         #expect(ThemeColorMath.circularHueDistance(45, 45) == 0)
     }
 
+    @Test func signedCircularHueDeltaPreservesDirectionAndWraps() {
+        #expect(abs(ThemeColorMath.signedCircularHueDelta(from: 350, to: 10) - 20) < 1e-9)
+        #expect(abs(ThemeColorMath.signedCircularHueDelta(from: 10, to: 350) - (-20)) < 1e-9)
+        #expect(abs(ThemeColorMath.signedCircularHueDelta(from: 0, to: 180) - 180) < 1e-9)
+        #expect(abs(ThemeColorMath.signedCircularHueDelta(from: 180, to: 0) - 180) < 1e-9)
+        #expect(ThemeColorMath.signedCircularHueDelta(from: 95, to: 95) == 0)
+    }
+
     @Test func quantileMatchesTheTypeSevenEstimator() {
         let values: [Double] = [40, 10, 30, 20]  // unsorted on purpose
 

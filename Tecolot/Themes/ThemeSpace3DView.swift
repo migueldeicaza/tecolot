@@ -25,6 +25,7 @@ struct ThemeSpace3DView: View {
     let selectedThemeName: String
     @Binding var pinnedThemeName: String?
     @Binding var cameraByMode: [ThemePlotMode: ThemeCamera]
+    @Binding var previewPage: ThemePreviewPage?
     let onSelect: (TerminalTheme) -> Void
     var onShowSimilar: ((String) -> Void)? = nil
 
@@ -35,101 +36,29 @@ struct ThemeSpace3DView: View {
     @State private var magnificationStartZoom: Double?
 
     var body: some View {
-        GeometryReader { geometry in
-            let projected = projectedPoints(in: geometry.size)
+        GeometryReader { outer in
+            let showsDockedInspector = outer.size.width >= PlotGeometry.dockedInspectorThreshold
+            let spaceSize = CGSize(
+                width: showsDockedInspector ? max(outer.size.width - 263, 1) : outer.size.width,
+                height: outer.size.height
+            )
+            let projected = projectedPoints(in: spaceSize)
             let matching = matchingNames
-            let emphasis = similarityEmphasis(for: projected)
-            let neighborIDs = similarityNeighborIDs(for: projected)
 
-            ZStack(alignment: .topLeading) {
-                ThemeSpace3DCanvas(
-                    points: projected,
+            HStack(spacing: 0) {
+                spaceArea(
+                    size: spaceSize,
+                    projected: projected,
                     matching: matching,
-                    hoveredID: hoveredThemeName,
-                    pinnedID: pinnedThemeName,
-                    selectedID: selectedThemeName,
-                    mode: mode,
-                    camera: activeCamera,
-                    horizontalScale: horizontalProjectionScale,
-                    emphasis: emphasis,
-                    neighborIDs: neighborIDs
+                    showsDockedInspector: showsDockedInspector
                 )
-                hoverCard(points: projected, matching: matching, size: geometry.size)
-            }
-            .contentShape(Rectangle())
-            .onContinuousHover(coordinateSpace: .local) { phase in
-                switch phase {
-                case .active(let location):
-                    updateHover(at: location, points: projected, matching: matching)
-                case .ended:
-                    clearHover()
+                if showsDockedInspector {
+                    Divider()
+                    dockedInspector(
+                        projected: projected,
+                        matching: matching
+                    )
                 }
-            }
-            .gesture(
-                SpatialTapGesture(count: 2)
-                    .exclusively(before: SpatialTapGesture())
-                    .onEnded { result in
-                        switch result {
-                        case .first(let value):
-                            if nearestTheme(to: value.location, points: projected, matching: matching) == nil {
-                                resetCamera()
-                            }
-                        case .second(let value):
-                            select(at: value.location, points: projected, matching: matching)
-                        }
-                    }
-            )
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 2)
-                    .onChanged { value in
-                        let horizontal = value.translation.width - lastDragTranslation.width
-                        let vertical = value.translation.height - lastDragTranslation.height
-                        lastDragTranslation = value.translation
-                        updateCamera { camera in
-                            camera.rotate(
-                                horizontalDelta: Double(horizontal),
-                                verticalDelta: Double(vertical)
-                            )
-                        }
-                    }
-                    .onEnded { _ in
-                        lastDragTranslation = .zero
-                    }
-            )
-            .simultaneousGesture(
-                MagnifyGesture()
-                    .onChanged { value in
-                        let start = magnificationStartZoom ?? activeCamera.zoom
-                        magnificationStartZoom = start
-                        updateCamera { camera in
-                            camera.setZoom(start * Double(value.magnification))
-                        }
-                    }
-                    .onEnded { _ in
-                        magnificationStartZoom = nil
-                    }
-            )
-            .focusable()
-            .focusEffectDisabled()
-            .onKeyPress { press in
-                handleKey(
-                    press,
-                    points: projected,
-                    matching: matching,
-                    defaultAnchor: CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
-                )
-            }
-            .contextMenu {
-                if
-                    let onShowSimilar,
-                    let name = hoveredThemeName ?? pinnedThemeName {
-                    Button("Show Similar Themes") {
-                        onShowSimilar(name)
-                    }
-                }
-            }
-            .accessibilityChildren {
-                accessibilityPoints(projected)
             }
         }
         .onChange(of: mode) { _, _ in
@@ -137,6 +66,143 @@ struct ThemeSpace3DView: View {
         }
         .frame(minWidth: 420, minHeight: 300)
         .help("Drag to rotate. Pinch or use + and − to zoom. Double-click empty space to reset.")
+    }
+
+    private func spaceArea(
+        size: CGSize,
+        projected: [ProjectedThemePoint3D],
+        matching: Set<String>,
+        showsDockedInspector: Bool
+    ) -> some View {
+        let emphasis = similarityEmphasis(for: projected)
+        let neighborIDs = similarityNeighborIDs(for: projected)
+
+        return ZStack(alignment: .topLeading) {
+            ThemeSpace3DCanvas(
+                points: projected,
+                matching: matching,
+                hoveredID: hoveredThemeName,
+                pinnedID: pinnedThemeName,
+                selectedID: selectedThemeName,
+                mode: mode,
+                camera: activeCamera,
+                horizontalScale: horizontalProjectionScale,
+                emphasis: emphasis,
+                neighborIDs: neighborIDs
+            )
+            if !showsDockedInspector {
+                hoverCard(points: projected, matching: matching, size: size)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .contentShape(Rectangle())
+        .onContinuousHover(coordinateSpace: .local) { phase in
+            switch phase {
+            case .active(let location):
+                updateHover(at: location, points: projected, matching: matching)
+            case .ended:
+                clearHover()
+            }
+        }
+        .gesture(
+            SpatialTapGesture(count: 2)
+                .exclusively(before: SpatialTapGesture())
+                .onEnded { result in
+                    switch result {
+                    case .first(let value):
+                        if nearestTheme(to: value.location, points: projected, matching: matching) == nil {
+                            resetCamera()
+                        }
+                    case .second(let value):
+                        select(at: value.location, points: projected, matching: matching)
+                    }
+                }
+        )
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 2)
+                .onChanged { value in
+                    let horizontal = value.translation.width - lastDragTranslation.width
+                    let vertical = value.translation.height - lastDragTranslation.height
+                    lastDragTranslation = value.translation
+                    updateCamera { camera in
+                        camera.rotate(
+                            horizontalDelta: Double(horizontal),
+                            verticalDelta: Double(vertical)
+                        )
+                    }
+                }
+                .onEnded { _ in
+                    lastDragTranslation = .zero
+                }
+        )
+        .simultaneousGesture(
+            MagnifyGesture()
+                .onChanged { value in
+                    let start = magnificationStartZoom ?? activeCamera.zoom
+                    magnificationStartZoom = start
+                    updateCamera { camera in
+                        camera.setZoom(start * Double(value.magnification))
+                    }
+                }
+                .onEnded { _ in
+                    magnificationStartZoom = nil
+                }
+        )
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress { press in
+            handleKey(
+                press,
+                points: projected,
+                matching: matching,
+                defaultAnchor: CGPoint(x: size.width / 2, y: size.height / 2)
+            )
+        }
+        .contextMenu {
+            if
+                let onShowSimilar,
+                let name = hoveredThemeName ?? pinnedThemeName {
+                Button("Show Similar Themes") {
+                    onShowSimilar(name)
+                }
+            }
+        }
+        .accessibilityChildren {
+            accessibilityPoints(projected)
+        }
+    }
+
+    @ViewBuilder
+    private func dockedInspector(
+        projected: [ProjectedThemePoint3D],
+        matching: Set<String>
+    ) -> some View {
+        let inspectedName = hoveredThemeName ?? pinnedThemeName ?? selectedThemeName
+        let isHovering = hoveredThemeName != nil
+        let statusLabel: String = {
+            if isHovering { return "Hovering" }
+            if pinnedThemeName != nil { return "Pinned" }
+            return "Selected"
+        }()
+        if
+            let theme = themes.first(where: { $0.name == inspectedName }),
+            let themeMetrics = metrics[inspectedName] {
+            let nearby = isHovering
+                ? max(coLocatedGroup(around: inspectedName, points: projected, matching: matching).count - 1, 0)
+                : 0
+            ThemeInspectorPanel(
+                theme: theme,
+                metrics: themeMetrics,
+                catalog: catalog,
+                statusLabel: statusLabel,
+                previewPage: $previewPage,
+                nearbyCount: nearby,
+                canCycleNearby: isHovering,
+                similarityRank: similarityRank(of: inspectedName, in: projected)
+            )
+        } else {
+            Color.clear.frame(width: 262)
+        }
     }
 
     // MARK: - Projection
@@ -314,6 +380,10 @@ struct ThemeSpace3DView: View {
         matching: Set<String>,
         defaultAnchor: CGPoint
     ) -> KeyPress.Result {
+        if let mappedPreview = ThemePreviewPage.fromShortcutCharacter(press.characters) {
+            previewPage = mappedPreview
+            return .handled
+        }
         if press.characters == "+" || press.characters == "=" {
             updateCamera {
                 $0.setZoom($0.zoom * 1.2)
@@ -478,9 +548,10 @@ struct ThemeSpace3DView: View {
             let point = points.first(where: {
                 $0.id == cardName
             }) {
-            let cardSize = CGSize(width: 244, height: 220)
-            let x = min(max(point.screenPoint.x + 16, 4), max(size.width - cardSize.width - 4, 4))
-            let above = point.screenPoint.y > size.height * 0.55
+            let cardHeight: CGFloat = previewPage == nil ? 175 : 300
+            let cardSize = CGSize(width: 260, height: cardHeight)
+            let x = min(max(point.screenPoint.x + 18, 4), max(size.width - cardSize.width - 4, 4))
+            let above = point.screenPoint.y > size.height * 0.50
             let y = above
                 ? max(point.screenPoint.y - cardSize.height - 14, 4)
                 : min(point.screenPoint.y + 14, max(size.height - cardSize.height - 4, 4))
@@ -488,6 +559,7 @@ struct ThemeSpace3DView: View {
                 theme: theme,
                 metrics: themeMetrics,
                 catalog: catalog,
+                previewPage: previewPage,
                 nearbyCount: coLocatedGroup(around: cardName, points: points, matching: matching).count - 1,
                 similarityRank: similarityRank(of: cardName, in: points)
             )
@@ -592,7 +664,8 @@ private struct ThemeSpace3DCanvas: View {
             isHovered: projected.id == hoveredID,
             isSelected: projected.id == selectedID,
             isPinned: projected.id == pinnedID,
-            opacity: min(searchOpacity, similarityOpacity) * depthOpacity
+            opacity: min(searchOpacity, similarityOpacity) * depthOpacity,
+            compact: true
         )
     }
 
@@ -619,6 +692,8 @@ private struct ThemeSpace3DCanvas: View {
             drawColorSpaceReference(in: context, size: size)
         case .paletteSpace3D:
             drawPaletteSpaceReference(in: context, size: size)
+        case .fidelitySpace3D:
+            drawFidelitySpaceReference(in: context, size: size)
         case .similaritySpace3D:
             drawSimilaritySpaceReference(in: context, size: size)
         default:
@@ -680,6 +755,26 @@ private struct ThemeSpace3DCanvas: View {
         drawLabel("High Visibility", at: SIMD3(0, 1, 0), in: context, size: size)
         drawLabel("Muted", at: SIMD3(0, 0, -1), in: context, size: size)
         drawLabel("Vivid", at: SIMD3(0, 0, 1), in: context, size: size)
+    }
+
+    private func drawFidelitySpaceReference(in context: GraphicsContext, size: CGSize) {
+        let corners: [SIMD3<Double>] = [
+            SIMD3(-1, -1, -1), SIMD3(1, -1, -1), SIMD3(-1, 1, -1), SIMD3(1, 1, -1),
+            SIMD3(-1, -1, 1), SIMD3(1, -1, 1), SIMD3(-1, 1, 1), SIMD3(1, 1, 1)
+        ]
+        let edges = [
+            (0, 1), (0, 2), (0, 4), (1, 3), (1, 5), (2, 3),
+            (2, 6), (3, 7), (4, 5), (4, 6), (5, 7), (6, 7)
+        ]
+        for edge in edges {
+            drawLine(from: corners[edge.0], to: corners[edge.1], in: context, size: size)
+        }
+        drawLabel("Far from ANSI", at: SIMD3(-1, 0, 0), in: context, size: size)
+        drawLabel("Faithful ANSI", at: SIMD3(1, 0, 0), in: context, size: size)
+        drawLabel("Dark", at: SIMD3(0, -1, 0), in: context, size: size)
+        drawLabel("Light", at: SIMD3(0, 1, 0), in: context, size: size)
+        drawLabel("Monochrome", at: SIMD3(0, 0, -1), in: context, size: size)
+        drawLabel("Full Spectrum", at: SIMD3(0, 0, 1), in: context, size: size)
     }
 
     private func drawSimilaritySpaceReference(in context: GraphicsContext, size: CGSize) {
@@ -749,16 +844,18 @@ private struct ThemeSpace3DCanvas: View {
 #Preview("3D Theme Space") {
     @Previewable @State var pinnedThemeName: String? = SettingsPreviewData.profile.darkThemeName
     @Previewable @State var cameraByMode: [ThemePlotMode: ThemeCamera] = [:]
+    @Previewable @State var previewPage: ThemePreviewPage? = .shell
 
     ThemeSpace3DView(
         themes: SettingsPreviewData.themes.themes,
         metrics: SettingsPreviewData.themeIndex.metrics,
         catalog: SettingsPreviewData.themeIndex.catalog,
-        mode: .colorSpace3D,
+        mode: .fidelitySpace3D,
         query: "",
         selectedThemeName: SettingsPreviewData.profile.darkThemeName,
         pinnedThemeName: $pinnedThemeName,
         cameraByMode: $cameraByMode,
+        previewPage: $previewPage,
         onSelect: { _ in },
         onShowSimilar: { _ in }
     )

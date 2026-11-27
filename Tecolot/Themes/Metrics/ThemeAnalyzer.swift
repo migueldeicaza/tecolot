@@ -10,11 +10,32 @@ import CryptoKit
 import Foundation
 
 nonisolated struct ThemeAnalyzer: Sendable {
-    static let version = ThemeMetricVersion.v1
+    static let version = ThemeMetricVersion.v2
 
     /// ANSI slots that carry accent semantics: red…cyan and their bright
     /// variants. black/white/brightBlack/brightWhite are excluded (§19).
-    private static let accentIndices = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14]
+    static let accentIndices = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14]
+
+    /// Perceptual OKLCH focal hues (degrees) for ANSI 1…6:
+    /// Red, Green, Yellow (warm golden yellow), Blue, Magenta, Cyan.
+    static let canonicalAnsiHues: [Int: Double] = [
+        1: 27.0,
+        2: 142.0,
+        3: 95.0,
+        4: 256.0,
+        5: 328.0,
+        6: 197.0
+    ]
+
+    /// Chroma at which a chromatic ANSI slot counts as fully colored.
+    /// Soft pastels (Nord, Everforest) sit around 0.06–0.09; neutral grays sit near 0.
+    static let chromaticSufficiencyThreshold = 0.07
+
+    /// Shared Fidelity × Vitality thresholds used by both archetype
+    /// classification and the 2D Fidelity plot quadrant guides so badges
+    /// and plot regions always agree 1-to-1.
+    static let fidelityArchetypeThreshold = 0.68
+    static let vitalityArchetypeThreshold = 0.48
 
     init() {}
 
@@ -121,6 +142,87 @@ nonisolated struct ThemeAnalyzer: Sendable {
         }
         dominantAccentIndex = ThemeAnalyzer.accentIndex(near: dominantAccentHue, in: ansi)
 
+        // ANSI semantic fidelity & deviation decomposition (v2)
+        var slotFidelities: [Double] = []
+        slotFidelities.reserveCapacity(12)
+        var slotSignedShifts: [Double?] = []
+        slotSignedShifts.reserveCapacity(12)
+        var shiftWeightSum = 0.0
+        var shiftU = 0.0
+        var shiftV = 0.0
+        var accentChromaSum = 0.0
+
+        for index in ThemeAnalyzer.accentIndices {
+            let base = index <= 6 ? index : index - 8
+            let referenceHue = ThemeAnalyzer.canonicalAnsiHues[base] ?? 0
+            let color = ansi[index]
+            accentChromaSum += color.chroma
+            let chromaFactor = min(color.chroma / ThemeAnalyzer.chromaticSufficiencyThreshold, 1.0)
+            if let hue = color.hue {
+                let signedShift = ThemeColorMath.signedCircularHueDelta(from: referenceHue, to: hue)
+                let hueFactor = max(0.0, cos(abs(signedShift) * .pi / 180))
+                slotFidelities.append(chromaFactor * hueFactor)
+                slotSignedShifts.append(signedShift)
+
+                let weight = color.chroma * color.chroma
+                let radians = signedShift * .pi / 180
+                shiftWeightSum += weight
+                shiftU += weight * cos(radians)
+                shiftV += weight * sin(radians)
+            } else {
+                slotFidelities.append(0)
+                slotSignedShifts.append(nil)
+            }
+        }
+
+        let ansiNormalFidelity = ThemeColorMath.mean(Array(slotFidelities.prefix(6)))
+        let ansiBrightFidelity = ThemeColorMath.mean(Array(slotFidelities.suffix(6)))
+        let ansiNameFidelity = 0.65 * ansiNormalFidelity + 0.35 * ansiBrightFidelity
+        let brightSlotDivergence = max(0.0, ansiNormalFidelity - ansiBrightFidelity)
+
+        let meanAccentChroma = accentChromaSum / Double(ThemeAnalyzer.accentIndices.count)
+        let chromaticVitality = min(
+            max((hueDiversity ?? 0) * min(meanAccentChroma / ThemeAnalyzer.chromaticSufficiencyThreshold, 1.0), 0),
+            1
+        )
+
+        let hueShiftCoherence: Double
+        let meanHueShift: Double?
+        if shiftWeightSum > 0 {
+            let su = shiftU / shiftWeightSum
+            let sv = shiftV / shiftWeightSum
+            hueShiftCoherence = sqrt(su * su + sv * sv)
+            meanHueShift = hueShiftCoherence > 1e-6 ? atan2(sv, su) * 180 / .pi : nil
+        } else {
+            hueShiftCoherence = 0
+            meanHueShift = nil
+        }
+
+        let ansiArchetype: ANSIDeviationArchetype
+        let isFaithful = ansiNameFidelity >= ThemeAnalyzer.fidelityArchetypeThreshold
+        let isVital = chromaticVitality >= ThemeAnalyzer.vitalityArchetypeThreshold
+        switch (isFaithful, isVital) {
+        case (true, true):
+            ansiArchetype = .faithful
+        case (true, false):
+            ansiArchetype = .softMuted
+        case (false, true):
+            ansiArchetype = .stylizedRemapped
+        case (false, false):
+            ansiArchetype = .monochromeTinted
+        }
+
+        // Day-to-day real-app legibility (v2)
+        let redGreenDelta = ThemeColorMath.deltaEOKr2(ansi[1], ansi[2])
+        let redGreenMinContrast = min(contrasts[1], contrasts[2])
+        let redGreenReadability = min(max((redGreenMinContrast - 1.0) / 2.5, 0), 1)
+        let diffClarity = min(redGreenDelta / 0.55, 1.0) * redGreenReadability
+        let dimmedTextContrast = contrasts[8]
+        let tuiChromeContrast = min(
+            ThemeColorMath.contrastRatio(ansi[15].luminance, ansi[4].luminance),
+            ThemeColorMath.contrastRatio(ansi[0].luminance, ansi[6].luminance)
+        )
+
         // Interaction colors from fallback resolution (spec-theme-tecolot §2.2)
         let effectiveCursor = theme.cursor.map {
             PerceptualColor($0)
@@ -180,6 +282,19 @@ nonisolated struct ThemeAnalyzer: Sendable {
             dominantAccentIndex: dominantAccentIndex,
             accentCoherence: accentCoherence,
             temperature: temperature,
+            ansiSlotFidelities: slotFidelities,
+            ansiSlotSignedHueShifts: slotSignedShifts,
+            ansiNormalFidelity: ansiNormalFidelity,
+            ansiBrightFidelity: ansiBrightFidelity,
+            ansiNameFidelity: ansiNameFidelity,
+            brightSlotDivergence: brightSlotDivergence,
+            chromaticVitality: chromaticVitality,
+            hueShiftCoherence: hueShiftCoherence,
+            meanHueShift: meanHueShift,
+            ansiArchetype: ansiArchetype,
+            diffClarity: diffClarity,
+            dimmedTextContrast: dimmedTextContrast,
+            tuiChromeContrast: tuiChromeContrast,
             cursorContrast: ThemeColorMath.contrastRatio(effectiveCursor.luminance, background.luminance),
             cursorSeparation: ThemeColorMath.deltaEOKr2(effectiveCursor, background),
             selectionSeparation: ThemeColorMath.deltaEOKr2(effectiveSelection, background),

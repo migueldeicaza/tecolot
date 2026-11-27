@@ -23,6 +23,7 @@ enum ThemeBrowserStyle {
 
 enum ThemeBrowserDisplayMode: String {
     case grid
+    case strips
     case twoDimensional
     case threeDimensional
 
@@ -31,6 +32,8 @@ enum ThemeBrowserDisplayMode: String {
         switch value {
         case ThemeBrowserDisplayMode.grid.rawValue:
             .grid
+        case ThemeBrowserDisplayMode.strips.rawValue:
+            .strips
         case "map", ThemeBrowserDisplayMode.twoDimensional.rawValue:
             .twoDimensional
         case ThemeBrowserDisplayMode.threeDimensional.rawValue:
@@ -102,6 +105,20 @@ struct ThemeBrowserSections: Equatable {
 // @State default expressions can reference them)
 private let displayModeDefaultsKey = "themeBrowserDisplayMode"
 private let plotModeDefaultsKey = "themeBrowserPlotMode"
+private let hoverPreviewDefaultsKey = "themeBrowserHoverPreview"
+
+private func storedHoverPreviewPage() -> ThemePreviewPage? {
+    guard let stored = UserDefaults.standard.string(forKey: hoverPreviewDefaultsKey) else {
+        return .shell
+    }
+    if stored == "none" {
+        return nil
+    }
+    if let raw = Int(stored), let page = ThemePreviewPage(rawValue: raw) {
+        return page
+    }
+    return .shell
+}
 
 struct ThemeBrowserView: View {
     @ObservedObject var themes: ThemeStore
@@ -136,8 +153,45 @@ struct ThemeBrowserView: View {
     @State private var plotMode: ThemePlotMode = ThemePlotMode(
         rawValue: UserDefaults.standard.string(forKey: plotModeDefaultsKey) ?? ""
     ) ?? .brightnessAndColorfulness
+    @State private var localPreviewPage: ThemePreviewPage? = storedHoverPreviewPage()
+    /// Tracks "None" locally when an external `sampleSelection` binding is
+    /// present so choosing None never writes `nil` into the caller's state.
+    @State private var isExternalPreviewHidden = false
 
     private let columns = [GridItem(.adaptive(minimum: 148, maximum: 200), spacing: 10)]
+
+    /// Unified preview binding shared across Grid, Strips, 2D, and 3D hover/inspector previews.
+    /// When the caller owns `sampleSelection`, only non-nil pages are forwarded;
+    /// choosing "None" stays local to this browser.
+    private var effectivePreviewSelection: Binding<ThemePreviewPage?> {
+        if let sampleSelection {
+            return Binding(
+                get: {
+                    isExternalPreviewHidden ? nil : (sampleSelection.wrappedValue ?? samplePage)
+                },
+                set: { newValue in
+                    if let page = newValue {
+                        isExternalPreviewHidden = false
+                        sampleSelection.wrappedValue = page
+                    } else {
+                        isExternalPreviewHidden = true
+                    }
+                }
+            )
+        }
+        return Binding(
+            get: { localPreviewPage },
+            set: { newValue in
+                localPreviewPage = newValue
+                let encoded = newValue.map { String($0.rawValue) } ?? "none"
+                UserDefaults.standard.set(encoded, forKey: hoverPreviewDefaultsKey)
+            }
+        )
+    }
+
+    private var effectiveGridSamplePage: ThemePreviewPage {
+        effectivePreviewSelection.wrappedValue ?? sampleSelection?.wrappedValue ?? samplePage
+    }
 
     /// The stored sort mode keeps an empty similarity anchor; the real
     /// anchor is resolved here on every render, so anything sorted by
@@ -177,8 +231,12 @@ struct ThemeBrowserView: View {
                 TextField("Search themes", text: $query)
                     .textFieldStyle(.roundedBorder)
                 Picker("Display", selection: displayModeSelection) {
-                    Text("List")
+                    Text("Grid")
                         .tag(ThemeBrowserDisplayMode.grid)
+                        .help("Show theme preview cards")
+                    Text("Strips")
+                        .tag(ThemeBrowserDisplayMode.strips)
+                        .help("Compare aligned 16-color ANSI strips side by side")
                     Text("2D")
                         .tag(ThemeBrowserDisplayMode.twoDimensional)
                         .help("Show two-dimensional theme spaces")
@@ -195,6 +253,8 @@ struct ThemeBrowserView: View {
             switch displayMode {
             case .grid:
                 gridContent
+            case .strips:
+                stripsContent
             case .twoDimensional, .threeDimensional:
                 mapContent
             }
@@ -204,18 +264,19 @@ struct ThemeBrowserView: View {
                 Button("Import Theme…") {
                     showImporter = true
                 }
-                if displayMode == .grid {
+                if displayMode == .grid || displayMode == .strips {
                     sortMenu
-                    if let sampleSelection {
-                        Picker("Sample", selection: sampleSelection) {
-                            ForEach(ThemePreviewPage.allCases) { page in
-                                Text(page.title).tag(Optional(page))
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .fixedSize()
+                }
+                Picker("Preview", selection: effectivePreviewSelection) {
+                    Text("None").tag(ThemePreviewPage?.none)
+                    Divider()
+                    ForEach(ThemePreviewPage.allCases) { page in
+                        Text(page.title).tag(Optional(page))
                     }
                 }
+                .pickerStyle(.menu)
+                .fixedSize()
+                .help("Choose which sample app preview appears on hover and in cards (keys 1–4, 0 for none)")
                 Spacer()
                 Link(
                     "Get More Themes…",
@@ -340,12 +401,43 @@ struct ThemeBrowserView: View {
     /// current theme when the sort actually runs.
     private var sortModes: [ThemeSortMode] {
         [
-            .name, .backgroundLightness, .backgroundHue, .backgroundChroma,
+            .name, .ansiNameFidelity, .chromaticVitality, .dimmedTextContrast,
+            .backgroundLightness, .backgroundHue, .backgroundChroma,
             .foregroundContrast, .ansiVisibility, .ansiDistinctness,
             .colorfulness, .dynamicRange, .temperature, .hueDiversity,
             .brightPairSeparation, .cursorVisibility, .selectionVisibility,
             .similarity(to: "")
         ]
+    }
+
+    // MARK: - Strips display
+
+    private var stripsContent: some View {
+        let mode = resolvedSortMode
+        let stripSections = ThemeBrowserSections.compute(
+            themes: themes.themes,
+            favorites: themes.favorites,
+            query: query,
+            page: nil,
+            order: mode == .name ? nil : {
+                themeIndex.sorted($0, by: mode)
+            }
+        )
+        return ThemeStripWallView(
+            themes: stripSections.favorites + stripSections.others,
+            favorites: themes.favorites,
+            metrics: themeIndex.metrics,
+            catalog: themeIndex.catalog,
+            selectedThemeName: selectedThemeName,
+            previewPage: effectivePreviewSelection,
+            onSelect: onSelect,
+            onToggleFavorite: toggleFavorite,
+            onShowSimilar: {
+                showSimilarThemes(to: $0)
+            },
+            onEdit: presentEditor,
+            onDelete: deleteUserTheme
+        )
     }
 
     // MARK: - Map display
@@ -359,10 +451,10 @@ struct ThemeBrowserView: View {
         return catalog.similarity3D != nil
     }
 
-    /// Color and palette space are always valid. Similarity Space appears
-    /// after the catalog has its third PCA component.
+    /// Color, palette, and fidelity space are always valid. Similarity Space
+    /// appears after the catalog has its third PCA component.
     private var availableThreeDimensionalModes: [ThemePlotMode] {
-        var modes: [ThemePlotMode] = [.colorSpace3D, .paletteSpace3D]
+        var modes: [ThemePlotMode] = [.colorSpace3D, .paletteSpace3D, .fidelitySpace3D]
         if
             resolvedSimilaritySpaceAvailable == true
             || (resolvedSimilaritySpaceAvailable == nil && plotMode == .similaritySpace3D) {
@@ -387,7 +479,7 @@ struct ThemeBrowserView: View {
 
     private func normalizePlot(for display: ThemeBrowserDisplayMode) {
         switch display {
-        case .grid:
+        case .grid, .strips:
             break
         case .twoDimensional:
             if plotMode.isThreeDimensional {
@@ -410,19 +502,35 @@ struct ThemeBrowserView: View {
     @ViewBuilder
     private var mapContent: some View {
         // The map always plots the full catalog; Popular/More do not apply
+        let modes = displayMode == .threeDimensional
+            ? availableThreeDimensionalModes
+            : ThemePlotMode.v1Tabs
         GeometryReader { proxy in
-            Picker("Plot", selection: $plotMode) {
-                ForEach(
-                    displayMode == .threeDimensional
-                        ? availableThreeDimensionalModes
-                        : ThemePlotMode.v1Tabs
-                ) { mode in
-                    Text(mode.title).tag(mode)
+            if displayMode == .twoDimensional && proxy.size.width < 580 {
+                HStack {
+                    Text("Plot")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Picker("Plot", selection: $plotMode) {
+                        ForEach(modes) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                    Spacer()
                 }
+            } else {
+                Picker("Plot", selection: $plotMode) {
+                    ForEach(modes) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: max(0, proxy.size.width - 20))
+                .pickerStyle(.segmented)
             }
-            .labelsHidden()
-            .frame(width: max(0, proxy.size.width - 20))
-            .pickerStyle(.segmented)
         }
         .frame(height: 28)
         .padding(.horizontal, 10)
@@ -438,6 +546,7 @@ struct ThemeBrowserView: View {
                 selectedThemeName: selectedThemeName,
                 pinnedThemeName: $pinnedThemeName,
                 cameraByMode: $cameraByMode,
+                previewPage: effectivePreviewSelection,
                 onSelect: onSelect,
                 onShowSimilar: {
                     showSimilarThemes(to: $0)
@@ -452,6 +561,7 @@ struct ThemeBrowserView: View {
                 query: query,
                 selectedThemeName: selectedThemeName,
                 pinnedThemeName: $pinnedThemeName,
+                previewPage: effectivePreviewSelection,
                 onSelect: onSelect,
                 onShowSimilar: {
                     showSimilarThemes(to: $0)
@@ -473,7 +583,10 @@ struct ThemeBrowserView: View {
             theme: theme,
             isSelected: theme.name == selectedThemeName,
             isFavorite: themes.isFavorite(theme.name),
-            samplePage: samplePage,
+            samplePage: effectiveGridSamplePage,
+            metrics: themeIndex.metrics[theme.name],
+            catalog: themeIndex.catalog,
+            previewSelection: effectivePreviewSelection,
             onSelect: {
                 onSelect(theme)
             },
@@ -493,13 +606,17 @@ struct ThemeBrowserView: View {
             }
             if !theme.isBuiltIn {
                 Button("Delete User Theme", role: .destructive) {
-                    do {
-                        try ThemeLibrary(themes: themes, profiles: profiles).delete(named: theme.name)
-                    } catch {
-                        importError = error.localizedDescription
-                    }
+                    deleteUserTheme(theme)
                 }
             }
+        }
+    }
+
+    private func deleteUserTheme(_ theme: TerminalTheme) {
+        do {
+            try ThemeLibrary(themes: themes, profiles: profiles).delete(named: theme.name)
+        } catch {
+            importError = error.localizedDescription
         }
     }
 

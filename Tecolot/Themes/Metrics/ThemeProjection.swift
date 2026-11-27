@@ -15,28 +15,30 @@ nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Hashable, Se
     case contrastAndColorfulness
     case contrastAndDistinctness
     case temperatureAndContrast
+    case ansiFidelity
     case accentSpectrum
     case similarityMap
     case interactionColors
     case colorSpace3D
     case paletteSpace3D
+    case fidelitySpace3D
     case similaritySpace3D
 
     var id: String {
         rawValue
     }
 
-    /// The six tabs V1 exposes (spec §46); the other modes stay computed
+    /// The tabs exposed in the 2D browser; other modes stay computed
     static let v1Tabs: [ThemePlotMode] = [
         .backgroundSpectrum, .brightnessAndColorfulness, .contrastAndColorfulness,
-        .contrastAndDistinctness, .temperatureAndContrast, .similarityMap
+        .contrastAndDistinctness, .temperatureAndContrast, .ansiFidelity, .similarityMap
     ]
 
     /// Every mode that uses the established two-dimensional projection.
     /// Keep this separate from `allCases`: 3D modes use ThemeProjection3D.
     static let twoDimensionalModes: [ThemePlotMode] = [
         .backgroundSpectrum, .brightnessAndColorfulness, .contrastAndColorfulness,
-        .contrastAndDistinctness, .temperatureAndContrast, .accentSpectrum,
+        .contrastAndDistinctness, .temperatureAndContrast, .ansiFidelity, .accentSpectrum,
         .similarityMap, .interactionColors
     ]
 
@@ -47,6 +49,8 @@ nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Hashable, Se
             return .backgroundSpectrum
         case .paletteSpace3D:
             return .contrastAndDistinctness
+        case .fidelitySpace3D:
+            return .ansiFidelity
         case .similaritySpace3D:
             return .similarityMap
         default:
@@ -61,6 +65,8 @@ nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Hashable, Se
             return .colorSpace3D
         case .contrastAndDistinctness:
             return .paletteSpace3D
+        case .ansiFidelity:
+            return .fidelitySpace3D
         case .similarityMap:
             return .similaritySpace3D
         default:
@@ -70,7 +76,7 @@ nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Hashable, Se
 
     var isThreeDimensional: Bool {
         switch self {
-        case .colorSpace3D, .paletteSpace3D, .similaritySpace3D:
+        case .colorSpace3D, .paletteSpace3D, .fidelitySpace3D, .similaritySpace3D:
             return true
         default:
             return false
@@ -89,6 +95,8 @@ nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Hashable, Se
             return "Clarity"
         case .temperatureAndContrast:
             return "Warm ↔ Cool"
+        case .ansiFidelity:
+            return "Fidelity"
         case .accentSpectrum:
             return "Accents"
         case .similarityMap:
@@ -99,6 +107,8 @@ nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Hashable, Se
             return "Color Space"
         case .paletteSpace3D:
             return "Palette Space"
+        case .fidelitySpace3D:
+            return "Fidelity Space"
         case .similaritySpace3D:
             return "Similarity Space"
         }
@@ -117,13 +127,15 @@ nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Hashable, Se
             return ("HIGH CONTRAST", "LOW CONTRAST", "SIMILAR COLORS", "DISTINCT COLORS")
         case .temperatureAndContrast:
             return ("HIGH CONTRAST", "SOFT CONTRAST", "COOL", "WARM")
+        case .ansiFidelity:
+            return ("FULL SPECTRUM", "MONOCHROME / DRAINED", "FAR FROM ANSI NAMES", "FAITHFUL TO ANSI NAMES")
         case .accentSpectrum:
             return (nil, "Accent Color · muted or mixed center", nil, nil)
         case .similarityMap:
             return (nil, "Visual Similarity · themes nearby look alike", nil, nil)
         case .interactionColors:
             return ("VISIBLE CURSOR", "SUBTLE CURSOR", "SUBTLE", "STRONG SELECTION")
-        case .colorSpace3D, .paletteSpace3D, .similaritySpace3D:
+        case .colorSpace3D, .paletteSpace3D, .fidelitySpace3D, .similaritySpace3D:
             return (nil, nil, nil, nil)
         }
     }
@@ -134,6 +146,8 @@ nonisolated enum ThemePlotMode: String, CaseIterable, Identifiable, Hashable, Se
             return "Explore background lightness, hue, and chroma in three dimensions."
         case .paletteSpace3D:
             return "Explore palette distinctness, visibility, and colorfulness in three dimensions."
+        case .fidelitySpace3D:
+            return "Explore ANSI name fidelity, background lightness, and chromatic vitality in three dimensions."
         case .similaritySpace3D:
             return "Explore visual similarity in three dimensions."
         default:
@@ -149,10 +163,14 @@ nonisolated struct ThemePlotPoint: Identifiable, Sendable {
     let position: CGPoint
     /// Marker body fill
     let background: ProfileColor
-    /// Marker ring
+    /// Marker ring / text bars
     let foreground: ProfileColor
     /// Marker center dot: the most chromatic accent near the dominant hue
     let accent: ProfileColor
+    /// ANSI 1…6 (Red, Green, Yellow, Blue, Magenta, Cyan) in canonical order
+    let chromaticPalette: [ProfileColor]
+    /// ANSI 9…14 (Bright Red…Bright Cyan) in canonical order
+    let brightChromaticPalette: [ProfileColor]
     /// False when the theme relies on the system selection color; the
     /// Interaction Colors plot draws these hollow
     let hasCustomSelection: Bool
@@ -163,6 +181,8 @@ nonisolated protocol ThemeMarkerPoint {
     var background: ProfileColor { get }
     var foreground: ProfileColor { get }
     var accent: ProfileColor { get }
+    var chromaticPalette: [ProfileColor] { get }
+    var brightChromaticPalette: [ProfileColor] { get }
 }
 
 extension ThemePlotPoint: ThemeMarkerPoint {}
@@ -238,6 +258,11 @@ nonisolated enum ThemeProjection {
                     x: (themeMetrics.temperature + 1) / 2,
                     y: 1 - contrastFloor(themeMetrics)
                 )
+            case .ansiFidelity:
+                position = CGPoint(
+                    x: min(max(themeMetrics.ansiNameFidelity, 0), 1),
+                    y: 1 - min(max(themeMetrics.chromaticVitality, 0), 1)
+                )
             case .accentSpectrum:
                 position = radialPosition(
                     hue: themeMetrics.dominantAccentHue,
@@ -260,7 +285,7 @@ nonisolated enum ThemeProjection {
                     x: catalog.normalized(themeMetrics.selectionSeparation, for: .selectionSeparation),
                     y: 1 - ThemeColorMath.contrastUtility(themeMetrics.cursorContrast)
                 )
-            case .colorSpace3D, .paletteSpace3D, .similaritySpace3D:
+            case .colorSpace3D, .paletteSpace3D, .fidelitySpace3D, .similaritySpace3D:
                 // 3D coordinates have a separate model contract. Keeping
                 // them out of this projection prevents a Canvas coordinate
                 // from becoming part of the data model.
@@ -272,6 +297,8 @@ nonisolated enum ThemeProjection {
                 background: theme.background,
                 foreground: theme.foreground,
                 accent: accentColor(for: theme, metrics: themeMetrics),
+                chromaticPalette: chromaticPalette(for: theme),
+                brightChromaticPalette: brightChromaticPalette(for: theme),
                 hasCustomSelection: themeMetrics.hasCustomSelection
             )
         }
@@ -322,5 +349,19 @@ nonisolated enum ThemeProjection {
             return theme.foreground
         }
         return theme.ansi[index]
+    }
+
+    /// Normal chromatic ANSI slots 1…6 (Red, Green, Yellow, Blue, Magenta, Cyan)
+    static func chromaticPalette(for theme: TerminalTheme) -> [ProfileColor] {
+        (1...6).map { index in
+            index < theme.ansi.count ? theme.ansi[index] : theme.foreground
+        }
+    }
+
+    /// Bright chromatic ANSI slots 9…14 (Bright Red…Bright Cyan)
+    static func brightChromaticPalette(for theme: TerminalTheme) -> [ProfileColor] {
+        (9...14).map { index in
+            index < theme.ansi.count ? theme.ansi[index] : theme.foreground
+        }
     }
 }

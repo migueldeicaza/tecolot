@@ -75,6 +75,17 @@ nonisolated enum ThemeColorMath {
         return min(difference, 360 - difference)
     }
 
+    /// Signed shortest angular shift from `reference` to `actual` in (-180, 180]
+    static func signedCircularHueDelta(from reference: Double, to actual: Double) -> Double {
+        var delta = (actual - reference).truncatingRemainder(dividingBy: 360)
+        if delta <= -180 {
+            delta += 360
+        } else if delta > 180 {
+            delta -= 360
+        }
+        return delta
+    }
+
     /// Type-7 linearly interpolated quantile; sorts a copy of `values`
     static func quantile(_ values: [Double], _ q: Double) -> Double {
         guard !values.isEmpty else {

@@ -25,6 +25,9 @@ nonisolated enum ThemeSortMode: Hashable, Sendable {
     case temperature
     case hueDiversity
     case brightPairSeparation
+    case ansiNameFidelity
+    case chromaticVitality
+    case dimmedTextContrast
     case cursorVisibility
     case selectionVisibility
     /// Distance from the named theme. Keyed by theme NAME — the store's key
@@ -57,6 +60,12 @@ nonisolated enum ThemeSortMode: Hashable, Sendable {
             return "Palette Variety"
         case .brightPairSeparation:
             return "Bright Color Difference"
+        case .ansiNameFidelity:
+            return "ANSI Name Fidelity"
+        case .chromaticVitality:
+            return "Color Retention"
+        case .dimmedTextContrast:
+            return "Dimmed Text Readability"
         case .cursorVisibility:
             return "Cursor Visibility"
         case .selectionVisibility:
@@ -282,6 +291,18 @@ final class ThemeCatalogIndex: ObservableObject {
         case .brightPairSeparation:
             return sortedByKey(ascending: false) {
                 $0.brightPairSeparation
+            }
+        case .ansiNameFidelity:
+            return sortedByKey(ascending: false) {
+                $0.ansiNameFidelity
+            }
+        case .chromaticVitality:
+            return sortedByKey(ascending: false) {
+                $0.chromaticVitality
+            }
+        case .dimmedTextContrast:
+            return sortedByKey(ascending: false) {
+                $0.dimmedTextContrast
             }
         case .cursorVisibility:
             return sortedByKey(ascending: false) {

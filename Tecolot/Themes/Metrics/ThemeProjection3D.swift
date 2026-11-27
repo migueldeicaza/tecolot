@@ -23,6 +23,8 @@ nonisolated struct ThemePlotPoint3D: Identifiable, Sendable {
     let background: ProfileColor
     let foreground: ProfileColor
     let accent: ProfileColor
+    let chromaticPalette: [ProfileColor]
+    let brightChromaticPalette: [ProfileColor]
 }
 
 extension ThemePlotPoint3D: ThemeMarkerPoint {}
@@ -99,6 +101,17 @@ nonisolated enum ThemeProjection3D {
                     2 * colorfulness - 1
                 )
 
+            case .fidelitySpace3D:
+                let fidelity = min(max(themeMetrics.ansiNameFidelity, 0), 1)
+                let lightness = min(max(themeMetrics.backgroundLightness, 0), 1)
+                let vitality = min(max(themeMetrics.chromaticVitality, 0), 1)
+                rawPosition = SIMD3(fidelity, lightness, vitality)
+                position = SIMD3(
+                    2 * fidelity - 1,
+                    2 * lightness - 1,
+                    2 * vitality - 1
+                )
+
             case .similaritySpace3D:
                 guard
                     let basis = catalog.similarity3D,
@@ -126,7 +139,9 @@ nonisolated enum ThemeProjection3D {
                 rawPosition: rawPosition,
                 background: theme.background,
                 foreground: theme.foreground,
-                accent: ThemeProjection.accentColor(for: theme, metrics: themeMetrics)
+                accent: ThemeProjection.accentColor(for: theme, metrics: themeMetrics),
+                chromaticPalette: ThemeProjection.chromaticPalette(for: theme),
+                brightChromaticPalette: ThemeProjection.brightChromaticPalette(for: theme)
             )
         }
     }
