@@ -565,7 +565,8 @@ final class RemoteDestinationWindow: NSPanel {
             return false
         }
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        if flags == .command, event.charactersIgnoringModifiers == "." {
+        // Standard macOS Cmd+. modal cancel (distinct from the configurable Activity shortcut).
+        if KeyCombo(".", modifiers: [.command]).matches(event) {
             finish(nil)
             return true
         }

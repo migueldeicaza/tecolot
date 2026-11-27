@@ -15,6 +15,7 @@ final class ContentHeaderView: NSView {
     private let toggleBadge = ProgramStatusBadgeView()
     private let activityBadge = ProgramStatusBadgeView()
     private let popover = ActivityPopover()
+    private var shortcutsObserver: NSObjectProtocol?
     override var isFlipped: Bool {
         true
     }
@@ -26,16 +27,26 @@ final class ContentHeaderView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         for (button, symbol, title, action) in [
-            (toggle, "sidebar.left", "Toggle Sidebar (⌘/)", #selector(toggleSidebar)),
-            (activity, "eye", "Activity (⌘.)", #selector(toggleActivity)),
+            (toggle, "sidebar.left", "Toggle Sidebar", #selector(toggleSidebar)),
+            (activity, "eye", "Activity", #selector(toggleActivity)),
             (zoom, "arrow.down.right.and.arrow.up.left", "Reset Split Zoom", #selector(resetZoom)),
-            (add, "plus", "New Tab (⌘T)", #selector(newTab))
+            (add, "plus", "New Tab", #selector(newTab))
         ] {
             button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
             button.isBordered = false
             button.toolTip = title
             button.target = self
             button.action = action
+        }
+        updateShortcutToolTips()
+        shortcutsObserver = NotificationCenter.default.addObserver(
+            forName: .appShortcutsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updateShortcutToolTips()
+            }
         }
         directory.frame = NSRect(x: 0, y: 0, width: 200, height: 24)
         titleField.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -51,8 +62,21 @@ final class ContentHeaderView: NSView {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
     }
+    deinit {
+        if let shortcutsObserver {
+            NotificationCenter.default.removeObserver(shortcutsObserver)
+        }
+    }
+
+    func updateShortcutToolTips() {
+        let shortcuts = AppShortcutStore.shared
+        toggle.toolTip = shortcuts.toolTip("Toggle Sidebar", for: .toggleSidebar)
+        activity.toolTip = shortcuts.toolTip("Activity", for: .activity)
+        add.toolTip = shortcuts.toolTip("New Tab", for: .newTab)
+    }
 
     func refresh() {
+        updateShortcutToolTips()
         guard let controller else {
             return
         }
@@ -63,7 +87,7 @@ final class ContentHeaderView: NSView {
         directory.isHidden = pane?.titlebarWorkingDirectory == nil
         let iconSource = pane?.programStatus.tabStatus.app ?? pane?.panePresentation.executablePath
         glyph.image = TerminalAppIconResolver.shared.icon(forExecutablePath: iconSource)
-        let hidden = controller.sidebarPreferences.hidden
+        let hidden = controller.isSidebarHidden
         for view in [activity, theme, add] {
             view.isHidden = !hidden
         }

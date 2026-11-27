@@ -78,15 +78,16 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         filter.placeholderString = "Filter groups and tabs"
         filter.delegate = self
         filter.isHidden = true
-        configure(toggle, symbol: "sidebar.left", title: "Toggle Sidebar (⌘/)", action: #selector(toggleSidebar))
-        configure(activity, symbol: "eye", title: "Activity (⌘.)", action: #selector(toggleActivity))
-        configure(commandPalette, symbol: "command", title: "Command Palette (⇧⌘P)", action: #selector(toggleCommandPalette))
-        configure(add, symbol: "plus", title: "New Tab (⌘T)", action: #selector(addTab))
+        configure(toggle, symbol: "sidebar.left", title: "Toggle Sidebar", action: #selector(toggleSidebar))
+        configure(activity, symbol: "eye", title: "Activity", action: #selector(toggleActivity))
+        configure(commandPalette, symbol: "command", title: "Command Palette", action: #selector(toggleCommandPalette))
+        configure(add, symbol: "plus", title: "New Tab", action: #selector(addTab))
         configure(zoom, symbol: "arrow.down.right.and.arrow.up.left", title: "Reset Split Zoom", action: #selector(resetZoom))
         configure(overflow, symbol: "ellipsis.circle", title: "Sidebar actions", action: #selector(showOverflow))
         configure(filterButton, symbol: "line.3.horizontal.decrease.circle", title: "Filter", action: #selector(showFilter))
-        configure(newGroup, symbol: "plus.rectangle.on.rectangle", title: "New Group (⇧⌘N)", action: #selector(addGroup))
+        configure(newGroup, symbol: "plus.rectangle.on.rectangle", title: "New Group", action: #selector(addGroup))
         theme.fallbackAnchorView = overflow
+        updateShortcutToolTips()
         activity.addSubview(activityBadge)
         for view in [scroll, toggle, activity, commandPalette, theme, zoom, add, overflow, filterButton, newGroup, filter] {
             addSubview(view)
@@ -95,6 +96,7 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
             Notification.Name.groupsDidChange,
             .programActivityDidChange,
             .programActivityPreferencesDidChange,
+            .appShortcutsDidChange,
             NSView.boundsDidChangeNotification,
             NSWindow.didBecomeKeyNotification,
             NSWindow.didResignKeyNotification,
@@ -107,7 +109,9 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
                     guard let self else {
                         return
                     }
-                    if note.name == NSView.boundsDidChangeNotification {
+                    if note.name == .appShortcutsDidChange {
+                        self.updateShortcutToolTips()
+                    } else if note.name == NSView.boundsDidChangeNotification {
                         if note.object as? NSClipView === self.scroll.contentView {
                             self.updateDrawingVisibility()
                         }
@@ -163,6 +167,15 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         button.action = action
         button.toolTip = title
         button.setAccessibilityLabel(title)
+    }
+
+    func updateShortcutToolTips() {
+        let shortcuts = AppShortcutStore.shared
+        toggle.toolTip = shortcuts.toolTip("Toggle Sidebar", for: .toggleSidebar)
+        activity.toolTip = shortcuts.toolTip("Activity", for: .activity)
+        commandPalette.toolTip = shortcuts.toolTip("Command Palette", for: .commandPalette)
+        add.toolTip = shortcuts.toolTip("New Tab", for: .newTab)
+        newGroup.toolTip = shortcuts.toolTip("New Group", for: .newGroup)
     }
 
     func apply(theme: TerminalTheme?, opacity: Double) {
@@ -445,19 +458,35 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         }
         select(tabs[index].tab)
     }
-    func beginRename(_ tab: TerminalTab) {
-        cells[tab.id]?.beginRename()
+    func beginRename(_ tab: TerminalTab, onFinish: (() -> Void)? = nil) {
+        if outline.row(forItem: tab) < 0 {
+            filter.stringValue = ""
+            reload()
+        }
+        let cell: TabItemView?
+        if let existing = cells[tab.id] {
+            cell = existing
+        } else {
+            let row = outline.row(forItem: tab)
+            cell = row >= 0 ? outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? TabItemView : nil
+        }
+        guard let cell else {
+            onFinish?()
+            return
+        }
+        cell.beginRename(onFinish: onFinish)
     }
-    func beginGroupRename(_ group: TerminalTabGroup) {
+    func beginGroupRename(_ group: TerminalTabGroup, onFinish: (() -> Void)? = nil) {
         if outline.row(forItem: group) < 0 {
             filter.stringValue = ""
             reload()
         }
         let row = outline.row(forItem: group)
         guard row >= 0, let header = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? SidebarGroupHeader else {
+            onFinish?()
             return
         }
-        header.beginRename()
+        header.beginRename(onFinish: onFinish)
     }
     /// Window visibility can change while these rows keep their viewport geometry.
     var tabsInViewport: [TerminalTab] {
@@ -857,12 +886,13 @@ private final class SidebarGroupHeader: NSView {
     @objc private func newTab() {
         sidebar?.controller?.newTab(in: group)
     }
-    func beginRename() {
+    func beginRename(onFinish: (() -> Void)? = nil) {
         guard editor == nil else {
             return
         }
         let field = InlineNameField(value: group.name) { [weak self] value in
             guard let self else {
+                onFinish?()
                 return
             }
             if let value {
@@ -872,6 +902,7 @@ private final class SidebarGroupHeader: NSView {
             self.editor = nil
             self.title.isHidden = false
             self.sidebar?.controller?.focusSelectedTerminal()
+            onFinish?()
         }
         editor = field
         title.isHidden = true

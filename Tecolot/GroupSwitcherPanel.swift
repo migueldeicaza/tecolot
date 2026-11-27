@@ -298,7 +298,11 @@ NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
                 } ?? false
             )
         }
-        configure(model: GroupSwitcherModel(groups: groups, filter: filterField.stringValue))
+        configure(model: GroupSwitcherModel(
+            groups: groups,
+            filter: filterField.stringValue,
+            newGroupKeycap: AppShortcutStore.shared.displayString(for: .newGroup) ?? ""
+        ))
     }
 
     /// Also used by offscreen rendering; does not order the panel onto a screen.
@@ -448,12 +452,12 @@ NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
     }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags == .command, event.charactersIgnoringModifiers == "k" {
+        if AppShortcutStore.shared.matches(event, action: .goToGroup) {
             dismiss()
             return true
         }
         if
-            flags == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "n",
+            AppShortcutStore.shared.matches(event, action: .newGroup),
             let index = rows.firstIndex(where: {
                 if case .newGroup = $0.action {
                     return true

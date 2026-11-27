@@ -13,6 +13,7 @@ struct FileCommands: Commands {
     @ObservedObject var profiles: ProfileStore
     @Environment(\.openWindow) private var openWindow
     @State private var commandState = TerminalCommandState()
+    @State private var shortcuts = AppShortcutStore.shared
 
     private var target: TerminalWindowCommandTarget? {
         _ = commandState.window
@@ -34,14 +35,14 @@ struct FileCommands: Commands {
             Button("New Window") {
                 WindowOpener.openWindow(spec: LaunchSpec())
             }
-            .keyboardShortcut("n", modifiers: [.command])
+            .appShortcut(.newWindow, store: shortcuts)
 
             Button("New Tab") {
                 // Inherits working directory and profile from the current
                 // tab per the General settings
                 WindowOpener.openTab(spec: WindowOpener.inheritedTabSpec())
             }
-            .keyboardShortcut("t", modifiers: [.command])
+            .appShortcut(.newTab, store: shortcuts)
 
             Button("New Group") {
                 if let controller = TerminalWindowManager.shared.controller(for: WindowOpener.frontTerminalWindow()) {
@@ -50,7 +51,7 @@ struct FileCommands: Commands {
                     WindowOpener.openWindow(spec: LaunchSpec())
                 }
             }
-            .keyboardShortcut("n", modifiers: [.command, .shift])
+            .appShortcut(.newGroup, store: shortcuts)
 
             Menu("New Window with Profile") {
                 ForEach(profiles.profiles) { profile in
@@ -78,13 +79,14 @@ struct FileCommands: Commands {
                     spec.persistent = true
                     WindowOpener.openTab(spec: spec)
                 }
-                .keyboardShortcut("t", modifiers: [.command, .option])
+                .appShortcut(.newPersistentTab, store: shortcuts)
 
                 Button("New Persistent Window") {
                     var spec = LaunchSpec()
                     spec.persistent = true
                     WindowOpener.openWindow(spec: spec)
                 }
+                .appShortcut(.newPersistentWindow, store: shortcuts)
 
                 Divider()
 
@@ -97,13 +99,14 @@ struct FileCommands: Commands {
                     spec.persistent = true
                     WindowOpener.openTab(spec: spec)
                 }
-                .keyboardShortcut("t", modifiers: [.command, .option, .shift])
+                .appShortcut(.newRemoteSession, store: shortcuts)
 
                 Divider()
 
                 Button("Attach to Session…") {
                     openWindow(id: SessionBrowserWindowID.value)
                 }
+                .appShortcut(.attachToSession, store: shortcuts)
 
                 Button("Connect to Host…") {
                     openWindow(id: SessionBrowserWindowID.value)
@@ -118,6 +121,7 @@ struct FileCommands: Commands {
                 Button("Rename Group…") {
                     owner?.renameGroup()
                 }
+                .appShortcut(.renameGroup, store: shortcuts)
                 .disabled(owner == nil)
 
                 Button("Duplicate Group") {
@@ -125,6 +129,7 @@ struct FileCommands: Commands {
                         TerminalWindowManager.shared.duplicate(owner.group)
                     }
                 }
+                .appShortcut(.duplicateGroup, store: shortcuts)
                 .disabled(owner == nil)
 
                 Divider()
@@ -132,12 +137,13 @@ struct FileCommands: Commands {
                 Button("Close Group") {
                     owner?.requestCloseGroup()
                 }
-                .keyboardShortcut("w", modifiers: [.command, .option, .shift])
+                .appShortcut(.closeGroup, store: shortcuts)
                 .disabled(owner == nil)
 
                 Button("Close Group and End Sessions") {
                     owner?.requestCloseGroupAndEndSessions()
                 }
+                .appShortcut(.closeGroupAndEndSessions, store: shortcuts)
                 .disabled(owner == nil)
             }
             .disabled(owner == nil)
@@ -147,7 +153,7 @@ struct FileCommands: Commands {
             Button("Go to Directory…") {
                 owner?.openCommandPalette(scope: .directoryPicker(initialPath: nil))
             }
-            .keyboardShortcut("g", modifiers: [.command, .shift])
+            .appShortcut(.goToDirectory, store: shortcuts)
             .disabled(owner == nil)
         }
 
@@ -159,7 +165,7 @@ struct FileCommands: Commands {
                     target?.window.performClose(nil)
                 }
             }
-            .keyboardShortcut("w", modifiers: .command)
+            .appShortcut(.closePane, store: shortcuts)
             .disabled(target == nil)
 
             Button("Close Tab") {
@@ -167,24 +173,24 @@ struct FileCommands: Commands {
                     owner.requestCloseTab(tab)
                 }
             }
-            .keyboardShortcut("w", modifiers: [.command, .option])
+            .appShortcut(.closeTab, store: shortcuts)
             .disabled(owner == nil)
 
             Button("Close Window") {
                 target?.window.performClose(nil)
             }
-            .keyboardShortcut("w", modifiers: [.command, .shift])
+            .appShortcut(.closeWindow, store: shortcuts)
             .disabled(target == nil)
         }
 
         CommandGroup(replacing: .importExport) {}
 
-        // No keyboard shortcut: Command-P must reach the terminal instead of
-        // opening the print panel.
+        // No default keyboard shortcut: Command-P must reach the terminal unless the user binds it.
         CommandGroup(replacing: .printItem) {
             Button("Print…") {
                 commandState.controller?.printBuffer()
             }
+            .appShortcut(.printTerminal, store: shortcuts)
             .disabled(commandState.controller == nil)
         }
     }

@@ -726,8 +726,9 @@ enum ActivityNavigation {
         return window === popoverWindow || window === ownerWindow
     }
     /// Recognizes dismissal even when the filter editor owns focus.
+    @MainActor
     static func isDismissKey(_ event: NSEvent) -> Bool {
-        event.keyCode == 53 || (event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == ".")
+        event.keyCode == 53 || AppShortcutStore.shared.matches(event, action: .activity)
     }
     /// Clamps arrow navigation to the available rows, including an empty list.
     static func moved(_ index: Int, count: Int, down: Bool) -> Int {

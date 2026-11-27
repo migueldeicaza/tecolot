@@ -342,16 +342,40 @@ final class CommandPalettePanel: NSPanel, CommandPalettePresenting, NSWindowDele
         super.sendEvent(event)
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    private func isReservedPaletteNavigationKey(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        if flags == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "p" {
+        if event.keyCode == 48, flags.isEmpty || flags == .shift {
+            return true
+        }
+        if flags == .control {
+            let key = event.charactersIgnoringModifiers?.lowercased()
+            if key == "n" || key == "p" {
+                return true
+            }
+        }
+        if flags.isEmpty {
+            switch event.keyCode {
+            case 53, 125, 126, 36, 76, 51:
+                return true
+            default:
+                return false
+            }
+        }
+        return false
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if isReservedPaletteNavigationKey(event) {
+            return handleKeyDown(event)
+        }
+        if AppShortcutStore.shared.matches(event, action: .commandPalette) {
             dismiss(restoreFocus: true)
             return true
         }
-        if flags == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "g" {
+        if AppShortcutStore.shared.matches(event, action: .goToDirectory) {
             return handleGoToDirectoryShortcut()
         }
-        if flags == .command, event.charactersIgnoringModifiers == "." {
+        if AppShortcutStore.shared.matches(event, action: .activity) {
             model?.cancelAndDismiss()
             return true
         }
@@ -375,18 +399,7 @@ final class CommandPalettePanel: NSPanel, CommandPalettePresenting, NSWindowDele
         }
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
 
-        if flags == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "p" {
-            dismiss(restoreFocus: true)
-            return true
-        }
-        if flags == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "g" {
-            return handleGoToDirectoryShortcut()
-        }
-        if flags == .command, event.charactersIgnoringModifiers == "." {
-            model?.cancelAndDismiss()
-            return true
-        }
-
+        // Built-in palette navigation keys always win over configurable shortcuts.
         // Always consume Tab and Shift-Tab so focus never leaves the search field.
         if event.keyCode == 48 {
             if flags.isEmpty {
@@ -410,49 +423,57 @@ final class CommandPalettePanel: NSPanel, CommandPalettePresenting, NSWindowDele
             }
         }
 
-        guard flags.isEmpty else {
-            return false
+        if flags.isEmpty {
+            switch event.keyCode {
+            case 53: // Escape
+                model?.handleEscape()
+                return true
+            case 125: // Down Arrow
+                moveSelection(by: 1)
+                return true
+            case 126: // Up Arrow
+                moveSelection(by: -1)
+                return true
+            case 116: // Page Up
+                moveSelectionByPage(-1)
+                return true
+            case 121: // Page Down
+                moveSelectionByPage(1)
+                return true
+            case 115: // Home
+                guard model?.currentScope.isTextEntryScope != true else { return false }
+                selectFirst()
+                return true
+            case 119: // End
+                guard model?.currentScope.isTextEntryScope != true else { return false }
+                selectLast()
+                return true
+            case 36, 76: // Return / Enter
+                model?.executeSelected()
+                return true
+            case 51: // Backspace on empty input pops scope chip
+                if model?.query.isEmpty == true, model?.handleBackspaceOnEmpty() == true {
+                    return true
+                }
+                return false
+            default:
+                break
+            }
         }
 
-        switch event.keyCode {
-        case 53: // Escape
-            model?.handleEscape()
+        if AppShortcutStore.shared.matches(event, action: .commandPalette) {
+            dismiss(restoreFocus: true)
             return true
-        case 125: // Down Arrow
-            moveSelection(by: 1)
-            return true
-        case 126: // Up Arrow
-            moveSelection(by: -1)
-            return true
-        case 116: // Page Up
-            moveSelectionByPage(-1)
-            return true
-        case 121: // Page Down
-            moveSelectionByPage(1)
-            return true
-        case 115: // Home
-            guard model?.currentScope.isTextEntryScope != true else {
-                return false
-            }
-            selectFirst()
-            return true
-        case 119: // End
-            guard model?.currentScope.isTextEntryScope != true else {
-                return false
-            }
-            selectLast()
-            return true
-        case 36, 76: // Return / Enter
-            model?.executeSelected()
-            return true
-        case 51: // Backspace on empty input pops scope chip
-            if model?.query.isEmpty == true, model?.handleBackspaceOnEmpty() == true {
-                return true
-            }
-            return false
-        default:
-            return false
         }
+        if AppShortcutStore.shared.matches(event, action: .goToDirectory) {
+            return handleGoToDirectoryShortcut()
+        }
+        if AppShortcutStore.shared.matches(event, action: .activity) {
+            model?.cancelAndDismiss()
+            return true
+        }
+
+        return false
     }
 
     override func cancelOperation(_ sender: Any?) {

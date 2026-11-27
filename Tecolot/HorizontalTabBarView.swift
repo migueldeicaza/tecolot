@@ -96,7 +96,6 @@ final class HorizontalTabBarView: NSView {
         groupButton.contextMenu = { [weak self] in
             self?.groupContextMenu() ?? NSMenu()
         }
-        groupButton.toolTip = "Go to Group (⌘K)"
         groupButton.setAccessibilityLabel("Go to Group")
         theme.treatment = .toolbar
         zoom.image = NSImage(
@@ -108,18 +107,16 @@ final class HorizontalTabBarView: NSView {
         add.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")
         add.target = self
         add.action = #selector(newTab)
-        add.toolTip = "New Tab (⌘T)"
         activityButton.image = NSImage(systemSymbolName: "eye", accessibilityDescription: "Activity")
         activityButton.target = self
         activityButton.action = #selector(toggleActivity)
-        activityButton.toolTip = "Activity (⌘.)"
         activityButton.setAccessibilityLabel("Activity")
         activityButton.addSubview(activityBadge)
         commandPaletteButton.image = NSImage(systemSymbolName: "command", accessibilityDescription: "Command Palette")
         commandPaletteButton.target = self
         commandPaletteButton.action = #selector(toggleCommandPalette)
-        commandPaletteButton.toolTip = "Command Palette (⇧⌘P)"
         commandPaletteButton.setAccessibilityLabel("Command Palette")
+        updateShortcutToolTips()
         for button in [zoom, add, commandPaletteButton, activityButton] {
             button.isBordered = false
         }
@@ -139,11 +136,16 @@ final class HorizontalTabBarView: NSView {
             NSWindow.didChangeOcclusionStateNotification, NSApplication.didHideNotification,
             NSApplication.didUnhideNotification,
             .programActivityDidChange, .groupsDidChange, .programActivityPreferencesDidChange,
+            .appShortcutsDidChange,
         ] {
             observers.append(
                 NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                     MainActor.assumeIsolated {
                         guard let self else {
+                            return
+                        }
+                        if note.name == .appShortcutsDidChange {
+                            self.updateShortcutToolTips()
                             return
                         }
                         if note.name == .programActivityDidChange || note.name == .groupsDidChange {
@@ -477,6 +479,14 @@ final class HorizontalTabBarView: NSView {
             cell.tab.loadedWorkspace?.updateProcessInspection()
         }
     }
+    func updateShortcutToolTips() {
+        let shortcuts = AppShortcutStore.shared
+        groupButton.toolTip = shortcuts.toolTip("Go to Group", for: .goToGroup)
+        add.toolTip = shortcuts.toolTip("New Tab", for: .newTab)
+        activityButton.toolTip = shortcuts.toolTip("Activity", for: .activity)
+        commandPaletteButton.toolTip = shortcuts.toolTip("Command Palette", for: .commandPalette)
+    }
+
     override func flagsChanged(with event: NSEvent) {
         hintTask?.cancel()
         guard

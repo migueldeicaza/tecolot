@@ -78,7 +78,8 @@ enum SettingID: String, CaseIterable, Hashable {
     case notificationsBell
     case notificationsAllowPrograms
 
-    // Data and Crash Reports
+    // Shortcuts, Data and Crash Reports
+    case pageShortcuts
     case pageData
     case pageCrashReports
 
@@ -539,7 +540,14 @@ extension SettingID {
                            "Let terminal programs show system notifications with OSC 9 or OSC 777.",
                            keywords: ["osc 9", "osc 777", "escape sequence", "desktop notification"])
 
-        // MARK: Data and Crash Reports
+        // MARK: Shortcuts, Data and Crash Reports
+        case .pageShortcuts:
+            return pageEntry(
+                self,
+                .shortcuts,
+                "Customize keyboard shortcuts for menu commands and search for shortcut conflicts.",
+                keywords: ["keybindings", "hotkeys", "keyboard shortcuts", "remap", "commands", "conflicts"]
+            )
         case .pageData:
             return pageEntry(self, .data, "Find and repair profile, theme and preference files that have problems.",
                         keywords: ["recovery", "backup", "restore", "reset preferences", "damaged", "corrupt"])

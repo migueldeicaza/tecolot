@@ -74,9 +74,14 @@ struct SettingsView: View {
         .searchable(text: $query, placement: .sidebar, prompt: "Search Settings")
         .searchFocused($searchIsFocused)
         .frame(minWidth: 800, minHeight: 560)
-        .background(SettingsKeyHandler(focusSearch: {
-            searchIsFocused = true
-        }))
+        .background(SettingsKeyHandler(
+            focusSearch: {
+                searchIsFocused = true
+            },
+            shouldIgnoreKeys: {
+                AppShortcutStore.shared.isRecording
+            }
+        ))
         .background(SettingsWindowCloseObserver(windowWillClose: resetSearch))
         .background(SettingsSpotlightHost(request: revealRequest))
         .onAppear(perform: repairActiveProfileSelection)
@@ -283,6 +288,8 @@ struct SettingsView: View {
             PanesSettingsView()
         case .notifications:
             NotificationsSettingsView()
+        case .shortcuts:
+            ShortcutsSettingsView()
         case .manageProfiles:
             ManageProfilesSettingsView(activeProfileID: activeProfileSelection)
                 .navigationTitle(SettingsDestination.manageProfiles.title)
@@ -425,6 +432,8 @@ struct SettingsView: View {
 struct SettingsKeyHandler: NSViewRepresentable {
     /// Moves the keyboard focus to the search field.
     var focusSearch: () -> Void = {}
+    /// Returns true while a shortcut recorder owns keyDown events.
+    var shouldIgnoreKeys: () -> Bool = { false }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -439,6 +448,7 @@ struct SettingsKeyHandler: NSViewRepresentable {
     func updateNSView(_ nsView: WindowReaderView, context: Context) {
         context.coordinator.window = nsView.window
         context.coordinator.focusSearch = focusSearch
+        context.coordinator.shouldIgnoreKeys = shouldIgnoreKeys
     }
 
     static func dismantleNSView(_ nsView: WindowReaderView, coordinator: Coordinator) {
@@ -471,6 +481,7 @@ struct SettingsKeyHandler: NSViewRepresentable {
             window.performClose(nil)
         }
         var focusSearch: () -> Void = {}
+        var shouldIgnoreKeys: () -> Bool = { false }
         private var monitor: Any?
 
         func startMonitoring() {
@@ -482,7 +493,8 @@ struct SettingsKeyHandler: NSViewRepresentable {
                     let self,
                     let window,
                     event.window === window,
-                    window.attachedSheet == nil else {
+                    window.attachedSheet == nil,
+                    !self.shouldIgnoreKeys() else {
                     return event
                 }
                 // The monitor runs before the main menu, so Command-F does
@@ -538,6 +550,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
     case tabs
     case panes
     case notifications
+    case shortcuts
     case data
     case crashReports
 
@@ -548,7 +561,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
     case terminal
     case manageProfiles
 
-    static let appPages: [Self] = [.general, .tabs, .panes, .notifications, .data, .crashReports]
+    static let appPages: [Self] = [.general, .tabs, .panes, .notifications, .shortcuts, .data, .crashReports]
     static let profilePages: [Self] = [.appearance, .window, .shell, .keyboardAndMouse, .terminal, .manageProfiles]
 
     static func destinationAfterCreatingProfile(from destination: Self) -> Self {
@@ -577,6 +590,8 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
             return "Panes"
         case .notifications:
             return "Notifications"
+        case .shortcuts:
+            return "Shortcuts"
         case .manageProfiles:
             return "Manage Profiles"
         case .appearance:
@@ -606,6 +621,8 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
             return "rectangle.split.2x1"
         case .notifications:
             return "bell"
+        case .shortcuts:
+            return "command"
         case .manageProfiles:
             return "person.2.badge.gearshape"
         case .appearance:
@@ -629,7 +646,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
         switch self {
         case .appearance, .window, .shell, .keyboardAndMouse, .terminal:
             return true
-        case .general, .tabs, .panes, .notifications, .manageProfiles, .data, .crashReports:
+        case .general, .tabs, .panes, .notifications, .shortcuts, .manageProfiles, .data, .crashReports:
             return false
         }
     }

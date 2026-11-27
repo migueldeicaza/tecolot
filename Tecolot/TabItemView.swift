@@ -428,12 +428,13 @@ final class TabItemView: NSView {
         controller?.requestCloseTab(tab)
     }
 
-    func beginRename() {
+    func beginRename(onFinish: (() -> Void)? = nil) {
         guard editor == nil else {
             return
         }
         let field = InlineNameField(value: tab.customName ?? tab.title) { [weak self] value in
             guard let self else {
+                onFinish?()
                 return
             }
             if let value {
@@ -444,6 +445,7 @@ final class TabItemView: NSView {
             self.editor = nil
             self.titleClip.isHidden = false
             self.controller?.focusSelectedTerminal()
+            onFinish?()
         }
         editor = field
         titleClip.isHidden = true

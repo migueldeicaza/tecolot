@@ -146,13 +146,14 @@ enum WindowOpener {
 struct ProfileCommands: Commands {
     @ObservedObject var profiles: ProfileStore
     @State private var commandState = TerminalCommandState()
+    @State private var shortcuts = AppShortcutStore.shared
 
     var body: some Commands {
         CommandGroup(after: .toolbar) {
             Button("Change Theme…") {
                 commandState.controller?.showThemePicker.toggle()
             }
-            .keyboardShortcut("t", modifiers: [.command, .control])
+            .appShortcut(.changeTheme, store: shortcuts)
             .disabled(commandState.controller == nil)
 
             Menu("Apply Profile to Window") {

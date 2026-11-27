@@ -26,6 +26,12 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     private let resizeHandle = SidebarResizeHandle()
     private let defaults: UserDefaults
     private(set) var sidebarPreferences: SidebarPreferences
+    private(set) var sidebarTemporarilyRevealed = false
+
+    /// Effective sidebar hidden state for this window, accounting for temporary inline-rename reveals.
+    var isSidebarHidden: Bool {
+        sidebarPreferences.hidden && !sidebarTemporarilyRevealed
+    }
     private var sidebarObserver: DefaultsValueObserver<SidebarPreferences>?
     private var activityObserver: NSObjectProtocol?
     private var accessibilityObserver: NSObjectProtocol?
@@ -183,7 +189,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
             tabBar.toggleActivity()
         } else if !paneHeaderControls.isHidden {
             paneHeaderControls.toggleActivity()
-        } else if sidebarPreferences.hidden {
+        } else if isSidebarHidden {
             contentHeader.toggleActivity()
         } else {
             sidebar.toggleActivity()
@@ -196,6 +202,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         guard next != sidebarPreferences else {
             return
         }
+        if next.hidden != sidebarPreferences.hidden || next.style != sidebarPreferences.style {
+            sidebarTemporarilyRevealed = false
+        }
         animateChrome = next.style != sidebarPreferences.style || next.hidden != sidebarPreferences.hidden
         sidebarPreferences = next
         refresh()
@@ -205,8 +214,27 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         guard sidebarPreferences.style != .above else {
             return
         }
+        sidebarTemporarilyRevealed = false
         defaults.set(!sidebarPreferences.hidden, forKey: SidebarPreferences.hiddenKey)
         refreshSidebarPreferences()
+    }
+
+    private func beginTemporarySidebarRevealIfNeeded() {
+        guard sidebarPreferences.style != .above, sidebarPreferences.hidden, !sidebarTemporarilyRevealed else {
+            return
+        }
+        sidebarTemporarilyRevealed = true
+        animateChrome = true
+        refresh()
+    }
+
+    func endTemporarySidebarReveal() {
+        guard sidebarTemporarilyRevealed else {
+            return
+        }
+        sidebarTemporarilyRevealed = false
+        animateChrome = true
+        refresh()
     }
 
     func resizeSidebar(to width: CGFloat, originalFrame: NSRect, originalWidth: CGFloat) {
@@ -310,7 +338,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
             host.usesWindowBackdrop = true
             host.requiresWindowHeader = preferences.value.paneStyle == .comfortable
                 && sidebarPreferences.style != .above
-                && (sidebarPreferences.style == .right || sidebarPreferences.hidden)
+                && (sidebarPreferences.style == .right || isSidebarHidden)
             host.onCardLayout = { [weak self] host in
                 guard let self, self.group.selectedTab?.loadedWorkspace?.hostView === host else {
                     return
@@ -354,12 +382,12 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         let chromeFocus = Self.focusOwner(of: window?.firstResponder)
         let chromeFocusWasVisible = chromeFocus?.isHiddenOrHasHiddenAncestor == false
         tabBar.isHidden = sidebarPreferences.style != .above
-        sidebar.isHidden = sidebarPreferences.style == .above || sidebarPreferences.hidden
+        sidebar.isHidden = sidebarPreferences.style == .above || isSidebarHidden
         resizeHandle.isHidden = sidebar.isHidden
         contentHeader.isHidden = sidebarPreferences.style == .above
-            || (sidebarPreferences.style == .left && !sidebarPreferences.hidden)
+            || (sidebarPreferences.style == .left && !isSidebarHidden)
             || integratesCardHeaders
-        paneHeaderControls.isHidden = !integratesCardHeaders || !sidebarPreferences.hidden
+        paneHeaderControls.isHidden = !integratesCardHeaders || !isSidebarHidden
         // A hidden control cannot keep the keyboard focus. Give the focus to
         // the selected terminal.
         if
@@ -465,7 +493,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     private var integratesCardHeaders: Bool {
         let host = group.selectedTab?.loadedWorkspace?.hostView
         return sidebarPreferences.style != .above
-            && (sidebarPreferences.style == .right || sidebarPreferences.hidden)
+            && (sidebarPreferences.style == .right || isSidebarHidden)
             && host?.cardsEnabled == true && host?.appliedPaneStyle == .comfortable
     }
 
@@ -480,7 +508,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         cardOutlines.update(cards: host.visibleCards)
         let integrated = integratesCardHeaders
         let needsHeader = sidebarPreferences.style != .above
-            && (sidebarPreferences.style == .right || sidebarPreferences.hidden) && !integrated
+            && (sidebarPreferences.style == .right || isSidebarHidden) && !integrated
         if contentHeader.isHidden == needsHeader {
             contentHeader.isHidden = !needsHeader
             content.needsLayout = true
@@ -496,12 +524,12 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         trafficLightCardID = integrated ? corners.left : nil
         topRightCardID = integrated ? corners.right : nil
         let fullscreen = isFullScreen
-        let leftToggle: CGFloat = sidebarPreferences.hidden && sidebarPreferences.style == .left ? (fullscreen ? 36 : 40) : 0
+        let leftToggle: CGFloat = isSidebarHidden && sidebarPreferences.style == .left ? (fullscreen ? 36 : 40) : 0
         for card in host.visibleCards {
             card.integratedWindowHeader = integrated
             card.windowLeadingInset = integrated && card.controller.id == corners.left
                 ? (fullscreen ? 0 : 76) + leftToggle : 0
-            card.windowTrailingInset = integrated && sidebarPreferences.hidden && card.controller.id == corners.right
+            card.windowTrailingInset = integrated && isSidebarHidden && card.controller.id == corners.right
                 ? paneHeaderControls.trailingWidth : 0
         }
         chromeBackdrop.excludeCards(host.visibleCards.filter {
@@ -571,8 +599,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         let card = style == .above
             ? NSRect(x: 8, y: 46, width: max(0, content.bounds.width - 16), height: max(0, content.bounds.height - 54))
             : NSRect(x: left ? sideWidth : 8, y: 8, width: max(0, content.bounds.width - sideWidth - (sidebar.isHidden ? 16 : 8)), height: max(0, content.bounds.height - 16))
-        contentHeader.isHidden = style == .above || (style == .left && !sidebarPreferences.hidden) || integratesCardHeaders
-        paneHeaderControls.isHidden = !integratesCardHeaders || !sidebarPreferences.hidden
+        contentHeader.isHidden = style == .above || (style == .left && !isSidebarHidden) || integratesCardHeaders
+        paneHeaderControls.isHidden = !integratesCardHeaders || !isSidebarHidden
         paneHeaderControls.frame = NSRect(x: card.minX, y: card.minY, width: card.width, height: 36)
         let headerHeight: CGFloat = contentHeader.isHidden ? 0 : 36
         contentHeader.frame = NSRect(x: card.minX, y: card.minY, width: card.width, height: 36)
@@ -929,17 +957,20 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         if sidebarPreferences.style == .above {
             tabBar.beginGroupRename()
         } else {
-            if sidebarPreferences.hidden {
-                toggleSidebar()
+            beginTemporarySidebarRevealIfNeeded()
+            sidebar.beginGroupRename(group) { [weak self] in
+                self?.endTemporarySidebarReveal()
             }
-            sidebar.beginGroupRename(group)
         }
     }
     func renameTab(_ tab: TerminalTab) {
         if sidebarPreferences.style == .above {
             tabBar.beginTabRename(tab)
         } else {
-            sidebar.beginRename(tab)
+            beginTemporarySidebarRevealIfNeeded()
+            sidebar.beginRename(tab) { [weak self] in
+                self?.endTemporarySidebarReveal()
+            }
         }
     }
 

@@ -19,7 +19,7 @@ enum ProfileSettingsSection {
             self = .keyboardAndMouse
         case .terminal:
             self = .terminal
-        case .general, .tabs, .panes, .notifications, .manageProfiles, .data, .crashReports:
+        case .general, .tabs, .panes, .notifications, .shortcuts, .manageProfiles, .data, .crashReports:
             return nil
         }
     }

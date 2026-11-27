@@ -11,6 +11,7 @@ final class CommandPaletteCatalog {
         let manager: TerminalWindowManager
         let appModel: AppModel
         let defaults: UserDefaults
+        let shortcuts: AppShortcutStore
 
         var activeGroup: TerminalTabGroup? {
             owner?.group
@@ -34,10 +35,28 @@ final class CommandPaletteCatalog {
     init(
         owner: TerminalWindowController?,
         manager: TerminalWindowManager,
-        appModel: AppModel = .shared,
-        defaults: UserDefaults = .standard
+        appModel: AppModel? = nil,
+        defaults: UserDefaults = .standard,
+        shortcuts: AppShortcutStore? = nil
     ) {
-        context = Context(owner: owner, manager: manager, appModel: appModel, defaults: defaults)
+        context = Context(
+            owner: owner,
+            manager: manager,
+            appModel: appModel ?? .shared,
+            defaults: defaults,
+            shortcuts: shortcuts ?? .shared
+        )
+    }
+
+    private func shortcutAccessory(_ id: AppShortcutID) -> PaletteRowAccessory {
+        if let text = context.shortcuts.displayString(for: id) {
+            return .shortcut(text)
+        }
+        return .none
+    }
+
+    private func chevronAccessory(_ id: AppShortcutID, detail: String? = nil) -> PaletteRowAccessory {
+        .chevron(detail: detail, shortcut: context.shortcuts.displayString(for: id))
     }
 
     // MARK: - Root: Live Entities
@@ -181,7 +200,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.group.change",
             section: nil,
-            style: .standard(title: "Change Group…", accessory: .chevron(shortcut: "⌘K")),
+            style: .standard(title: "Change Group…", accessory: chevronAccessory(.goToGroup)),
             keywords: ["session", "switch", "workspace", "go to group"]
         ) {
             .push(.groupPicker)
@@ -191,7 +210,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.group.rename",
                 section: nil,
-                style: .standard(title: "Rename Group", accessory: .chevron()),
+                style: .standard(title: "Rename Group", accessory: chevronAccessory(.renameGroup)),
                 keywords: ["session", "title", "name"]
             ) { [weak manager, weak activeGroup] in
                 guard let activeGroup else {
@@ -218,7 +237,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.tab.rename",
                 section: nil,
-                style: .standard(title: "Rename Tab", accessory: .chevron()),
+                style: .standard(title: "Rename Tab", accessory: chevronAccessory(.renameTab)),
                 keywords: ["title", "name"]
             ) { [weak owner, weak activeTab] in
                 guard let activeTab else {
@@ -246,7 +265,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.remote.connect",
             section: nil,
-            style: .standard(title: "Connect to Remote Host…", accessory: .chevron(shortcut: "⇧⌥⌘T")),
+            style: .standard(title: "Connect to Remote Host…", accessory: chevronAccessory(.newRemoteSession)),
             keywords: ["ssh", "remote", "server", "host", "add remote"]
         ) {
             .push(.sshHostPicker)
@@ -255,7 +274,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.group.new",
             section: nil,
-            style: .standard(title: "New Group", accessory: .shortcut("⇧⌘N")),
+            style: .standard(title: "New Group", accessory: shortcutAccessory(.newGroup)),
             keywords: ["session", "workspace", "create"]
         ) { [weak owner] in
             if let owner {
@@ -269,7 +288,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.tab.new",
             section: nil,
-            style: .standard(title: "New Tab", accessory: .shortcut("⌘T")),
+            style: .standard(title: "New Tab", accessory: shortcutAccessory(.newTab)),
             keywords: ["open", "create", "shell"]
         ) { [weak owner] in
             if let owner {
@@ -283,7 +302,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.tab.newPersistent",
             section: nil,
-            style: .standard(title: "New Persistent Tab", accessory: .shortcut("⌥⌘T")),
+            style: .standard(title: "New Persistent Tab", accessory: shortcutAccessory(.newPersistentTab)),
             keywords: ["session", "detach", "tmux", "helper"]
         ) { [weak owner] in
             var spec = WindowOpener.inheritedTabSpec()
@@ -296,7 +315,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.tab.goToDirectory",
                 section: nil,
-                style: .standard(title: "Go to Directory…", accessory: .chevron(shortcut: "⇧⌘G")),
+                style: .standard(title: "Go to Directory…", accessory: chevronAccessory(.goToDirectory)),
                 keywords: ["cd", "folder", "path", "open directory"]
             ) { [weak activePane] in
                 .push(.directoryPicker(initialPath: activePane?.currentWorkingDirectory))
@@ -306,7 +325,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.window.new",
             section: nil,
-            style: .standard(title: "New Window", accessory: .shortcut("⌘N")),
+            style: .standard(title: "New Window", accessory: shortcutAccessory(.newWindow)),
             keywords: ["open", "create"]
         ) {
             WindowOpener.openWindow(spec: LaunchSpec())
@@ -316,7 +335,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.window.newPersistent",
             section: nil,
-            style: .standard(title: "New Persistent Window", accessory: .none),
+            style: .standard(title: "New Persistent Window", accessory: shortcutAccessory(.newPersistentWindow)),
             keywords: ["session", "helper"]
         ) {
             var spec = LaunchSpec()
@@ -328,7 +347,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.session.attach",
             section: nil,
-            style: .standard(title: "Attach to Session…", accessory: .none),
+            style: .standard(title: "Attach to Session…", accessory: shortcutAccessory(.attachToSession)),
             keywords: ["sessions", "browser", "persistent", "reconnect"]
         ) {
             SessionBrowserPresentation.open?()
@@ -352,7 +371,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.tab.previous",
                 section: nil,
-                style: .standard(title: "Show Previous Tab", accessory: .shortcut("⌃⇧⇥")),
+                style: .standard(title: "Show Previous Tab", accessory: shortcutAccessory(.selectPreviousTab)),
                 keywords: ["switch", "cycle", "left"]
             ) { [weak activeGroup] in
                 if let activeGroup {
@@ -364,7 +383,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.tab.next",
                 section: nil,
-                style: .standard(title: "Show Next Tab", accessory: .shortcut("⌃⇥")),
+                style: .standard(title: "Show Next Tab", accessory: shortcutAccessory(.selectNextTab)),
                 keywords: ["switch", "cycle", "right"]
             ) { [weak activeGroup] in
                 if let activeGroup {
@@ -376,7 +395,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.tab.moveToNewWindow",
                 section: nil,
-                style: .standard(title: "Move Tab to New Window", accessory: .none),
+                style: .standard(title: "Move Tab to New Window", accessory: shortcutAccessory(.moveTabToNewWindow)),
                 keywords: ["detach", "pop out", "split window"]
             ) { [weak owner, weak activeTab] in
                 if let owner, let activeTab {
@@ -422,7 +441,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.tab.close",
                 section: nil,
-                style: .standard(title: "Close Tab", accessory: .shortcut("⌥⌘W")),
+                style: .standard(title: "Close Tab", accessory: shortcutAccessory(.closeTab)),
                 keywords: ["kill", "exit"]
             ) { [weak owner, weak activeTab] in
                 if let owner, let activeTab {
@@ -436,7 +455,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.group.previous",
                 section: nil,
-                style: .standard(title: "Previous Group", accessory: .none),
+                style: .standard(title: "Previous Group", accessory: shortcutAccessory(.previousGroup)),
                 keywords: ["session", "switch"]
             ) { [weak owner] in
                 if let owner {
@@ -448,7 +467,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.group.next",
                 section: nil,
-                style: .standard(title: "Next Group", accessory: .none),
+                style: .standard(title: "Next Group", accessory: shortcutAccessory(.nextGroup)),
                 keywords: ["session", "switch"]
             ) { [weak owner] in
                 if let owner {
@@ -474,7 +493,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.group.duplicate",
                 section: nil,
-                style: .standard(title: "Duplicate Group", accessory: .none),
+                style: .standard(title: "Duplicate Group", accessory: shortcutAccessory(.duplicateGroup)),
                 keywords: ["clone", "copy", "session"]
             ) { [weak activeGroup] in
                 if let activeGroup {
@@ -486,7 +505,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.group.close",
                 section: nil,
-                style: .standard(title: "Close Group", accessory: .shortcut("⇧⌥⌘W")),
+                style: .standard(title: "Close Group", accessory: shortcutAccessory(.closeGroup)),
                 keywords: ["session"]
             ) { [weak owner] in
                 owner?.requestCloseGroup()
@@ -496,7 +515,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.group.closeAndEnd",
                 section: nil,
-                style: .standard(title: "Close Group and End Sessions", accessory: .none),
+                style: .standard(title: "Close Group and End Sessions", accessory: shortcutAccessory(.closeGroupAndEndSessions)),
                 keywords: ["terminate", "kill", "persistent"]
             ) { [weak owner] in
                 owner?.requestCloseGroupAndEndSessions()
@@ -508,7 +527,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.window.mergeAll",
                 section: nil,
-                style: .standard(title: "Merge All Windows", accessory: .none),
+                style: .standard(title: "Merge All Windows", accessory: shortcutAccessory(.mergeAllWindows)),
                 keywords: ["combine", "tabs"]
             ) { [weak owner] in
                 if let owner {
@@ -533,7 +552,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.window.close",
             section: nil,
-            style: .standard(title: "Close Window", accessory: .shortcut("⇧⌘W")),
+            style: .standard(title: "Close Window", accessory: shortcutAccessory(.closeWindow)),
             keywords: ["dismiss"]
         ) { [weak owner] in
             owner?.window?.performClose(nil)
@@ -568,7 +587,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.splitRight",
             section: "Pane",
-            style: .standard(title: "Split Pane Right", accessory: .shortcut("⌘D")),
+            style: .standard(title: "Split Pane Right", accessory: shortcutAccessory(.splitPaneRight)),
             keywords: ["vertical", "divide"]
         ) { [weak workspace, weak pane] in
             if let workspace, let pane {
@@ -580,7 +599,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.splitDown",
             section: "Pane",
-            style: .standard(title: "Split Pane Down", accessory: .shortcut("⇧⌘D")),
+            style: .standard(title: "Split Pane Down", accessory: shortcutAccessory(.splitPaneDown)),
             keywords: ["horizontal", "divide", "below"]
         ) { [weak workspace, weak pane] in
             if let workspace, let pane {
@@ -592,7 +611,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.splitLeft",
             section: "Pane",
-            style: .standard(title: "Split Pane Left", accessory: .none),
+            style: .standard(title: "Split Pane Left", accessory: shortcutAccessory(.splitPaneLeft)),
             keywords: ["vertical", "divide"]
         ) { [weak workspace, weak pane] in
             if let workspace, let pane {
@@ -604,7 +623,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.splitUp",
             section: "Pane",
-            style: .standard(title: "Split Pane Up", accessory: .none),
+            style: .standard(title: "Split Pane Up", accessory: shortcutAccessory(.splitPaneUp)),
             keywords: ["horizontal", "divide", "above"]
         ) { [weak workspace, weak pane] in
             if let workspace, let pane {
@@ -619,7 +638,7 @@ final class CommandPaletteCatalog {
                 section: "Pane",
                 style: .standard(
                     title: isZoomed ? "Reset Split Zoom" : "Zoom Pane",
-                    accessory: .shortcut("⇧⌘↩")
+                    accessory: shortcutAccessory(.zoomSplit)
                 ),
                 keywords: ["maximize", "focus", "unzoom", "split"]
             ) { [weak workspace] in
@@ -632,7 +651,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.pane.focusLeft",
                 section: "Pane",
-                style: .standard(title: "Focus Pane Left", accessory: .shortcut("⌥⌘←")),
+                style: .standard(title: "Focus Pane Left", accessory: shortcutAccessory(.selectSplitLeft)),
                 keywords: ["select", "split", "navigate"]
             ) { [weak workspace] in
                 workspace?.selectSplit(in: .left)
@@ -642,7 +661,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.pane.focusRight",
                 section: "Pane",
-                style: .standard(title: "Focus Pane Right", accessory: .shortcut("⌥⌘→")),
+                style: .standard(title: "Focus Pane Right", accessory: shortcutAccessory(.selectSplitRight)),
                 keywords: ["select", "split", "navigate"]
             ) { [weak workspace] in
                 workspace?.selectSplit(in: .right)
@@ -652,7 +671,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.pane.focusUp",
                 section: "Pane",
-                style: .standard(title: "Focus Pane Up", accessory: .shortcut("⌥⌘↑")),
+                style: .standard(title: "Focus Pane Up", accessory: shortcutAccessory(.selectSplitAbove)),
                 keywords: ["select", "split", "above", "navigate"]
             ) { [weak workspace] in
                 workspace?.selectSplit(in: .up)
@@ -662,7 +681,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.pane.focusDown",
                 section: "Pane",
-                style: .standard(title: "Focus Pane Down", accessory: .shortcut("⌥⌘↓")),
+                style: .standard(title: "Focus Pane Down", accessory: shortcutAccessory(.selectSplitBelow)),
                 keywords: ["select", "split", "below", "navigate"]
             ) { [weak workspace] in
                 workspace?.selectSplit(in: .down)
@@ -672,7 +691,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.pane.focusPrevious",
                 section: "Pane",
-                style: .standard(title: "Focus Previous Pane", accessory: .shortcut("⌘[")),
+                style: .standard(title: "Focus Previous Pane", accessory: shortcutAccessory(.selectPreviousSplit)),
                 keywords: ["select", "split", "cycle"]
             ) { [weak workspace] in
                 workspace?.selectPreviousSplit()
@@ -682,7 +701,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.pane.focusNext",
                 section: "Pane",
-                style: .standard(title: "Focus Next Pane", accessory: .shortcut("⌘]")),
+                style: .standard(title: "Focus Next Pane", accessory: shortcutAccessory(.selectNextSplit)),
                 keywords: ["select", "split", "cycle"]
             ) { [weak workspace] in
                 workspace?.selectNextSplit()
@@ -692,7 +711,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.pane.equalize",
                 section: "Pane",
-                style: .standard(title: "Equalize Splits", accessory: .shortcut("⌃⌘=")),
+                style: .standard(title: "Equalize Splits", accessory: shortcutAccessory(.equalizeSplits)),
                 keywords: ["balance", "resize", "autobalance"]
             ) { [weak workspace] in
                 workspace?.equalizeSplits()
@@ -703,7 +722,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.close",
             section: "Pane",
-            style: .standard(title: "Close Pane", accessory: .shortcut("⌘W")),
+            style: .standard(title: "Close Pane", accessory: shortcutAccessory(.closePane)),
             keywords: ["split", "close"]
         ) { [weak owner] in
             owner?.requestCloseSelectedPane()
@@ -713,7 +732,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.find",
             section: "Pane",
-            style: .standard(title: "Find…", accessory: .shortcut("⌘F")),
+            style: .standard(title: "Find…", accessory: shortcutAccessory(.find)),
             keywords: ["search", "buffer", "scrollback"]
         ) { [weak pane] in
             pane?.performFind(.showFindInterface)
@@ -723,7 +742,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.previousPrompt",
             section: "Pane",
-            style: .standard(title: "Jump to Previous Prompt", accessory: .shortcut("⌘↑")),
+            style: .standard(title: "Jump to Previous Prompt", accessory: shortcutAccessory(.scrollToPreviousPrompt)),
             keywords: ["scroll", "command", "mark"]
         ) { [weak pane] in
             _ = pane?.scrollToPreviousPrompt()
@@ -733,7 +752,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.nextPrompt",
             section: "Pane",
-            style: .standard(title: "Jump to Next Prompt", accessory: .shortcut("⌘↓")),
+            style: .standard(title: "Jump to Next Prompt", accessory: shortcutAccessory(.scrollToNextPrompt)),
             keywords: ["scroll", "command", "mark"]
         ) { [weak pane] in
             _ = pane?.scrollToNextPrompt()
@@ -743,7 +762,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.pasteEscaped",
             section: "Pane",
-            style: .standard(title: "Paste Escaped", accessory: .shortcut("⌃⌘V")),
+            style: .standard(title: "Paste Escaped", accessory: shortcutAccessory(.pasteEscaped)),
             keywords: ["clipboard", "shell", "quote"]
         ) { [weak pane] in
             if let text = NSPasteboard.general.string(forType: .string) {
@@ -756,7 +775,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.clear",
             section: "Pane",
-            style: .standard(title: "Clear Terminal", accessory: .shortcut("⌃⌘K")),
+            style: .standard(title: "Clear Terminal", accessory: shortcutAccessory(.clearToStart)),
             keywords: ["clear to start", "scrollback", "clean"]
         ) { [weak pane] in
             pane?.clearToStart()
@@ -766,7 +785,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.softReset",
             section: "Pane",
-            style: .standard(title: "Soft Reset Terminal", accessory: .none),
+            style: .standard(title: "Soft Reset Terminal", accessory: shortcutAccessory(.softReset)),
             keywords: ["reset", "decstr"]
         ) { [weak pane] in
             pane?.softReset()
@@ -776,7 +795,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.hardReset",
             section: "Pane",
-            style: .standard(title: "Hard Reset Terminal", accessory: .none),
+            style: .standard(title: "Hard Reset Terminal", accessory: shortcutAccessory(.hardReset)),
             keywords: ["reset", "ris", "clear"]
         ) { [weak pane] in
             pane?.hardReset()
@@ -786,7 +805,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.exportBuffer",
             section: "Pane",
-            style: .standard(title: "Export Buffer…", accessory: .none),
+            style: .standard(title: "Export Buffer…", accessory: shortcutAccessory(.exportBuffer)),
             keywords: ["save", "scrollback", "text", "file"]
         ) { [weak pane] in
             pane?.exportBuffer()
@@ -796,7 +815,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.exportSelection",
             section: "Pane",
-            style: .standard(title: "Export Selection…", accessory: .none),
+            style: .standard(title: "Export Selection…", accessory: shortcutAccessory(.exportSelection)),
             keywords: ["save", "text", "file"]
         ) { [weak pane] in
             pane?.exportSelection()
@@ -806,7 +825,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.pane.print",
             section: "Pane",
-            style: .standard(title: "Print…", accessory: .shortcut("⌘P")),
+            style: .standard(title: "Print…", accessory: shortcutAccessory(.printTerminal)),
             keywords: ["pdf", "buffer"]
         ) { [weak pane] in
             pane?.printBuffer()
@@ -830,7 +849,7 @@ final class CommandPaletteCatalog {
             section: "Pane",
             style: .standard(
                 title: pane.allowMouseReporting ? "Disable Mouse Reporting" : "Enable Mouse Reporting",
-                accessory: .shortcut("⌘R")
+                accessory: shortcutAccessory(.allowMouseReporting)
             ),
             keywords: ["mouse", "toggle"]
         ) { [weak pane] in
@@ -843,7 +862,7 @@ final class CommandPaletteCatalog {
             section: "Pane",
             style: .standard(
                 title: pane.optionAsMetaKey ? "Disable Option as Meta Key" : "Enable Option as Meta Key",
-                accessory: .none
+                accessory: shortcutAccessory(.optionAsMetaKey)
             ),
             keywords: ["alt", "keyboard", "meta"]
         ) { [weak pane] in
@@ -869,7 +888,7 @@ final class CommandPaletteCatalog {
             section: "Pane",
             style: .standard(
                 title: SecureKeyboardEntry.shared.isEnabled ? "Disable Secure Keyboard Entry" : "Enable Secure Keyboard Entry",
-                accessory: .none
+                accessory: shortcutAccessory(.secureKeyboardEntry)
             ),
             keywords: ["security", "password", "input"]
         ) {
@@ -941,7 +960,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.font.increase",
                 section: "Appearance",
-                style: .standard(title: "Increase Font Size", accessory: .shortcut("⌘+")),
+                style: .standard(title: "Increase Font Size", accessory: shortcutAccessory(.biggerFont)),
                 keywords: ["bigger", "zoom", "text", "larger"]
             ) { [weak pane] in
                 pane?.biggerFont()
@@ -951,7 +970,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.font.decrease",
                 section: "Appearance",
-                style: .standard(title: "Decrease Font Size", accessory: .shortcut("⌘-")),
+                style: .standard(title: "Decrease Font Size", accessory: shortcutAccessory(.smallerFont)),
                 keywords: ["smaller", "zoom", "text"]
             ) { [weak pane] in
                 pane?.smallerFont()
@@ -961,7 +980,7 @@ final class CommandPaletteCatalog {
             rows.append(PaletteRow(
                 id: "cmd.font.default",
                 section: "Appearance",
-                style: .standard(title: "Default Font Size", accessory: .shortcut("⌘0")),
+                style: .standard(title: "Default Font Size", accessory: shortcutAccessory(.defaultFontSize)),
                 keywords: ["reset", "zoom", "text"]
             ) { [weak pane] in
                 pane?.defaultFontSize()
@@ -1136,7 +1155,7 @@ final class CommandPaletteCatalog {
             section: "Appearance",
             style: .standard(
                 title: sidebar.style == .above ? "Switch to Vertical Tabs" : "Switch to Horizontal Tabs",
-                accessory: .shortcut("⇧⌘S")
+                accessory: shortcutAccessory(.toggleTabStyle)
             ),
             keywords: ["tab style", "sidebar"]
         ) { [defaults] in
@@ -1150,7 +1169,7 @@ final class CommandPaletteCatalog {
                 section: "Appearance",
                 style: .standard(
                     title: sidebar.hidden ? "Show Sidebar" : "Hide Sidebar",
-                    accessory: .shortcut("⌘/")
+                    accessory: shortcutAccessory(.toggleSidebar)
                 ),
                 keywords: ["toggle", "tabs", "panel"]
             ) { [weak owner] in
@@ -1271,7 +1290,7 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.activity.toggle",
             section: "Appearance",
-            style: .standard(title: "Show Activity", accessory: .shortcut("⌘.")),
+            style: .standard(title: "Show Activity", accessory: shortcutAccessory(.activity)),
             keywords: ["status", "notifications", "programs", "agents"]
         ) { [weak owner] in
             owner?.toggleActivity()
@@ -1329,10 +1348,20 @@ final class CommandPaletteCatalog {
         rows.append(PaletteRow(
             id: "cmd.app.settings",
             section: "App",
-            style: .standard(title: "Settings…", accessory: .shortcut("⌘,")),
+            style: .standard(title: "Settings…", accessory: shortcutAccessory(.settings)),
             keywords: ["preferences", "config", "options"]
         ) {
             SettingsNavigator.shared.show(.general)
+            return .dismiss(restoreFocus: false)
+        })
+
+        rows.append(PaletteRow(
+            id: "cmd.app.shortcuts",
+            section: "App",
+            style: .standard(title: "Change Shortcuts…", accessory: .none),
+            keywords: ["keyboard", "keybindings", "hotkeys", "remap"]
+        ) {
+            SettingsNavigator.shared.show(.shortcuts)
             return .dismiss(restoreFocus: false)
         })
 
@@ -1456,7 +1485,7 @@ final class CommandPaletteCatalog {
         if trimmed.isEmpty {
             items.append(.row(PaletteRow(
                 id: "scope.group.new",
-                style: .standard(title: "New Group", accessory: .shortcut("⇧⌘N")),
+                style: .standard(title: "New Group", accessory: shortcutAccessory(.newGroup)),
                 isCommand: false
             ) { [weak owner = context.owner] in
                 if let owner {

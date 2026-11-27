@@ -183,6 +183,7 @@ struct TabSelectionCommands: Commands {
     nonisolated static let useCommandDigitsForTabsDefault = true
 
     @State private var commandState = TerminalCommandState()
+    @State private var shortcuts = AppShortcutStore.shared
 
     var body: some Commands {
         CommandGroup(after: .windowArrangement) {
@@ -191,7 +192,7 @@ struct TabSelectionCommands: Commands {
                     Button("Select Tab \(number)") {
                         selectTab(at: number - 1)
                     }
-                    .keyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: [.command])
+                    .keyboardShortcut(selectTabShortcut(for: number))
                 }
             }
             .disabled(owner == nil)
@@ -201,13 +202,13 @@ struct TabSelectionCommands: Commands {
             Button("Select Previous Split") {
                 commandState.controller?.workspace?.selectPreviousSplit()
             }
-            .keyboardShortcut("[", modifiers: [.command])
+            .appShortcut(.selectPreviousSplit, store: shortcuts)
             .disabled(!hasMultipleSplits)
 
             Button("Select Next Split") {
                 commandState.controller?.workspace?.selectNextSplit()
             }
-            .keyboardShortcut("]", modifiers: [.command])
+            .appShortcut(.selectNextSplit, store: shortcuts)
             .disabled(!hasMultipleSplits)
         }
     }
@@ -219,6 +220,14 @@ struct TabSelectionCommands: Commands {
     private var owner: TerminalWindowController? {
         _ = commandState.window
         return TerminalWindowCommandTarget.resolve(keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow)?.terminal
+    }
+
+    private func selectTabShortcut(for number: Int) -> KeyboardShortcut? {
+        let combo = KeyCombo(String(number), modifiers: [.command])
+        guard !shortcuts.isBound(combo) else {
+            return nil
+        }
+        return combo.swiftUIShortcut
     }
 
     private func selectTab(at index: Int) {
@@ -233,6 +242,7 @@ struct TabSelectionCommands: Commands {
 
 struct SplitCommands: Commands {
     @State private var commandState = TerminalCommandState()
+    @State private var shortcuts = AppShortcutStore.shared
 
     private var workspace: TerminalPaneWorkspace? {
         commandState.controller?.workspace
@@ -248,25 +258,25 @@ struct SplitCommands: Commands {
                 Button("Select Split Above") {
                     workspace?.selectSplit(in: .up)
                 }
-                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                .appShortcut(.selectSplitAbove, store: shortcuts)
                 .disabled(!hasMultipleSplits)
 
                 Button("Select Split Below") {
                     workspace?.selectSplit(in: .down)
                 }
-                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                .appShortcut(.selectSplitBelow, store: shortcuts)
                 .disabled(!hasMultipleSplits)
 
                 Button("Select Split Left") {
                     workspace?.selectSplit(in: .left)
                 }
-                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                .appShortcut(.selectSplitLeft, store: shortcuts)
                 .disabled(!hasMultipleSplits)
 
                 Button("Select Split Right") {
                     workspace?.selectSplit(in: .right)
                 }
-                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                .appShortcut(.selectSplitRight, store: shortcuts)
                 .disabled(!hasMultipleSplits)
             }
 
@@ -274,7 +284,7 @@ struct SplitCommands: Commands {
                 Button("Equalize Split") {
                     workspace?.equalizeSplits()
                 }
-                .keyboardShortcut("=", modifiers: [.command, .control])
+                .appShortcut(.equalizeSplits, store: shortcuts)
                 .disabled(!hasMultipleSplits)
 
                 Divider()
@@ -282,32 +292,32 @@ struct SplitCommands: Commands {
                 Button("Move Divider Up") {
                     workspace?.moveDivider(in: .up)
                 }
-                .keyboardShortcut(.upArrow, modifiers: [.command, .control])
+                .appShortcut(.moveDividerUp, store: shortcuts)
                 .disabled(!hasMultipleSplits)
 
                 Button("Move Divider Down") {
                     workspace?.moveDivider(in: .down)
                 }
-                .keyboardShortcut(.downArrow, modifiers: [.command, .control])
+                .appShortcut(.moveDividerDown, store: shortcuts)
                 .disabled(!hasMultipleSplits)
 
                 Button("Move Divider Left") {
                     workspace?.moveDivider(in: .left)
                 }
-                .keyboardShortcut(.leftArrow, modifiers: [.command, .control])
+                .appShortcut(.moveDividerLeft, store: shortcuts)
                 .disabled(!hasMultipleSplits)
 
                 Button("Move Divider Right") {
                     workspace?.moveDivider(in: .right)
                 }
-                .keyboardShortcut(.rightArrow, modifiers: [.command, .control])
+                .appShortcut(.moveDividerRight, store: shortcuts)
                 .disabled(!hasMultipleSplits)
             }
 
             Button(workspace?.zoomedControllerID == nil ? "Zoom Split" : "Reset Split Zoom") {
                 workspace?.toggleSplitZoom()
             }
-            .keyboardShortcut(.return, modifiers: [.command, .shift])
+            .appShortcut(.zoomSplit, store: shortcuts)
             .disabled(!hasMultipleSplits)
         }
     }
@@ -316,6 +326,7 @@ struct SplitCommands: Commands {
 struct TerminalCommands: Commands {
     @State private var commandState = TerminalCommandState()
     @State private var secureKeyboardEntry = SecureKeyboardEntry.shared
+    @State private var shortcuts = AppShortcutStore.shared
 
     private var controller: TerminalSessionController? {
         commandState.controller
@@ -329,7 +340,7 @@ struct TerminalCommands: Commands {
                     controller.workspace?.split(controller, orientation: .vertical)
                 }
             }
-            .keyboardShortcut("d", modifiers: [.command])
+            .appShortcut(.splitPaneRight, store: shortcuts)
             .disabled(!isEnabled)
 
             Button("Split Pane Horizontally") {
@@ -337,7 +348,23 @@ struct TerminalCommands: Commands {
                     controller.workspace?.split(controller, orientation: .horizontal)
                 }
             }
-            .keyboardShortcut("d", modifiers: [.command, .shift])
+            .appShortcut(.splitPaneDown, store: shortcuts)
+            .disabled(!isEnabled)
+
+            Button("Split Pane Left") {
+                if let controller {
+                    controller.workspace?.split(controller, direction: .left)
+                }
+            }
+            .appShortcut(.splitPaneLeft, store: shortcuts)
+            .disabled(!isEnabled)
+
+            Button("Split Pane Up") {
+                if let controller {
+                    controller.workspace?.split(controller, direction: .up)
+                }
+            }
+            .appShortcut(.splitPaneUp, store: shortcuts)
             .disabled(!isEnabled)
 
             Button("Terminate Session") {
@@ -350,16 +377,18 @@ struct TerminalCommands: Commands {
             Button("Export Buffer...") {
                 controller?.exportBuffer()
             }
+            .appShortcut(.exportBuffer, store: shortcuts)
             .disabled(!isEnabled)
             Button("Export Selection...") {
                 controller?.exportSelection()
             }
+            .appShortcut(.exportSelection, store: shortcuts)
             .disabled(!isEnabled || controller?.selectionActive != true)
 
             Divider()
 
             Button("Clear to Start", action: clearScrollback)
-                .keyboardShortcut("k", modifiers: [.command, .control])
+                .appShortcut(.clearToStart, store: shortcuts)
                 .disabled(!isEnabled)
 
             Divider()
@@ -367,30 +396,33 @@ struct TerminalCommands: Commands {
             Button("Scroll to Previous Prompt") {
                 controller?.scrollToPreviousPrompt()
             }
-            .keyboardShortcut(.upArrow, modifiers: [.command])
+            .appShortcut(.scrollToPreviousPrompt, store: shortcuts)
             .disabled(!isEnabled)
 
             Button("Scroll to Next Prompt") {
                 controller?.scrollToNextPrompt()
             }
-            .keyboardShortcut(.downArrow, modifiers: [.command])
+            .appShortcut(.scrollToNextPrompt, store: shortcuts)
             .disabled(!isEnabled)
 
             Button("Soft Reset") {
                 controller?.softReset()
             }
+            .appShortcut(.softReset, store: shortcuts)
             .disabled(!isEnabled)
             Button("Hard Reset") {
                 controller?.hardReset()
             }
+            .appShortcut(.hardReset, store: shortcuts)
             .disabled(!isEnabled)
 
             Divider()
 
             Toggle("Allow Mouse Reporting", isOn: binding(\.allowMouseReporting))
-                .keyboardShortcut("r", modifiers: [.command])
+                .appShortcut(.allowMouseReporting, store: shortcuts)
                 .disabled(!isEnabled)
             Toggle("Use Option as Meta Key", isOn: binding(\.optionAsMetaKey))
+                .appShortcut(.optionAsMetaKey, store: shortcuts)
                 .disabled(!isEnabled)
             Toggle("Use Metal Renderer", isOn: binding(\.useMetalRenderer))
                 .disabled(!isEnabled)
@@ -399,25 +431,26 @@ struct TerminalCommands: Commands {
             Toggle("Log host output to ~/Downloads/Logs", isOn: binding(\.logHostOutput))
                 .disabled(!isEnabled)
             Toggle("Secure Keyboard Entry", isOn: Bindable(secureKeyboardEntry).isEnabled)
+                .appShortcut(.secureKeyboardEntry, store: shortcuts)
 
             Divider()
 
             Button("Bigger Font") {
                 controller?.biggerFont()
             }
-            .keyboardShortcut("+", modifiers: [.command])
+            .appShortcut(.biggerFont, store: shortcuts)
             .disabled(!isEnabled)
 
             Button("Smaller Font") {
                 controller?.smallerFont()
             }
-            .keyboardShortcut("-", modifiers: [.command])
+            .appShortcut(.smallerFont, store: shortcuts)
             .disabled(!isEnabled)
 
             Button("Default Font Size") {
                 controller?.defaultFontSize()
             }
-            .keyboardShortcut("0", modifiers: [.command])
+            .appShortcut(.defaultFontSize, store: shortcuts)
             .disabled(!isEnabled)
         }
 
@@ -427,26 +460,26 @@ struct TerminalCommands: Commands {
                 Button("Find…") {
                     performFindAction(.showFindInterface)
                 }
-                .keyboardShortcut("f", modifiers: [.command])
+                .appShortcut(.find, store: shortcuts)
                 .disabled(!isEnabled)
 
                 Button("Find Next") {
                     performFindAction(.nextMatch)
                 }
-                .keyboardShortcut("g", modifiers: [.command])
+                .appShortcut(.findNext, store: shortcuts)
                 .disabled(!isEnabled)
 
                 Button("Find Previous") {
                     performFindAction(.previousMatch)
                 }
-                .keyboardShortcut("g", modifiers: [.command, .control])
+                .appShortcut(.findPrevious, store: shortcuts)
                 .disabled(!isEnabled)
             }
 
             Button("Paste Escaped") {
                 pasteEscaped()
             }
-            .keyboardShortcut("v", modifiers: [.command, .control])
+            .appShortcut(.pasteEscaped, store: shortcuts)
             .disabled(!isEnabled)
         }
     }
@@ -501,6 +534,7 @@ private enum SettingsWindowID {
 
 struct SettingsCommands: Commands {
     @Environment(\.openWindow) private var openWindow
+    @State private var shortcuts = AppShortcutStore.shared
 
     var body: some Commands {
         // Lets the crash report notice open this window.
@@ -509,7 +543,7 @@ struct SettingsCommands: Commands {
             Button("Settings…") {
                 openWindow(id: SettingsWindowID.value)
             }
-            .keyboardShortcut(",", modifiers: .command)
+            .appShortcut(.settings, store: shortcuts)
         }
     }
 }

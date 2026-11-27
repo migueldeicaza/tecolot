@@ -19,6 +19,7 @@ nonisolated struct GroupSwitcherModel {
     }
     let groups: [Group]
     let filter: String
+    var newGroupKeycap: String = AppShortcutID.newGroup.descriptor.defaultShortcut?.displayString ?? ""
 
     var rows: [Row] {
         let text = filter.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -40,7 +41,7 @@ nonisolated struct GroupSwitcherModel {
             title: name.map {
                 "New Group “\($0)”"
             } ?? "New Group",
-            keycap: "⇧⌘N",
+            keycap: newGroupKeycap,
             symbol: "rectangle.stack.badge.plus",
             action: .newGroup(name),
             separatorBefore: !rows.isEmpty

@@ -10,6 +10,7 @@ final class PaneWindowControlsView: NSView {
     private let add = ChromeIconButton(treatment: .window)
     private let badge = ProgramStatusBadgeView()
     private let popover = ActivityPopover()
+    private var shortcutsObserver: NSObjectProtocol?
     private(set) var trailingWidth: CGFloat = 0
 
     override var isFlipped: Bool {
@@ -19,10 +20,10 @@ final class PaneWindowControlsView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         for (button, symbol, label, selector) in [
-            (toggle, "sidebar.left", "Toggle Sidebar (⌘/)", #selector(toggleSidebar)),
-            (activity, "eye", "Activity (⌘.)", #selector(toggleActivity)),
+            (toggle, "sidebar.left", "Toggle Sidebar", #selector(toggleSidebar)),
+            (activity, "eye", "Activity", #selector(toggleActivity)),
             (zoom, "arrow.down.right.and.arrow.up.left", "Reset Split Zoom", #selector(resetZoom)),
-            (add, "plus", "New Tab (⌘T)", #selector(newTab))
+            (add, "plus", "New Tab", #selector(newTab))
         ] {
             button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
             button.isBordered = false
@@ -30,6 +31,16 @@ final class PaneWindowControlsView: NSView {
             button.toolTip = label
             button.target = self
             button.action = selector
+        }
+        updateShortcutToolTips()
+        shortcutsObserver = NotificationCenter.default.addObserver(
+            forName: .appShortcutsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updateShortcutToolTips()
+            }
         }
         for view in [toggle, activity, theme, zoom, add] {
             addSubview(view)
@@ -43,7 +54,21 @@ final class PaneWindowControlsView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    deinit {
+        if let shortcutsObserver {
+            NotificationCenter.default.removeObserver(shortcutsObserver)
+        }
+    }
+
+    func updateShortcutToolTips() {
+        let shortcuts = AppShortcutStore.shared
+        toggle.toolTip = shortcuts.toolTip("Toggle Sidebar", for: .toggleSidebar)
+        activity.toolTip = shortcuts.toolTip("Activity", for: .activity)
+        add.toolTip = shortcuts.toolTip("New Tab", for: .newTab)
+    }
+
     func refresh() {
+        updateShortcutToolTips()
         let pane = controller?.group.selectedTab?.loadedWorkspace?.focusedController
         theme.configure(controller: pane)
         zoom.isHidden = pane?.workspace?.zoomedControllerID == nil
