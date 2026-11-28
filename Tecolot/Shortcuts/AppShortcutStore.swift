@@ -25,6 +25,7 @@ final class AppShortcutStore {
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var overrides: [AppShortcutID: StoredOverride] = [:]
+    @ObservationIgnored private var unknownOverrides: [String: RawJSONValue] = [:]
     @ObservationIgnored private var unreadableRawData: Data?
 
     /// Effective active binding per action (absent means unbound).
@@ -199,55 +200,134 @@ final class AppShortcutStore {
 
     // MARK: - Persistence & Derived State
 
-    /// Decodes each saved key individually so one corrupted or future-format entry
-    /// never wipes out the user's other valid shortcut overrides.
-    private struct LossyOverrides: Decodable {
-        let entries: [String: StoredOverride]
+    /// Lossless JSON value used to preserve override keys written by newer builds.
+    private enum RawJSONValue: Codable, Equatable {
+        case null
+        case bool(Bool)
+        case int(Int)
+        case double(Double)
+        case string(String)
+        case array([RawJSONValue])
+        case object([String: RawJSONValue])
 
-        private struct DynamicKey: CodingKey {
-            var stringValue: String
-            var intValue: Int? {
-                nil
-            }
-
-            init?(stringValue: String) {
-                self.stringValue = stringValue
-            }
-
-            init?(intValue: Int) {
-                nil
+        init(from decoder: Decoder) throws {
+            let single = try decoder.singleValueContainer()
+            if single.decodeNil() {
+                self = .null
+            } else if let value = try? single.decode(Bool.self) {
+                self = .bool(value)
+            } else if let value = try? single.decode(Int.self) {
+                self = .int(value)
+            } else if let value = try? single.decode(Double.self) {
+                self = .double(value)
+            } else if let value = try? single.decode(String.self) {
+                self = .string(value)
+            } else if let value = try? single.decode([RawJSONValue].self) {
+                self = .array(value)
+            } else if let value = try? single.decode([String: RawJSONValue].self) {
+                self = .object(value)
+            } else {
+                throw DecodingError.dataCorruptedError(in: single, debugDescription: "Unsupported JSON value")
             }
         }
 
+        func encode(to encoder: Encoder) throws {
+            var single = encoder.singleValueContainer()
+            switch self {
+            case .null:
+                try single.encodeNil()
+            case .bool(let value):
+                try single.encode(value)
+            case .int(let value):
+                try single.encode(value)
+            case .double(let value):
+                try single.encode(value)
+            case .string(let value):
+                try single.encode(value)
+            case .array(let value):
+                try single.encode(value)
+            case .object(let value):
+                try single.encode(value)
+            }
+        }
+    }
+
+    private struct DynamicKey: CodingKey {
+        var stringValue: String
+        var intValue: Int? {
+            nil
+        }
+
+        init(_ stringValue: String) {
+            self.stringValue = stringValue
+        }
+
+        init?(stringValue: String) {
+            self.stringValue = stringValue
+        }
+
+        init?(intValue: Int) {
+            nil
+        }
+    }
+
+    /// Decodes each saved key individually so one corrupted or future-format entry
+    /// never wipes out the user's other valid shortcut overrides, while preserving
+    /// unknown keys written by newer builds.
+    private struct LossyOverrides: Decodable {
+        let known: [AppShortcutID: StoredOverride]
+        let unknown: [String: RawJSONValue]
+
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: DynamicKey.self)
-            var decoded: [String: StoredOverride] = [:]
+            var decodedKnown: [AppShortcutID: StoredOverride] = [:]
+            var decodedUnknown: [String: RawJSONValue] = [:]
             for key in container.allKeys {
-                if let value = try? container.decode(StoredOverride.self, forKey: key) {
-                    decoded[key.stringValue] = value
+                if let id = AppShortcutID(rawValue: key.stringValue) {
+                    if let value = try? container.decode(StoredOverride.self, forKey: key) {
+                        decodedKnown[id] = value
+                    }
+                } else if let rawValue = try? container.decode(RawJSONValue.self, forKey: key) {
+                    decodedUnknown[key.stringValue] = rawValue
                 }
             }
-            entries = decoded
+            known = decodedKnown
+            unknown = decodedUnknown
+        }
+    }
+
+    private struct PersistedOverrides: Encodable {
+        let known: [AppShortcutID: StoredOverride]
+        let unknown: [String: RawJSONValue]
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: DynamicKey.self)
+            for (rawID, rawValue) in unknown {
+                try container.encode(rawValue, forKey: DynamicKey(rawID))
+            }
+            for (id, stored) in known {
+                try container.encode(stored, forKey: DynamicKey(id.rawValue))
+            }
         }
     }
 
     private func loadOverrides() {
         guard let data = defaults.data(forKey: Self.overridesDefaultsKey) else {
             overrides = [:]
+            unknownOverrides = [:]
             unreadableRawData = nil
             return
         }
         guard let decoded = try? JSONDecoder().decode(LossyOverrides.self, from: data) else {
             overrides = [:]
+            unknownOverrides = [:]
             unreadableRawData = data
             return
         }
         unreadableRawData = nil
+        unknownOverrides = decoded.unknown
         var loaded: [AppShortcutID: StoredOverride] = [:]
-        for (rawID, stored) in decoded.entries {
-            guard let id = AppShortcutID(rawValue: rawID) else {
-                continue
-            }
+        for (id, stored) in decoded.known {
             // Drop stale overrides that already match the built-in default.
             let defaultValue = id.descriptor.defaultShortcut
             switch stored {
@@ -267,12 +347,12 @@ final class AppShortcutStore {
             defaults.set(corruptData, forKey: Self.corruptOverridesBackupKey)
             unreadableRawData = nil
         }
-        if overrides.isEmpty {
+        if overrides.isEmpty && unknownOverrides.isEmpty {
             defaults.removeObject(forKey: Self.overridesDefaultsKey)
             return
         }
-        let encodedMap = Dictionary(uniqueKeysWithValues: overrides.map { ($0.key.rawValue, $0.value) })
-        if let data = try? JSONEncoder().encode(encodedMap) {
+        let payload = PersistedOverrides(known: overrides, unknown: unknownOverrides)
+        if let data = try? JSONEncoder().encode(payload) {
             defaults.set(data, forKey: Self.overridesDefaultsKey)
         }
     }
@@ -402,7 +482,10 @@ nonisolated struct KeyQueryFilter: Equatable, Sendable {
                 return false
             }
             return combo.key.searchAliases.contains { alias in
-                alias == keyToken || (keyToken.count >= 2 && alias.hasPrefix(keyToken))
+                if combo.key.isFunctionKey {
+                    return alias == keyToken
+                }
+                return alias == keyToken || (keyToken.count >= 2 && alias.hasPrefix(keyToken))
             }
         }
         // Modifier-only query like "cmd" or "⌃⌘": match any shortcut containing those modifiers.

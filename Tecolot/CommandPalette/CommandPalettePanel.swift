@@ -21,6 +21,7 @@ final class CommandPalettePanel: NSPanel, CommandPalettePresenting, NSWindowDele
     }
 
     private var clickMonitor: Any?
+    private var keyMonitor: Any?
     private var groupsObserver: NSObjectProtocol?
     private var closing = false
     private var topEdgeScreenY: CGFloat = 0
@@ -72,6 +73,9 @@ final class CommandPalettePanel: NSPanel, CommandPalettePresenting, NSWindowDele
     deinit {
         if let clickMonitor {
             NSEvent.removeMonitor(clickMonitor)
+        }
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
         }
         if let groupsObserver {
             NotificationCenter.default.removeObserver(groupsObserver)
@@ -191,6 +195,21 @@ final class CommandPalettePanel: NSPanel, CommandPalettePresenting, NSWindowDele
             }
             return event
         }
+        // Intercept reserved navigation keys (such as Ctrl+N / Ctrl+P) before
+        // NSApp.mainMenu can fire a non-Command menu shortcut bound to the same key.
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard
+                let self,
+                self.isVisible,
+                self.attachedSheet == nil,
+                self.isKeyWindow || event.window === self else {
+                return event
+            }
+            if self.isReservedPaletteNavigationKey(event), self.handleKeyDown(event) {
+                return nil
+            }
+            return event
+        }
         groupsObserver = NotificationCenter.default.addObserver(
             forName: .groupsDidChange,
             object: manager,
@@ -209,6 +228,10 @@ final class CommandPalettePanel: NSPanel, CommandPalettePresenting, NSWindowDele
         if let clickMonitor {
             NSEvent.removeMonitor(clickMonitor)
             self.clickMonitor = nil
+        }
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
         }
         if let groupsObserver {
             NotificationCenter.default.removeObserver(groupsObserver)
@@ -342,14 +365,20 @@ final class CommandPalettePanel: NSPanel, CommandPalettePresenting, NSWindowDele
         super.sendEvent(event)
     }
 
+    private func isControlNavigationKey(_ event: NSEvent, letter: String) -> Bool {
+        if event.charactersIgnoringModifiers?.lowercased() == letter {
+            return true
+        }
+        return KeyCombo.character(from: event) == letter
+    }
+
     private func isReservedPaletteNavigationKey(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
         if event.keyCode == 48, flags.isEmpty || flags == .shift {
             return true
         }
         if flags == .control {
-            let key = event.charactersIgnoringModifiers?.lowercased()
-            if key == "n" || key == "p" {
+            if isControlNavigationKey(event, letter: "n") || isControlNavigationKey(event, letter: "p") {
                 return true
             }
         }
@@ -413,11 +442,11 @@ final class CommandPalettePanel: NSPanel, CommandPalettePresenting, NSWindowDele
 
         // Ctrl+N / Ctrl+P navigation
         if flags == .control {
-            if event.charactersIgnoringModifiers?.lowercased() == "n" {
+            if isControlNavigationKey(event, letter: "n") {
                 moveSelection(by: 1)
                 return true
             }
-            if event.charactersIgnoringModifiers?.lowercased() == "p" {
+            if isControlNavigationKey(event, letter: "p") {
                 moveSelection(by: -1)
                 return true
             }

@@ -513,8 +513,8 @@ nonisolated enum AppShortcutCatalog {
             .biggerFont,
             category: .view,
             title: "Bigger Font",
-            default: KeyCombo("=", modifiers: [.command]),
-            keywords: ["increase font size", "zoom in", "plus"]
+            default: KeyCombo("+", modifiers: [.command]),
+            keywords: ["increase font size", "zoom in", "plus", "equals"]
         ),
         AppShortcutDescriptor(
             .smallerFont,

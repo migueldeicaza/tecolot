@@ -459,30 +459,66 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         select(tabs[index].tab)
     }
     func beginRename(_ tab: TerminalTab, onFinish: (() -> Void)? = nil) {
+        if model == nil {
+            reload()
+        }
+        var temporarilyExpandedGroup: TerminalTabGroup?
+        if let tabGroup = group(for: tab), tabGroup.isCollapsed {
+            temporarilyExpandedGroup = tabGroup
+            controller?.manager.setCollapsed(false, group: tabGroup)
+            reload()
+        }
+        let finish: () -> Void = { [weak self, weak temporarilyExpandedGroup] in
+            if let temporarilyExpandedGroup {
+                self?.controller?.manager.setCollapsed(true, group: temporarilyExpandedGroup)
+            }
+            onFinish?()
+        }
         if outline.row(forItem: tab) < 0 {
             filter.stringValue = ""
             reload()
         }
-        let cell: TabItemView?
-        if let existing = cells[tab.id] {
-            cell = existing
-        } else {
-            let row = outline.row(forItem: tab)
-            cell = row >= 0 ? outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? TabItemView : nil
-        }
-        guard let cell else {
-            onFinish?()
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        scroll.layoutSubtreeIfNeeded()
+        outline.tile()
+        let row = outline.row(forItem: tab)
+        guard row >= 0 else {
+            finish()
             return
         }
-        cell.beginRename(onFinish: onFinish)
+        outline.scrollRowToVisible(row)
+        outline.layoutSubtreeIfNeeded()
+        guard
+            let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? TabItemView,
+            cell.window != nil else {
+            finish()
+            return
+        }
+        cell.beginRename(onFinish: finish)
     }
     func beginGroupRename(_ group: TerminalTabGroup, onFinish: (() -> Void)? = nil) {
+        if model == nil {
+            reload()
+        }
         if outline.row(forItem: group) < 0 {
             filter.stringValue = ""
             reload()
         }
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        scroll.layoutSubtreeIfNeeded()
+        outline.tile()
         let row = outline.row(forItem: group)
-        guard row >= 0, let header = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? SidebarGroupHeader else {
+        guard row >= 0 else {
+            onFinish?()
+            return
+        }
+        outline.scrollRowToVisible(row)
+        outline.layoutSubtreeIfNeeded()
+        guard
+            let header = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? SidebarGroupHeader,
+            header.window != nil else {
             onFinish?()
             return
         }
@@ -578,6 +614,7 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
             filterShown = true
             filter.isHidden = false
             needsLayout = true
+            layoutSubtreeIfNeeded()
         }
         window?.makeFirstResponder(filter)
     }
@@ -590,11 +627,22 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
         }
         needsLayout = true
         if filterShown {
+            layoutSubtreeIfNeeded()
             window?.makeFirstResponder(filter)
+        } else {
+            controller?.endTemporarySidebarReveal()
         }
     }
     func controlTextDidChange(_ obj: Notification) {
         reload()
+    }
+    func controlTextDidEndEditing(_ obj: Notification) {
+        guard obj.object as? NSSearchField === filter else {
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.controller?.endTemporarySidebarReveal()
+        }
     }
 
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -887,7 +935,14 @@ private final class SidebarGroupHeader: NSView {
         sidebar?.controller?.newTab(in: group)
     }
     func beginRename(onFinish: (() -> Void)? = nil) {
-        guard editor == nil else {
+        if let existing = editor {
+            if existing.window != nil, existing.beginEditing() {
+                return
+            }
+            existing.cancel()
+        }
+        guard window != nil, !isHiddenOrHasHiddenAncestor else {
+            onFinish?()
             return
         }
         let field = InlineNameField(value: group.name) { [weak self] value in

@@ -382,24 +382,84 @@ struct AppShortcutTests {
         let optionMeta = store.filteredSections(matching: "option as meta").flatMap(\.items).map(\.id)
         #expect(optionMeta == [.optionAsMetaKey])
 
-        let cmdEquals = store.filteredSections(matching: "cmd+=").flatMap(\.items).map(\.id)
-        #expect(cmdEquals == [.biggerFont])
+        let cmdPlus = store.filteredSections(matching: "cmd++").flatMap(\.items).map(\.id)
+        #expect(cmdPlus == [.biggerFont])
     }
 
-    @Test func biggerFontDefaultMatchesRecordedCmdEquals() {
-        let store = AppShortcutStore(defaults: makeIsolatedDefaults())
-        let cmdEqualsEvent = keyEvent(characters: "=", keyCode: UInt16(kVK_ANSI_Equal), modifiers: [.command])
+    @Test func biggerFontDefaultUsesCommandPlusWithAutomaticLocalization() {
+        let defaultShortcut = AppShortcutID.biggerFont.descriptor.defaultShortcut
+        #expect(defaultShortcut == KeyCombo("+", modifiers: [.command]))
+        #expect(defaultShortcut?.usesAutomaticLocalization == true)
 
-        #expect(KeyCombo.capture(from: cmdEqualsEvent) == .valid(KeyCombo("=", modifiers: [.command])))
-        #expect(AppShortcutID.biggerFont.descriptor.defaultShortcut == KeyCombo("=", modifiers: [.command]))
+        // Other shortcuts use `.custom` so menu bindings stay aligned with KeyCombo.matches across layouts.
+        let customShortcut = KeyCombo("[", modifiers: [.command, .shift])
+        #expect(!customShortcut.usesAutomaticLocalization)
+        #expect(!KeyCombo("/", modifiers: [.command]).usesAutomaticLocalization)
+    }
 
-        store.setShortcut(KeyCombo("b", modifiers: [.command, .option]), for: .biggerFont)
-        #expect(store.isCustomized(.biggerFont))
-
-        if case .valid(let captured) = KeyCombo.capture(from: cmdEqualsEvent) {
-            store.setShortcut(captured, for: .biggerFont)
+    @Test func captureRejectsControlOnlyAndOptionOnlyCharacterCombosButAllowsControlTab() {
+        let ctrlC = keyEvent(characters: "c", keyCode: UInt16(kVK_ANSI_C), modifiers: [.control])
+        if case .rejected(let message) = KeyCombo.capture(from: ctrlC) {
+            #expect(message.contains("Command"))
+        } else {
+            Issue.record("Expected Ctrl+C to be rejected so SIGINT keeps working")
         }
-        #expect(!store.isCustomized(.biggerFont))
+
+        let optB = keyEvent(characters: "b", keyCode: UInt16(kVK_ANSI_B), modifiers: [.option])
+        if case .rejected = KeyCombo.capture(from: optB) {
+            // Expected
+        } else {
+            Issue.record("Expected Option+B to be rejected")
+        }
+
+        let ctrlOptP = keyEvent(characters: "p", keyCode: UInt16(kVK_ANSI_P), modifiers: [.control, .option])
+        if case .rejected = KeyCombo.capture(from: ctrlOptP) {
+            // Expected
+        } else {
+            Issue.record("Expected Ctrl+Option+P to be rejected")
+        }
+
+        let ctrlTab = keyEvent(characters: "\t", keyCode: UInt16(kVK_Tab), modifiers: [.control])
+        #expect(KeyCombo.capture(from: ctrlTab) == .valid(KeyCombo(.tab, modifiers: [.control])))
+
+        let ctrlShiftPageUp = keyEvent(characters: "", keyCode: UInt16(kVK_PageUp), modifiers: [.control, .shift])
+        #expect(KeyCombo.capture(from: ctrlShiftPageUp) == .valid(KeyCombo(.pageUp, modifiers: [.control, .shift])))
+    }
+
+    @Test func functionKeyFilterDoesNotOverMatchHigherFunctionKeys() {
+        let store = AppShortcutStore(defaults: makeIsolatedDefaults())
+        store.setShortcut(KeyCombo(.f1, modifiers: [.command]), for: .newTab)
+        store.setShortcut(KeyCombo(.f10, modifiers: [.command]), for: .newWindow)
+        store.setShortcut(KeyCombo(.f11, modifiers: [.command]), for: .goToGroup)
+        store.setShortcut(KeyCombo(.f12, modifiers: [.command]), for: .toggleSidebar)
+
+        let matches = store.filteredSections(matching: "cmd+f1").flatMap(\.items).map(\.id)
+        #expect(matches == [.newTab])
+    }
+
+    @Test func unknownOverridesFromNewerBuildsSurviveEdits() throws {
+        let defaults = makeIsolatedDefaults()
+        let seedStore = AppShortcutStore(defaults: defaults)
+        let customNewTab = KeyCombo("b", modifiers: [.command, .shift])
+        seedStore.setShortcut(customNewTab, for: .newTab)
+
+        let rawData = try #require(defaults.data(forKey: AppShortcutStore.overridesDefaultsKey))
+        var json = try #require(JSONSerialization.jsonObject(with: rawData) as? [String: Any])
+        json["futureActionFromNewerBuild"] = ["bound": ["_0": ["key": ["character": ["_0": "x"]], "modifiers": 8]]]
+        defaults.set(try JSONSerialization.data(withJSONObject: json), forKey: AppShortcutStore.overridesDefaultsKey)
+
+        let store = AppShortcutStore(defaults: defaults)
+        #expect(store.shortcut(for: .newTab) == customNewTab)
+        #expect(store.customizedCount == 1)
+
+        // Editing another shortcut rewrites defaults without dropping the unknown key.
+        store.setShortcut(KeyCombo("j", modifiers: [.command, .option]), for: .goToGroup)
+
+        let savedData = try #require(defaults.data(forKey: AppShortcutStore.overridesDefaultsKey))
+        let savedJSON = try #require(JSONSerialization.jsonObject(with: savedData) as? [String: Any])
+        #expect(savedJSON["futureActionFromNewerBuild"] != nil)
+        #expect(savedJSON["goToGroup"] != nil)
+        #expect(savedJSON["newTab"] != nil)
     }
 
     @Test func paletteNavigationKeysWinOverReboundPanelShortcuts() async throws {
@@ -418,8 +478,8 @@ struct AppShortcutTests {
         store.setShortcut(KeyCombo("p", modifiers: [.control]), for: .activity)
         try await Task.sleep(for: .milliseconds(250))
 
-        // Confirm the live main menu item actually holds Ctrl+P so yielding from
-        // performKeyEquivalent would have fired Activity instead of moving selection.
+        // Confirm the live main menu item actually holds Ctrl+P so letting the event
+        // pass to NSApp.mainMenu would fire Activity instead of moving selection.
         let activityItem = try #require(findMenuItem(titled: "Activity", in: NSApp.mainMenu))
         #expect(activityItem.keyEquivalent.lowercased() == "p")
         #expect(activityItem.keyEquivalentModifierMask.intersection([.command, .option, .control, .shift]) == [.control])
@@ -432,18 +492,153 @@ struct AppShortcutTests {
         panel.present(for: controller, manager: manager, initialScope: .root)
         defer { panel.dismiss(restoreFocus: false) }
 
-        let ctrlN = keyEvent(characters: "n", keyCode: UInt16(kVK_ANSI_N), modifiers: [.control])
-        let ctrlP = keyEvent(characters: "p", keyCode: UInt16(kVK_ANSI_P), modifiers: [.control])
+        let ctrlN = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: panel.windowNumber,
+            context: nil,
+            characters: "\u{0E}",
+            charactersIgnoringModifiers: "n",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_N)
+        )!
+        let ctrlP = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: panel.windowNumber,
+            context: nil,
+            characters: "\u{10}",
+            charactersIgnoringModifiers: "p",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_P)
+        )!
 
-        // Move down first so Ctrl+P has a previous row to move back to.
-        #expect(panel.performKeyEquivalent(with: ctrlN))
+        // Dispatch through NSApp.sendEvent so the live local key monitor intercepts
+        // Ctrl+N and Ctrl+P before NSApp.mainMenu can fire the Activity menu item.
+        let initial = panel.activeModel?.selectedIndex
+        NSApp.sendEvent(ctrlN)
         let afterDown = panel.activeModel?.selectedIndex
+        #expect(afterDown != initial)
 
-        // performKeyEquivalent must consume Ctrl+P directly and move selection up
-        // before AppKit dispatches the key equivalent to NSApp.mainMenu.
-        #expect(panel.performKeyEquivalent(with: ctrlP))
+        NSApp.sendEvent(ctrlP)
         #expect(panel.isVisible)
-        #expect(panel.activeModel?.selectedIndex != afterDown)
+        #expect(panel.activeModel?.selectedIndex == initial)
+    }
+
+    @Test func toggleSidebarAndFocusFilterDuringTemporaryRevealPreserveHiddenPreference() async throws {
+        let defaults = makeIsolatedDefaults()
+        defaults.set("vertical", forKey: ProgramActivityPreferences.tabStyleKey)
+        defaults.set("left", forKey: SidebarPreferences.positionKey)
+        defaults.set(true, forKey: SidebarPreferences.hiddenKey)
+
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        let tab = TerminalTab(startsProcesses: false)
+        let group = manager.newGroup(tab: tab)
+        let controller = TerminalWindowController(group: group, manager: manager, defaults: defaults)
+        controller.window?.setFrame(NSRect(x: 0, y: 0, width: 900, height: 600), display: false)
+        controller.window?.contentView?.layoutSubtreeIfNeeded()
+
+        controller.renameTab(tab)
+        #expect(controller.sidebarTemporarilyRevealed)
+        #expect(!controller.isSidebarHidden)
+
+        // Toggling the sidebar while temporarily revealed hides it and keeps the stored preference hidden.
+        controller.toggleSidebar()
+        #expect(!controller.sidebarTemporarilyRevealed)
+        #expect(controller.isSidebarHidden)
+        #expect(controller.sidebar.isHidden)
+        #expect(defaults.bool(forKey: SidebarPreferences.hiddenKey))
+
+        // Focus filter during a temporary reveal ends the rename without hiding the sidebar
+        // while the filter has focus, and does not flip the stored preference to shown.
+        controller.renameTab(tab)
+        #expect(controller.sidebarTemporarilyRevealed)
+        controller.focusSidebarFilter()
+        #expect(defaults.bool(forKey: SidebarPreferences.hiddenKey))
+        #expect(controller.sidebarTemporarilyRevealed)
+        #expect(!controller.isSidebarHidden)
+        #expect(!controller.sidebar.isHidden)
+        let filterEditor = controller.window?.firstResponder as? NSText
+        #expect(filterEditor?.delegate as? NSSearchField === controller.sidebar.filter)
+
+        // Leaving the filter ends the temporary reveal and re-hides the sidebar.
+        controller.window?.makeFirstResponder(controller.window)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(!controller.sidebarTemporarilyRevealed)
+        #expect(controller.isSidebarHidden)
+        #expect(controller.sidebar.isHidden)
+        #expect(defaults.bool(forKey: SidebarPreferences.hiddenKey))
+    }
+
+    @Test func renameTabTemporarilyExpandsCollapsedGroupAndReCollapsesOnFinish() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set("vertical", forKey: ProgramActivityPreferences.tabStyleKey)
+        defaults.set("left", forKey: SidebarPreferences.positionKey)
+        defaults.set(false, forKey: SidebarPreferences.hiddenKey)
+
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        let tab = TerminalTab(startsProcesses: false)
+        let group = manager.newGroup(tab: tab)
+        let controller = TerminalWindowController(group: group, manager: manager, defaults: defaults)
+        controller.window?.setFrame(NSRect(x: 0, y: 0, width: 900, height: 600), display: false)
+        controller.window?.contentView?.layoutSubtreeIfNeeded()
+
+        // Collapse the group after the sidebar has cached the cell, then hide the sidebar.
+        manager.setCollapsed(true, group: group)
+        controller.sidebar.reload()
+        controller.toggleSidebar()
+        #expect(controller.isSidebarHidden)
+
+        // Renaming the tab temporarily expands its collapsed group and reveals the sidebar,
+        // then re-collapses the group and re-hides the sidebar when editing finishes.
+        controller.renameTab(tab)
+        #expect(!group.isCollapsed)
+        #expect(controller.sidebarTemporarilyRevealed)
+        #expect(!controller.sidebar.isHidden)
+        if let editor = controller.window?.firstResponder as? NSTextView,
+           let field = editor.delegate as? InlineNameField {
+            field.cancel()
+        } else {
+            Issue.record("Expected active InlineNameField during renameTab")
+        }
+        #expect(group.isCollapsed)
+        #expect(!controller.sidebarTemporarilyRevealed)
+        #expect(controller.isSidebarHidden)
+    }
+
+    @Test func renameGroupTemporarilyRevealsHiddenSidebar() async throws {
+        let defaults = makeIsolatedDefaults()
+        defaults.set("vertical", forKey: ProgramActivityPreferences.tabStyleKey)
+        defaults.set("left", forKey: SidebarPreferences.positionKey)
+        defaults.set(true, forKey: SidebarPreferences.hiddenKey)
+
+        let manager = TerminalWindowManager(registry: TerminalSessionRegistry())
+        let tab = TerminalTab(startsProcesses: false)
+        let group = manager.newGroup(tab: tab)
+        let controller = TerminalWindowController(group: group, manager: manager, defaults: defaults)
+        controller.window?.setFrame(NSRect(x: 0, y: 0, width: 900, height: 600), display: false)
+        controller.window?.contentView?.layoutSubtreeIfNeeded()
+
+        #expect(controller.isSidebarHidden)
+        controller.renameGroup()
+        #expect(controller.sidebarTemporarilyRevealed)
+        #expect(!controller.sidebar.isHidden)
+
+        // Allow the header's async beginEditing() to run, then cancel and verify sidebar re-hides.
+        try await Task.sleep(for: .milliseconds(50))
+        if let editor = controller.window?.firstResponder as? NSTextView,
+           let field = editor.delegate as? InlineNameField {
+            field.cancel()
+        } else {
+            controller.endTemporarySidebarReveal()
+        }
+        #expect(!controller.sidebarTemporarilyRevealed)
+        #expect(controller.isSidebarHidden)
+        #expect(defaults.bool(forKey: SidebarPreferences.hiddenKey))
     }
 
     @Test func renameTabTemporarilyRevealsHiddenSidebarWithoutMutatingDefaults() {

@@ -27,6 +27,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     private let defaults: UserDefaults
     private(set) var sidebarPreferences: SidebarPreferences
     private(set) var sidebarTemporarilyRevealed = false
+    private var focusingSidebarFilter = false
 
     /// Effective sidebar hidden state for this window, accounting for temporary inline-rename reveals.
     var isSidebarHidden: Bool {
@@ -214,9 +215,16 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         guard sidebarPreferences.style != .above else {
             return
         }
+        let nextHidden = !isSidebarHidden
+        let wasTemporarilyRevealed = sidebarTemporarilyRevealed
         sidebarTemporarilyRevealed = false
-        defaults.set(!sidebarPreferences.hidden, forKey: SidebarPreferences.hiddenKey)
-        refreshSidebarPreferences()
+        defaults.set(nextHidden, forKey: SidebarPreferences.hiddenKey)
+        if nextHidden == sidebarPreferences.hidden && wasTemporarilyRevealed {
+            animateChrome = true
+            refresh()
+        } else {
+            refreshSidebarPreferences()
+        }
     }
 
     private func beginTemporarySidebarRevealIfNeeded() {
@@ -230,6 +238,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
 
     func endTemporarySidebarReveal() {
         guard sidebarTemporarilyRevealed else {
+            return
+        }
+        if focusingSidebarFilter || Self.focusOwner(of: window?.firstResponder) === sidebar.filter {
             return
         }
         sidebarTemporarilyRevealed = false
@@ -876,8 +887,15 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     }
     func focusSidebarFilter() {
         if sidebarPreferences.style != .above {
-            if sidebarPreferences.hidden {
+            if isSidebarHidden {
                 toggleSidebar()
+            }
+            focusingSidebarFilter = true
+            defer { focusingSidebarFilter = false }
+            // End any active inline rename while focusingSidebarFilter keeps the
+            // temporary reveal alive, so its completion does not steal focus back.
+            if let editor = window?.firstResponder as? NSText, editor.isFieldEditor, editor.delegate is InlineNameField {
+                window?.makeFirstResponder(window)
             }
             sidebar.focusFilter()
         }

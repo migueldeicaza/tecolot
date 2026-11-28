@@ -429,7 +429,14 @@ final class TabItemView: NSView {
     }
 
     func beginRename(onFinish: (() -> Void)? = nil) {
-        guard editor == nil else {
+        if let existing = editor {
+            if existing.window != nil, existing.beginEditing() {
+                return
+            }
+            existing.cancel()
+        }
+        guard window != nil, !isHiddenOrHasHiddenAncestor else {
+            onFinish?()
             return
         }
         let field = InlineNameField(value: tab.customName ?? tab.title) { [weak self] value in
@@ -606,9 +613,23 @@ final class InlineNameField: NSTextField, NSTextFieldDelegate {
     }
     /// Select through the field editor. Calling NSTextField.selectText after
     /// makeFirstResponder ends the session we just started and commits it.
-    func beginEditing() {
-        window?.makeFirstResponder(self)
+    @discardableResult
+    func beginEditing() -> Bool {
+        guard let window, !isHiddenOrHasHiddenAncestor, window.makeFirstResponder(self) else {
+            end(nil)
+            return false
+        }
         currentEditor()?.selectAll(nil)
+        return true
+    }
+    func cancel() {
+        end(nil)
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            end(nil)
+        }
     }
     private func end(_ value: String?) {
         guard let action = finish else {

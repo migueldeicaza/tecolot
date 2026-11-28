@@ -509,8 +509,20 @@ nonisolated struct KeyCombo: Hashable, Codable, Sendable {
         self.modifiers = modifiers
     }
 
+    /// Keep `.automatic` for macOS's standard ⌘+ zoom shortcut so both unshifted ⌘=
+    /// and ⇧⌘= work on US keyboards while unshifted ⌘+ works on ISO layouts. Use
+    /// `.custom` everywhere else so menu equivalents match `KeyCombo.matches(_:)`
+    /// and `displayString` verbatim across keyboard layouts.
+    var usesAutomaticLocalization: Bool {
+        key == .character("+") && modifiers == [.command]
+    }
+
     var swiftUIShortcut: KeyboardShortcut {
-        KeyboardShortcut(key.keyEquivalent, modifiers: modifiers.eventModifiers)
+        KeyboardShortcut(
+            key.keyEquivalent,
+            modifiers: modifiers.eventModifiers,
+            localization: usesAutomaticLocalization ? .automatic : .custom
+        )
     }
 
     var displayString: String {
@@ -564,8 +576,15 @@ nonisolated struct KeyCombo: Hashable, Codable, Sendable {
 
         let combo = KeyCombo(key, modifiers: modifiers)
 
-        if !key.isFunctionKey && !modifiers.hasPrimaryModifier {
-            return .rejected("Include Command, Control, or Option so terminal typing is not intercepted.")
+        switch key {
+        case .character:
+            if !modifiers.contains(.command) {
+                return .rejected("Include Command (⌘) with character keys so terminal control and Option sequences keep working.")
+            }
+        case .special(let special):
+            if !special.isFunctionKey && !modifiers.hasPrimaryModifier {
+                return .rejected("Include Command, Control, or Option with navigation keys.")
+            }
         }
 
         if systemReserved.contains(combo) {
