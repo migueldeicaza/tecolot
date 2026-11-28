@@ -19,7 +19,7 @@ final class TabItemView: NSView {
     private let titleClip = NSView()
     let titleField = NSTextField(labelWithString: "")
     private let titleFade = CAGradientLayer()
-    let closeButton = NSButton()
+    let closeButton = ChromeIconButton(treatment: .tabClose)
     let icon = NSImageView()
     private let hint = NSTextField(labelWithString: "")
     private let mute = NSImageView()
@@ -98,9 +98,6 @@ final class TabItemView: NSView {
         titleField.isSelectable = false
         titleClip.addSubview(titleField)
         closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")
-        closeButton.imageScaling = .scaleProportionallyDown
-        closeButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 8, weight: .medium)
-        closeButton.isBordered = false
         closeButton.target = self
         closeButton.action = #selector(closeTab)
         closeButton.setAccessibilityLabel("Close Tab")
@@ -280,7 +277,7 @@ final class TabItemView: NSView {
         }
         titleField.attributedStringValue = text
         closeButton.isHidden = !(key && isHovered) || hintNumber != nil
-        closeButton.contentTintColor = .labelColor
+        closeButton.contentTintColor = .secondaryLabelColor
         hint.textColor = .secondaryLabelColor
         hint.layer?.borderColor = NSColor.secondaryLabelColor.withAlphaComponent(0.3).cgColor
         divider.layer?.backgroundColor = NSColor.separatorColor.cgColor
@@ -316,7 +313,7 @@ final class TabItemView: NSView {
             (titleField.frame.width > titleClip.bounds.width ? NSColor.clear : .black).cgColor,
         ]
         CATransaction.commit()
-        closeButton.frame = NSRect(x: bounds.width - 25, y: 8, width: 16, height: 16)
+        closeButton.frame = NSRect(x: bounds.width - 27, y: 6, width: 20, height: 20)
         if let window {
             accessibleClose.setAccessibilityFrame(window.convertToScreen(convert(closeButton.frame, to: nil)))
         }

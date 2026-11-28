@@ -154,6 +154,94 @@ struct ChromeIconButtonTests {
         #expect(toolbarGlyph.symbolConfiguration == ChromeIconButton.symbolConfiguration(for: .toolbar))
     }
 
+    @Test func tabCloseButtonHighlightsOnHoverAndResyncsWhenRevealedUnderPointer() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 60),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 60))
+        window.contentView = container
+
+        let tab = TerminalTab(startsProcesses: false)
+        let cell = TabItemView(tab: tab, controller: nil)
+        cell.frame = NSRect(x: 10, y: 14, width: 200, height: 32)
+        container.addSubview(cell)
+        cell.configure(
+            selected: true,
+            key: true,
+            chrome: TabStripChrome(theme: nil, opacity: 1, key: true, appearance: cell.effectiveAppearance),
+            preferences: TabStripPreferences()
+        )
+        cell.layoutSubtreeIfNeeded()
+
+        #expect(cell.closeButton.treatment == .tabClose)
+        #expect(cell.closeButton.isHidden)
+
+        // Position pointer directly over the close button center before the tab is hovered.
+        let closeCenterInWindow = cell.convert(
+            NSPoint(x: cell.closeButton.frame.midX, y: cell.closeButton.frame.midY),
+            to: nil
+        )
+        let insideScreenPoint = window.convertPoint(toScreen: closeCenterInWindow)
+        let outsideScreenPoint = window.convertPoint(toScreen: NSPoint(x: 5, y: 5))
+        cell.closeButton.pointerLocation = { insideScreenPoint }
+
+        // Hovering the tab reveals closeButton and immediately highlights it under the stationary pointer.
+        let enterTab = try #require(NSEvent.enterExitEvent(
+            with: .mouseEntered,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            trackingNumber: 0,
+            userData: nil
+        ))
+        cell.mouseEntered(with: enterTab)
+        #expect(!cell.closeButton.isHidden)
+        #expect(cell.closeButton.hoverState.highlighted)
+
+        // Highlight paints a visible circular background behind the xmark.
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 20,
+            pixelsHigh: 20,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = context
+        cell.closeButton.layer?.render(in: context.cgContext)
+        #expect(try #require(bitmap.colorAt(x: 10, y: 10)).alphaComponent > 0)
+
+        // Leaving the tab hides closeButton and clears its hover highlight.
+        cell.closeButton.pointerLocation = { outsideScreenPoint }
+        let exitTab = try #require(NSEvent.enterExitEvent(
+            with: .mouseExited,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            trackingNumber: 0,
+            userData: nil
+        ))
+        cell.mouseExited(with: exitTab)
+        #expect(cell.closeButton.isHidden)
+        #expect(!cell.closeButton.hoverState.highlighted)
+    }
+
     @Test func selectionSurfaceAnimatesGlassSublayerWithBoundsChange() {
         let surface = TabSelectionSurfaceView(frame: NSRect(x: 0, y: 0, width: 120, height: 32))
         surface.move(to: NSRect(x: 10, y: 0, width: 120, height: 32), animated: false)

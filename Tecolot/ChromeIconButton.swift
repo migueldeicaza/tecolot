@@ -44,8 +44,9 @@ final class ChromeIconButton: NSButton {
         set {}
     }
 
-    /// Separates compact pane actions from the larger window actions.
+    /// Separates compact tab/pane actions from the larger window actions.
     enum Treatment {
+        case tabClose
         case pane
         case window
         case toolbar
@@ -61,6 +62,8 @@ final class ChromeIconButton: NSButton {
     }
     var highlightDiameter: CGFloat {
         switch treatment {
+        case .tabClose:
+            20
         case .pane:
             22
         case .window:
@@ -72,6 +75,8 @@ final class ChromeIconButton: NSButton {
 
     static func symbolConfiguration(for treatment: Treatment) -> NSImage.SymbolConfiguration {
         switch treatment {
+        case .tabClose:
+            NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold, scale: .small)
         case .pane:
             NSImage.SymbolConfiguration(pointSize: 11.5, weight: .medium, scale: .small)
         case .window:
@@ -89,6 +94,7 @@ final class ChromeIconButton: NSButton {
         }
     }
     private(set) var hoverState = ChromeButtonHoverState()
+    var pointerLocation: () -> NSPoint = { NSEvent.mouseLocation }
     private var hoverTrackingArea: NSTrackingArea?
     private let hoverLayer = CAShapeLayer()
     private let glyph = NSImageView()
@@ -134,8 +140,17 @@ final class ChromeIconButton: NSButton {
 
     /// Matches the measured fill contrast on composited window chrome.
     static func highlightColor(dark: Bool, increasedContrast: Bool, treatment: Treatment = .pane) -> NSColor {
-        let alpha: CGFloat = treatment == .pane ? 0.065 : 0.08
-        return (dark ? NSColor.white : .black).withAlphaComponent(increasedContrast ? max(0.18, alpha) : alpha)
+        let alpha: CGFloat
+        switch treatment {
+        case .tabClose:
+            // Sits on top of a hovered or selected tab surface, so needs stronger contrast.
+            alpha = dark ? 0.14 : 0.11
+        case .pane:
+            alpha = 0.065
+        case .window, .toolbar:
+            alpha = 0.08
+        }
+        return (dark ? NSColor.white : .black).withAlphaComponent(increasedContrast ? max(0.22, alpha) : alpha)
     }
 
     override var image: NSImage? {
@@ -160,6 +175,8 @@ final class ChromeIconButton: NSButton {
         didSet {
             if isHidden {
                 updateHover(.unavailable)
+            } else {
+                synchronizeHoverWithPointer()
             }
         }
     }
@@ -168,6 +185,8 @@ final class ChromeIconButton: NSButton {
         didSet {
             if !isEnabled {
                 updateHover(.unavailable)
+            } else {
+                synchronizeHoverWithPointer()
             }
             updateGlyphTint()
         }
@@ -204,7 +223,7 @@ final class ChromeIconButton: NSButton {
     /// Rechecks the pointer after a header moves without a mouse event.
     private func synchronizeHoverWithPointer() {
         if let window, !isHiddenOrHasHiddenAncestor, isEnabled {
-            let point = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+            let point = convert(window.convertPoint(fromScreen: pointerLocation()), from: nil)
             updateHover(bounds.contains(point) && visibleRect.contains(point) ? .enter : .exit)
         } else {
             updateHover(.unavailable)
@@ -295,12 +314,20 @@ final class ChromeIconButton: NSButton {
 
     /// Gives toolbar/window chrome crisp contrast at rest while keeping pane actions quieter.
     private func updateGlyphTint() {
-        let restBlend: CGFloat = treatment == .pane ? 0 : 0.48
+        let restBlend: CGFloat = (treatment == .pane || treatment == .tabClose) ? 0 : 0.48
         let fraction: CGFloat = isChromeActive ? 1 : hoverState.pressed ? 0.15 : hoverState.hovered ? (treatment == .pane ? 0.55 : 1) : restBlend
         effectiveAppearance.performAsCurrentDrawingAppearance {
             glyph.contentTintColor = (contentTintColor ?? .secondaryLabelColor).blended(withFraction: fraction, of: .labelColor)
         }
-        let opacity: CGFloat = treatment == .pane ? (hoverState.hovered && !hoverState.pressed ? 0.95 : 0.78) : 1
+        let opacity: CGFloat
+        switch treatment {
+        case .tabClose:
+            opacity = hoverState.hovered ? 1 : 0.82
+        case .pane:
+            opacity = hoverState.hovered && !hoverState.pressed ? 0.95 : 0.78
+        case .window, .toolbar:
+            opacity = 1
+        }
         glyph.alphaValue = opacity * (isEnabled ? 1 : 0.5)
     }
 
