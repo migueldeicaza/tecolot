@@ -31,7 +31,7 @@ enum ProfileSettingsSection {
         case .window:
             return "Window"
         case .shell:
-            return "Shell"
+            return "Session"
         case .keyboardAndMouse:
             return "Keyboard and Mouse"
         case .terminal:

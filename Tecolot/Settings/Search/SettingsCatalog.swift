@@ -78,10 +78,8 @@ enum SettingID: String, CaseIterable, Hashable {
     case notificationsBell
     case notificationsAllowPrograms
 
-    // Shortcuts, Data and Crash Reports
+    // Shortcuts
     case pageShortcuts
-    case pageData
-    case pageCrashReports
 
     // Profile: Appearance
     case pageAppearance
@@ -107,7 +105,7 @@ enum SettingID: String, CaseIterable, Hashable {
     case windowTitleProfileName
     case windowTitleDimensions
 
-    // Profile: Shell
+    // Profile: Session
     case pageShell
     case shellRun
     case shellCommand
@@ -136,6 +134,10 @@ enum SettingID: String, CaseIterable, Hashable {
 
     // Profiles
     case pageManageProfiles
+
+    // Data and Crash Reports
+    case pageData
+    case pageCrashReports
 }
 
 /// What Settings search knows about one page, section or setting.
@@ -637,10 +639,10 @@ extension SettingID {
                            Self.titleItemSummary("Show the columns and rows of the terminal"),
                            keywords: ["size", "columns", "rows", "80x24"])
 
-        // MARK: Profile: Shell
+        // MARK: Profile: Session
         case .pageShell:
             return pageEntry(self, .shell, "Choose what a profile runs, what happens when it exits, and its environment.",
-                        keywords: ["command", "login shell", "environment"])
+                        keywords: ["shell", "command", "login shell", "environment"])
         case .shellRun:
             return settingEntry(self, .shell, "Run",
                            "Start the default login shell or a command you choose.",

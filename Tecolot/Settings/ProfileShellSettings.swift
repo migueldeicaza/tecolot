@@ -126,7 +126,7 @@ extension ProfileSettingsPage {
 
 }
 
-#Preview("Shell Settings") {
+#Preview("Session Settings") {
     ProfileSettingsPagePreview(section: .shell)
         .environmentObject(SettingsPreviewData.themes)
         .frame(width: 560, height: 430)

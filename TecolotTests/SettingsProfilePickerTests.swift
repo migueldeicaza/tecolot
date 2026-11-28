@@ -6,7 +6,7 @@ import Testing
 struct SettingsProfilePickerTests {
     @Test func creatingAProfileKeepsProfilePagesAndManageProfiles() {
         for destination in SettingsDestination.allCases {
-            let expected: SettingsDestination = SettingsDestination.appPages.contains(destination) ? .appearance : destination
+            let expected: SettingsDestination = (destination.isProfileDriven || destination == .manageProfiles) ? destination : .appearance
             #expect(SettingsDestination.destinationAfterCreatingProfile(from: destination) == expected)
         }
     }

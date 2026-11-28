@@ -86,9 +86,10 @@ struct PaneAppearanceSettingsTests {
         let pages = SettingsDestination.appPages
         let tabs = try #require(pages.firstIndex(of: .tabs))
         #expect(pages[tabs + 1] == .panes)
-        #expect(pages == [.general, .tabs, .panes, .notifications, .shortcuts, .data, .crashReports])
+        #expect(pages == [.general, .tabs, .panes, .notifications, .shortcuts])
         #expect(SettingsDestination.profilePages == [.appearance, .window, .shell, .keyboardAndMouse, .terminal, .manageProfiles])
-        #expect(Set(pages + SettingsDestination.profilePages) == Set(SettingsDestination.allCases))
+        #expect(SettingsDestination.bottomPages == [.data, .crashReports])
+        #expect(Set(SettingsDestination.sidebarPages) == Set(SettingsDestination.allCases))
         #expect(!SettingsDestination.panes.isProfileDriven)
         #expect(ProfileSettingsSection(destination: .panes) == nil)
     }

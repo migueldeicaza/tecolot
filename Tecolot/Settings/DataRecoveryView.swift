@@ -23,7 +23,7 @@ struct DataRecoveryView: View {
             if issueCenter.issues.isEmpty {
                 ContentUnavailableView(
                     "All Data Is Healthy",
-                    systemImage: "externaldrive.badge.checkmark",
+                    systemImage: SettingsDestination.data.systemImage,
                     description: Text("Tecolot found no data that needs attention.")
                 )
             } else {

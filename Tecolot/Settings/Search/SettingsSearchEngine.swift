@@ -72,7 +72,7 @@ enum SettingsSearchEngine {
     /// The pages that have results, in sidebar order.
     static func pages(in results: [SettingsSearchResult]) -> [SettingsDestination] {
         let found = Set(results.map(\.entry.destination))
-        return (SettingsDestination.appPages + SettingsDestination.profilePages).filter(found.contains)
+        return SettingsDestination.sidebarPages.filter(found.contains)
     }
 
     static func isIndexed(_ entry: SettingsSearchEntry, context: SettingsSearchContext) -> Bool {

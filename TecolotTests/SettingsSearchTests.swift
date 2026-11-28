@@ -139,7 +139,7 @@ struct SettingsSearchTests {
     @Test func pagesWithResultsKeepSidebarOrder() {
         let results = SettingsSearchEngine.search("color")
         let pages = SettingsSearchEngine.pages(in: results)
-        #expect(pages == (SettingsDestination.appPages + SettingsDestination.profilePages).filter(pages.contains))
+        #expect(pages == SettingsDestination.sidebarPages.filter(pages.contains))
         #expect(pages.contains(.tabs))
         #expect(pages.contains(.panes))
         #expect(SettingsSearchResultsView.countLabel(1) == "1 result")

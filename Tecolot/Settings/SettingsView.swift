@@ -179,12 +179,20 @@ struct SettingsView: View {
     /// each page that has results.
     private func searchSidebar(pages: [SettingsDestination]) -> some View {
         List(selection: searchSidebarSelection) {
-            Label("All Settings", systemImage: "magnifyingglass")
-                .tag(SearchSidebarItem.allSettings)
+            SettingsSidebarRow(
+                title: "All Settings",
+                systemImage: "magnifyingglass",
+                style: .systemGray
+            )
+            .tag(SearchSidebarItem.allSettings)
             Section {
                 ForEach(pages) { page in
-                    Label(page.title, systemImage: page.systemImage)
-                        .tag(SearchSidebarItem.page(page))
+                    SettingsSidebarRow(
+                        title: page.title,
+                        systemImage: page.systemImage,
+                        style: page.iconStyle
+                    )
+                    .tag(SearchSidebarItem.page(page))
                 }
             }
         }
@@ -230,8 +238,12 @@ struct SettingsView: View {
         List(selection: $destination) {
             Section("App") {
                 ForEach(SettingsDestination.appPages) { destination in
-                    Label(sidebarTitle(for: destination), systemImage: destination.systemImage)
-                        .tag(destination)
+                    SettingsSidebarRow(
+                        title: sidebarTitle(for: destination),
+                        systemImage: destination.systemImage,
+                        style: destination.iconStyle
+                    )
+                    .tag(destination)
                 }
             }
             Section("Profile") {
@@ -248,12 +260,30 @@ struct SettingsView: View {
                 )
                 .selectionDisabled()
                 ForEach(SettingsDestination.visibleProfileEditingPages(profilesAreEmpty: profiles.profiles.isEmpty)) { destination in
-                    Label(destination.title, systemImage: destination.systemImage)
-                        .tag(destination)
+                    SettingsSidebarRow(
+                        title: destination.title,
+                        systemImage: destination.systemImage,
+                        style: destination.iconStyle
+                    )
+                    .tag(destination)
                 }
                 Divider()
-                Label(SettingsDestination.manageProfiles.title, systemImage: SettingsDestination.manageProfiles.systemImage)
-                    .tag(SettingsDestination.manageProfiles)
+                SettingsSidebarRow(
+                    title: SettingsDestination.manageProfiles.title,
+                    systemImage: SettingsDestination.manageProfiles.systemImage,
+                    style: SettingsDestination.manageProfiles.iconStyle
+                )
+                .tag(SettingsDestination.manageProfiles)
+            }
+            Section {
+                ForEach(SettingsDestination.bottomPages) { destination in
+                    SettingsSidebarRow(
+                        title: sidebarTitle(for: destination),
+                        systemImage: destination.systemImage,
+                        style: destination.iconStyle
+                    )
+                    .tag(destination)
+                }
             }
         }
     }
@@ -561,8 +591,12 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
     case terminal
     case manageProfiles
 
-    static let appPages: [Self] = [.general, .tabs, .panes, .notifications, .shortcuts, .data, .crashReports]
+    static let appPages: [Self] = [.general, .tabs, .panes, .notifications, .shortcuts]
     static let profilePages: [Self] = [.appearance, .window, .shell, .keyboardAndMouse, .terminal, .manageProfiles]
+    static let bottomPages: [Self] = [.data, .crashReports]
+    static var sidebarPages: [Self] {
+        appPages + profilePages + bottomPages
+    }
 
     static func destinationAfterCreatingProfile(from destination: Self) -> Self {
         destination.isProfileDriven || destination == .manageProfiles ? destination : .appearance
@@ -599,7 +633,7 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
         case .window:
             return "Window"
         case .shell:
-            return "Shell"
+            return "Session"
         case .keyboardAndMouse:
             return "Keyboard and Mouse"
         case .terminal:
@@ -614,31 +648,52 @@ enum SettingsDestination: CaseIterable, Hashable, Identifiable {
     var systemImage: String {
         switch self {
         case .general:
-            return "gearshape"
+            return "gearshape.fill"
         case .tabs:
             return "rectangle.topthird.inset.filled"
         case .panes:
             return "rectangle.split.2x1"
         case .notifications:
-            return "bell"
+            return "bell.fill"
         case .shortcuts:
             return "command"
         case .manageProfiles:
-            return "person.2.badge.gearshape"
+            return "person.2.badge.gearshape.fill"
         case .appearance:
-            return "textformat"
+            return "paintpalette.fill"
         case .window:
             return "macwindow"
         case .shell:
-            return "terminal"
+            return "switch.2"
         case .keyboardAndMouse:
-            return "keyboard"
+            return "keyboard.fill"
         case .terminal:
-            return "slider.horizontal.3"
+            return "apple.terminal.fill"
         case .data:
-            return "externaldrive.badge.checkmark"
+            return "externaldrive.fill.badge.checkmark"
         case .crashReports:
-            return "exclamationmark.triangle"
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    var iconStyle: SettingsIconStyle {
+        switch self {
+        case .general, .shell:
+            return .systemGray
+        case .tabs, .panes, .window, .manageProfiles:
+            return .systemBlue
+        case .appearance:
+            return .appleIntelligenceSpectrum
+        case .notifications:
+            return .notificationRed
+        case .shortcuts:
+            return .silverGradient
+        case .data, .crashReports:
+            return .aboutGray
+        case .keyboardAndMouse:
+            return .keyboardGray
+        case .terminal:
+            return .terminalDarkGreen
         }
     }
 
