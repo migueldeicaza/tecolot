@@ -1,7 +1,200 @@
 import AppKit
 import SwiftUI
 
-final class ThemeTitlebarControl: NSView, NSPopoverDelegate {
+/// Single popover owner shared across all chrome ThemeTitlebarControl buttons
+/// in a window (tab bar, sidebar, content header, pane header controls),
+/// ensuring at most one ThemePickerPopover can ever exist per window.
+@MainActor
+final class ThemePickerPopoverCoordinator: NSObject, NSPopoverDelegate {
+    private var popover: NSPopover?
+    private weak var presentedController: TerminalSessionController?
+    private weak var presentedAnchor: NSView?
+    /// Set when a leftMouseDown directly on `presentedAnchor` transiently
+    /// dismissed the popover so the immediately following mouseUp button action
+    /// closes cleanly instead of reopening.
+    private var suppressNextToggle: (controller: ObjectIdentifier, timestamp: TimeInterval)?
+
+    var isPresentingPopover: Bool {
+        popover?.isShown == true
+    }
+
+    func isPresenting(from anchor: NSView) -> Bool {
+        popover?.isShown == true && presentedAnchor === anchor
+    }
+
+    func toggle(
+        controller: TerminalSessionController,
+        profiles: ProfileStore,
+        themes: ThemeStore,
+        themeIndex: ThemeCatalogIndex,
+        anchor: NSView?,
+        attachedToWindow: Bool
+    ) {
+        let controllerID = ObjectIdentifier(controller)
+        if let suppressed = suppressNextToggle {
+            suppressNextToggle = nil
+            let elapsed = (NSApp.currentEvent?.timestamp ?? suppressed.timestamp) - suppressed.timestamp
+            if suppressed.controller == controllerID, elapsed >= 0, elapsed < 0.5 {
+                return
+            }
+        }
+
+        // If the popover for this controller is already closing (e.g. clicking
+        // the button dismissed the transient popover on mouseDown right before
+        // the action ran), treat this click as closing rather than reopening.
+        if let existing = popover, !existing.isShown, presentedController === controller {
+            clearIfNotShown()
+            return
+        }
+
+        clearIfNotShown()
+        controller.showThemePicker.toggle()
+        if controller.showThemePicker {
+            show(
+                controller: controller,
+                profiles: profiles,
+                themes: themes,
+                themeIndex: themeIndex,
+                anchor: anchor
+            )
+            // In a live window, never leave showThemePicker stuck true without a
+            // shown popover (otherwise the next click appears to do nothing).
+            if attachedToWindow, !isPresentingPopover {
+                controller.showThemePicker = false
+            }
+        } else {
+            close(clearingControllerFlag: false)
+        }
+    }
+
+    func synchronize(
+        controller: TerminalSessionController?,
+        profiles: ProfileStore,
+        themes: ThemeStore,
+        themeIndex: ThemeCatalogIndex,
+        anchor: NSView?
+    ) {
+        clearIfNotShown()
+        if let presented = presentedController, presented !== controller {
+            close(clearingControllerFlag: true)
+        }
+        guard let anchor else {
+            // If the anchor currently hosting the popover became hidden, dismiss cleanly.
+            if let presentedAnchor, presentedAnchor.window == nil || presentedAnchor.isHiddenOrHasHiddenAncestor {
+                close(clearingControllerFlag: true)
+            }
+            return
+        }
+        if controller?.showThemePicker == true, let controller {
+            if let existing = popover, existing.isShown, presentedController === controller {
+                // Re-anchor in place when the same pane's anchor moves (e.g.
+                // sidebar crossing the narrow overflow threshold) to preserve
+                // search text and scroll position.
+                if presentedAnchor !== anchor {
+                    presentedAnchor = anchor
+                    existing.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+                }
+            } else {
+                if popover != nil {
+                    close(clearingControllerFlag: false)
+                }
+                show(
+                    controller: controller,
+                    profiles: profiles,
+                    themes: themes,
+                    themeIndex: themeIndex,
+                    anchor: anchor
+                )
+            }
+        } else if popover != nil {
+            close(clearingControllerFlag: false)
+        }
+    }
+
+    func close(clearingControllerFlag: Bool) {
+        guard let existing = popover else {
+            return
+        }
+        let oldController = presentedController
+        popover = nil
+        presentedController = nil
+        presentedAnchor = nil
+        if clearingControllerFlag {
+            oldController?.showThemePicker = false
+        }
+        existing.close()
+    }
+
+    private func clearIfNotShown() {
+        if let existing = popover, !existing.isShown {
+            // Clear the old controller's flag before dropping the popover reference,
+            // because popoverDidClose will ignore `existing` once `popover` is nil.
+            let oldController = presentedController
+            popover = nil
+            presentedController = nil
+            presentedAnchor = nil
+            oldController?.showThemePicker = false
+        }
+    }
+
+    private func show(
+        controller: TerminalSessionController,
+        profiles: ProfileStore,
+        themes: ThemeStore,
+        themeIndex: ThemeCatalogIndex,
+        anchor: NSView?
+    ) {
+        clearIfNotShown()
+        guard popover == nil, let anchor else {
+            return
+        }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.delegate = self
+        popover.contentSize = NSSize(width: 520, height: 500)
+        popover.contentViewController = NSHostingController(rootView: ThemePickerPopover(
+            controller: controller,
+            themes: themes,
+            themeIndex: themeIndex,
+            profiles: profiles,
+            systemAppearance: AppModel.shared.systemAppearance
+        ))
+        self.popover = popover
+        self.presentedController = controller
+        self.presentedAnchor = anchor
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        if !popover.isShown {
+            self.popover = nil
+            self.presentedController = nil
+            self.presentedAnchor = nil
+        }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        guard
+            let closed = notification.object as? NSPopover,
+            closed === popover else {
+            return
+        }
+        let closedController = presentedController
+        let anchor = presentedAnchor
+        popover = nil
+        presentedController = nil
+        presentedAnchor = nil
+        closedController?.showThemePicker = false
+        if
+            let closedController,
+            let anchor,
+            let event = NSApp.currentEvent,
+            event.type == .leftMouseDown,
+            event.window === anchor.window,
+            anchor.bounds.contains(anchor.convert(event.locationInWindow, from: nil)) {
+            suppressNextToggle = (ObjectIdentifier(closedController), event.timestamp)
+        }
+    }
+}
+
+final class ThemeTitlebarControl: NSView {
     private let button = ChromeIconButton(treatment: .window)
     var treatment: ChromeIconButton.Treatment {
         get { button.treatment }
@@ -11,23 +204,29 @@ final class ThemeTitlebarControl: NSView, NSPopoverDelegate {
         get { button.contentTintColor }
         set { button.contentTintColor = newValue }
     }
-    private weak var controller: TerminalSessionController?
-    private weak var presentedController: TerminalSessionController?
-    private weak var profiles: ProfileStore?
-    private weak var themes: ThemeStore?
-    private weak var themeIndex: ThemeCatalogIndex?
+    /// Shared per-window popover coordinator (defaults to a standalone instance for tests).
+    var popoverCoordinator = ThemePickerPopoverCoordinator()
     /// Visible fallback view used when this control is collapsed into a narrow
     /// sidebar overflow menu.
     weak var fallbackAnchorView: NSView?
-    private var popover: NSPopover?
 
-    /// True when this control (or its fallback overflow anchor) is visibly
-    /// hosted in a window and eligible to present the theme popover.
+    private weak var controller: TerminalSessionController?
+    private weak var profiles: ProfileStore?
+    private weak var themes: ThemeStore?
+    private weak var themeIndex: ThemeCatalogIndex?
+
+    /// True when this control's button or fallback anchor is currently hosting the theme popover.
     var isPresentingPopover: Bool {
-        popover?.isShown == true
+        if popoverCoordinator.isPresenting(from: button) {
+            return true
+        }
+        if let fallback = fallbackAnchorView, popoverCoordinator.isPresenting(from: fallback) {
+            return true
+        }
+        return false
     }
 
-    private var effectiveAnchorView: NSView? {
+    var effectiveAnchorView: NSView? {
         if button.window != nil, !button.isHiddenOrHasHiddenAncestor, !button.bounds.isEmpty {
             return button
         }
@@ -76,9 +275,27 @@ final class ThemeTitlebarControl: NSView, NSPopoverDelegate {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         needsLayout = true
-        if controller?.showThemePicker == true, effectiveAnchorView != nil {
-            showPicker()
+        guard let profiles, let themes, let themeIndex, let anchor = effectiveAnchorView else {
+            return
         }
+        popoverCoordinator.synchronize(
+            controller: controller,
+            profiles: profiles,
+            themes: themes,
+            themeIndex: themeIndex,
+            anchor: anchor
+        )
+    }
+
+    /// Convenience for window chrome views using AppModel.shared.
+    func configure(controller: TerminalSessionController?) {
+        let model = AppModel.shared
+        configure(
+            controller: controller,
+            profiles: model.profiles,
+            themes: model.themes,
+            themeIndex: model.themeIndex
+        )
     }
 
     func configure(
@@ -87,105 +304,39 @@ final class ThemeTitlebarControl: NSView, NSPopoverDelegate {
         themes: ThemeStore,
         themeIndex: ThemeCatalogIndex
     ) {
-        if self.controller !== controller {
-            // Only the control that actually owns an open popover should clear
-            // the old controller's flag; hidden sibling controls must not stomp it.
-            if let existing = popover {
-                popover = nil
-                presentedController = nil
-                self.controller?.showThemePicker = false
-                existing.close()
-            }
-        }
         self.controller = controller
         self.profiles = profiles
         self.themes = themes
         self.themeIndex = themeIndex
         button.isEnabled = controller != nil
-        // Hidden sibling controls (e.g. sidebar when tabs are on top, or
-        // ContentHeader / PaneWindowControls when inactive) must never present
-        // competing transient popovers.
-        guard effectiveAnchorView != nil else {
-            if let existing = popover {
-                let oldController = presentedController
-                popover = nil
-                presentedController = nil
-                oldController?.showThemePicker = false
-                existing.close()
-            }
+
+        // Only synchronize the coordinator if this control is visibly anchored
+        // or currently owns the open popover (e.g. while becoming hidden).
+        let anchor = effectiveAnchorView
+        guard anchor != nil || isPresentingPopover else {
             return
         }
-        // Read the flag now. The caller runs in a queued block, and a value
-        // captured before it was queued can be out of date.
-        if controller?.showThemePicker == true {
-            showPicker()
-        } else {
-            popover?.close()
-        }
+        popoverCoordinator.synchronize(
+            controller: controller,
+            profiles: profiles,
+            themes: themes,
+            themeIndex: themeIndex,
+            anchor: anchor
+        )
     }
 
     @objc private func togglePicker(_ sender: NSButton) {
-        guard let controller else {
+        guard let controller, let profiles, let themes, let themeIndex else {
             return
         }
-        if let existing = popover, !existing.isShown {
-            popover = nil
-            presentedController = nil
-        }
-        controller.showThemePicker.toggle()
-        if controller.showThemePicker {
-            showPicker()
-        } else {
-            popover?.close()
-        }
-    }
-
-    private func showPicker() {
-        if let existing = popover, !existing.isShown {
-            popover = nil
-            presentedController = nil
-        }
-        // A popover that is closing is not shown, but it is not closed yet.
-        // popoverDidClose opens the picker again if it is still necessary.
-        guard
-            popover == nil,
-            let controller, let profiles, let themes, let themeIndex,
-            let anchor = effectiveAnchorView else {
-            return
-        }
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.delegate = self
-        popover.contentSize = NSSize(width: 520, height: 500)
-        popover.contentViewController = NSHostingController(rootView: ThemePickerPopover(
+        let attached = button.window != nil || fallbackAnchorView?.window != nil
+        popoverCoordinator.toggle(
             controller: controller,
+            profiles: profiles,
             themes: themes,
             themeIndex: themeIndex,
-            profiles: profiles,
-            systemAppearance: AppModel.shared.systemAppearance
-        ))
-        presentedController = controller
-        self.popover = popover
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
-        if !popover.isShown {
-            self.popover = nil
-            self.presentedController = nil
-        }
-    }
-
-    func popoverDidClose(_ notification: Notification) {
-        guard
-            let closed = notification.object as? NSPopover,
-            closed === popover else {
-            return
-        }
-        presentedController?.showThemePicker = false
-        presentedController = nil
-        popover = nil
-        // The focus moved to a different pane while this popover closed,
-        // and that pane asked for its picker.
-        if controller?.showThemePicker == true, effectiveAnchorView != nil {
-            showPicker()
-        }
+            anchor: effectiveAnchorView,
+            attachedToWindow: attached
+        )
     }
 }

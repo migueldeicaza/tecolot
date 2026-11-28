@@ -10,7 +10,7 @@ final class HorizontalTabBarView: NSView {
     let scroll = TabScrollView()
     private let track = TabTrackView()
     let selectionSurface = TabSelectionSurfaceView()
-    private let theme = ThemeTitlebarControl()
+    let theme = ThemeTitlebarControl()
     private let zoom = ChromeIconButton(treatment: .toolbar)
     private let add = ChromeIconButton(treatment: .toolbar)
     let commandPaletteButton = ChromeIconButton(treatment: .toolbar)
@@ -325,11 +325,7 @@ final class HorizontalTabBarView: NSView {
         }
         let workspace = group.selectedTab?.loadedWorkspace
         zoom.isHidden = workspace?.zoomedControllerID == nil
-        let model = AppModel.shared
-        theme.configure(
-            controller: workspace?.focusedController, profiles: model.profiles,
-            themes: model.themes, themeIndex: model.themeIndex
-        )
+        theme.configure(controller: workspace?.focusedController)
         refreshChrome()
         needsLayout = true
     }

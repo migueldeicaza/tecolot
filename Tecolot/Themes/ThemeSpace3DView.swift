@@ -64,7 +64,7 @@ struct ThemeSpace3DView: View {
         .onChange(of: mode) { _, _ in
             clearHover()
         }
-        .frame(minWidth: 420, minHeight: 300)
+        .frame(minWidth: 420, minHeight: 240)
         .help("Drag to rotate. Pinch or use + and − to zoom. Double-click empty space to reset.")
     }
 
@@ -178,31 +178,20 @@ struct ThemeSpace3DView: View {
         matching: Set<String>
     ) -> some View {
         let inspectedName = hoveredThemeName ?? pinnedThemeName ?? selectedThemeName
-        let isHovering = hoveredThemeName != nil
-        let statusLabel: String = {
-            if isHovering { return "Hovering" }
-            if pinnedThemeName != nil { return "Pinned" }
-            return "Selected"
-        }()
-        if
-            let theme = themes.first(where: { $0.name == inspectedName }),
-            let themeMetrics = metrics[inspectedName] {
-            let nearby = isHovering
-                ? max(coLocatedGroup(around: inspectedName, points: projected, matching: matching).count - 1, 0)
-                : 0
-            ThemeInspectorPanel(
-                theme: theme,
-                metrics: themeMetrics,
-                catalog: catalog,
-                statusLabel: statusLabel,
-                previewPage: $previewPage,
-                nearbyCount: nearby,
-                canCycleNearby: isHovering,
-                similarityRank: similarityRank(of: inspectedName, in: projected)
-            )
-        } else {
-            Color.clear.frame(width: 262)
-        }
+        let nearby = hoveredThemeName.map {
+            coLocatedGroup(around: $0, points: projected, matching: matching).count - 1
+        } ?? 0
+        ThemePlotDockedInspector(
+            themes: themes,
+            metrics: metrics,
+            catalog: catalog,
+            hoveredThemeName: hoveredThemeName,
+            pinnedThemeName: pinnedThemeName,
+            selectedThemeName: selectedThemeName,
+            previewPage: $previewPage,
+            nearbyCount: nearby,
+            similarityRank: similarityRank(of: inspectedName, in: projected)
+        )
     }
 
     // MARK: - Projection
@@ -421,18 +410,8 @@ struct ThemeSpace3DView: View {
                     return .handled
                 }
             }
-            let direction: CGVector
-            switch press.key {
-            case .upArrow:
-                direction = CGVector(dx: 0, dy: -1)
-            case .downArrow:
-                direction = CGVector(dx: 0, dy: 1)
-            case .leftArrow:
-                direction = CGVector(dx: -1, dy: 0)
-            default:
-                direction = CGVector(dx: 1, dy: 0)
-            }
             if
+                let direction = ThemePlotInteraction.directionVector(for: press.key),
                 let next = nextTheme(
                     inDirection: direction,
                     points: points,
@@ -454,29 +433,17 @@ struct ThemeSpace3DView: View {
         defaultAnchor: CGPoint
     ) -> String? {
         let anchorName = pinnedThemeName ?? hoveredThemeName ?? selectedThemeName
-        let anchor = points.first(where: {
-            $0.id == anchorName
-        })?.screenPoint
-            ?? defaultAnchor
-        var best: (name: String, score: CGFloat)?
-        for point in points where matching.contains(point.id) && point.id != anchorName {
-            let dx = point.screenPoint.x - anchor.x
-            let dy = point.screenPoint.y - anchor.y
-            let along = dx * direction.dx + dy * direction.dy
-            guard along > 0 else {
-                continue
-            }
-            let distance = hypot(dx, dy)
-            guard distance > 0 else {
-                continue
-            }
-            let anglePenalty = 1 - along / distance
-            let score = distance * (1 + 3 * anglePenalty)
-            if score < (best?.score ?? .infinity) {
-                best = (point.id, score)
-            }
+        let anchor = points.first(where: { $0.id == anchorName })?.screenPoint ?? defaultAnchor
+        let candidates = points.map {
+            ThemePlotInteraction.ScreenCandidate(id: $0.id, screenPoint: $0.screenPoint)
         }
-        return best?.name
+        return ThemePlotInteraction.nextTheme(
+            from: anchorName,
+            anchorPoint: anchor,
+            direction: direction,
+            candidates: candidates,
+            matching: matching
+        )
     }
 
     // MARK: - Similarity rendering
@@ -548,22 +515,21 @@ struct ThemeSpace3DView: View {
             let point = points.first(where: {
                 $0.id == cardName
             }) {
-            let cardHeight: CGFloat = previewPage == nil ? 175 : 300
-            let cardSize = CGSize(width: 260, height: cardHeight)
-            let x = min(max(point.screenPoint.x + 18, 4), max(size.width - cardSize.width - 4, 4))
-            let above = point.screenPoint.y > size.height * 0.50
-            let y = above
-                ? max(point.screenPoint.y - cardSize.height - 14, 4)
-                : min(point.screenPoint.y + 14, max(size.height - cardSize.height - 4, 4))
+            let rank = similarityRank(of: cardName, in: points)
+            let offset = ThemePlotInteraction.hoverCardOffset(
+                around: point.screenPoint,
+                in: size,
+                hasPreview: previewPage != nil
+            )
             ThemeHoverCard(
                 theme: theme,
                 metrics: themeMetrics,
                 catalog: catalog,
                 previewPage: previewPage,
                 nearbyCount: coLocatedGroup(around: cardName, points: points, matching: matching).count - 1,
-                similarityRank: similarityRank(of: cardName, in: points)
+                similarityRank: rank
             )
-            .offset(x: x, y: y)
+            .offset(x: offset.x, y: offset.y)
             .allowsHitTesting(false)
             .transition(.opacity)
         }
@@ -599,20 +565,13 @@ struct ThemeSpace3DView: View {
 
     @ViewBuilder
     private func accessibilityPoints(_ points: [ProjectedThemePoint3D]) -> some View {
-        ForEach(points) { point in
-            if let themeMetrics = metrics[point.id] {
-                Color.clear
-                    .accessibilityLabel(ThemeMapView.accessibilityLabel(
-                        name: point.id, metrics: themeMetrics, catalog: catalog
-                    ))
-                    .accessibilityAddTraits(
-                        point.id == selectedThemeName ? [.isButton, .isSelected] : .isButton
-                    )
-                    .accessibilityAction {
-                        selectTheme(named: point.id)
-                    }
-            }
-        }
+        ThemePlotAccessibilityPoints(
+            ids: points.map(\.id),
+            metrics: metrics,
+            catalog: catalog,
+            selectedThemeName: selectedThemeName,
+            onSelect: selectTheme(named:)
+        )
     }
 }
 
@@ -737,7 +696,7 @@ private struct ThemeSpace3DCanvas: View {
         )
     }
 
-    private func drawPaletteSpaceReference(in context: GraphicsContext, size: CGSize) {
+    private func drawUnitCubeReference(in context: GraphicsContext, size: CGSize) {
         let corners: [SIMD3<Double>] = [
             SIMD3(-1, -1, -1), SIMD3(1, -1, -1), SIMD3(-1, 1, -1), SIMD3(1, 1, -1),
             SIMD3(-1, -1, 1), SIMD3(1, -1, 1), SIMD3(-1, 1, 1), SIMD3(1, 1, 1)
@@ -749,6 +708,10 @@ private struct ThemeSpace3DCanvas: View {
         for edge in edges {
             drawLine(from: corners[edge.0], to: corners[edge.1], in: context, size: size)
         }
+    }
+
+    private func drawPaletteSpaceReference(in context: GraphicsContext, size: CGSize) {
+        drawUnitCubeReference(in: context, size: size)
         drawLabel("Similar Colors", at: SIMD3(-1, 0, 0), in: context, size: size)
         drawLabel("Distinct Colors", at: SIMD3(1, 0, 0), in: context, size: size)
         drawLabel("Soft", at: SIMD3(0, -1, 0), in: context, size: size)
@@ -758,17 +721,7 @@ private struct ThemeSpace3DCanvas: View {
     }
 
     private func drawFidelitySpaceReference(in context: GraphicsContext, size: CGSize) {
-        let corners: [SIMD3<Double>] = [
-            SIMD3(-1, -1, -1), SIMD3(1, -1, -1), SIMD3(-1, 1, -1), SIMD3(1, 1, -1),
-            SIMD3(-1, -1, 1), SIMD3(1, -1, 1), SIMD3(-1, 1, 1), SIMD3(1, 1, 1)
-        ]
-        let edges = [
-            (0, 1), (0, 2), (0, 4), (1, 3), (1, 5), (2, 3),
-            (2, 6), (3, 7), (4, 5), (4, 6), (5, 7), (6, 7)
-        ]
-        for edge in edges {
-            drawLine(from: corners[edge.0], to: corners[edge.1], in: context, size: size)
-        }
+        drawUnitCubeReference(in: context, size: size)
         drawLabel("Far from ANSI", at: SIMD3(-1, 0, 0), in: context, size: size)
         drawLabel("Faithful ANSI", at: SIMD3(1, 0, 0), in: context, size: size)
         drawLabel("Dark", at: SIMD3(0, -1, 0), in: context, size: size)

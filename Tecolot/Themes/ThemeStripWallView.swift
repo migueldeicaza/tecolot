@@ -196,20 +196,14 @@ struct ThemeStripWallView: View {
                         )
                         .id(theme.name)
                         .contextMenu {
-                            Button(favorites.contains(theme.name) ? "Remove from Favorites" : "Add to Favorites") {
-                                onToggleFavorite(theme.name)
-                            }
-                            Button("Show Similar Themes") {
-                                onShowSimilar(theme.name)
-                            }
-                            Button(theme.isBuiltIn ? "Duplicate & Edit…" : "Edit…") {
-                                onEdit(theme)
-                            }
-                            if !theme.isBuiltIn {
-                                Button("Delete User Theme", role: .destructive) {
-                                    onDelete(theme)
-                                }
-                            }
+                            ThemeContextMenuItems(
+                                theme: theme,
+                                isFavorite: favorites.contains(theme.name),
+                                onToggleFavorite: { onToggleFavorite(theme.name) },
+                                onShowSimilar: { onShowSimilar(theme.name) },
+                                onEdit: { onEdit(theme) },
+                                onDelete: { onDelete(theme) }
+                            )
                         }
                     }
                 }
@@ -337,13 +331,7 @@ private struct ThemeStripRow: View {
             )
             .overlay(alignment: .topLeading) {
                 if !theme.isBuiltIn {
-                    Text("CUSTOM")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1.5)
-                        .background(.regularMaterial, in: Capsule())
-                        .padding(4)
+                    ThemeCustomBadge(compact: true)
                 }
             }
             .overlay(alignment: .bottomTrailing) {
@@ -362,41 +350,16 @@ private struct ThemeStripRow: View {
     /// Two stacked 8-color ANSI rows on the theme's background:
     /// top line = normal colors (0…7), bottom line = bright/highlighted colors (8…15).
     private var twoLineAnsiColumn: some View {
-        VStack(spacing: 5) {
-            swatchRow(range: 0..<8)
-            swatchRow(range: 8..<16)
-        }
-        .padding(StripWallLayout.swatchBoxPadding)
-        .frame(height: StripWallLayout.sampleHeight)
-        .background(theme.background.swiftUIColor, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
+        ThemeAnsiSwatchStrip(
+            theme: theme,
+            metrics: metrics,
+            compact: false,
+            swatchWidth: StripWallLayout.swatchWidth,
+            swatchHeight: StripWallLayout.swatchHeight,
+            swatchSpacing: StripWallLayout.swatchSpacing,
+            rowSpacing: 5,
+            boxPadding: StripWallLayout.swatchBoxPadding,
+            cardHeight: StripWallLayout.sampleHeight
         )
-    }
-
-    private func swatchRow(range: Range<Int>) -> some View {
-        HStack(spacing: StripWallLayout.swatchSpacing) {
-            ForEach(range, id: \.self) { index in
-                let fidelity = metrics?.slotFidelity(forAnsiIndex: index)
-                let deviated = fidelity.map { $0 < 0.45 } ?? false
-                VStack(spacing: 2) {
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(ansi(index))
-                        .frame(width: StripWallLayout.swatchWidth, height: StripWallLayout.swatchHeight)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 3)
-                                .strokeBorder(theme.foreground.swiftUIColor.opacity(0.18), lineWidth: 0.5)
-                        )
-                    Circle()
-                        .fill(deviated ? Color.orange : Color.clear)
-                        .frame(width: 3, height: 3)
-                }
-            }
-        }
-    }
-
-    private func ansi(_ index: Int) -> Color {
-        index < theme.ansi.count ? theme.ansi[index].swiftUIColor : theme.foreground.swiftUIColor
     }
 }

@@ -78,15 +78,7 @@ struct ThemeEditorView: View {
                         Text("Colors")
                             .font(.headline)
                         Spacer()
-                        Picker("Preview", selection: $previewPage) {
-                            Text("None").tag(ThemePreviewPage?.none)
-                            Divider()
-                            ForEach(ThemePreviewPage.allCases) { page in
-                                Text(page.title).tag(Optional(page))
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .fixedSize()
+                        ThemePreviewMenuPicker(selection: $previewPage)
                     }
                     if let previewPage {
                         ThemePreviewPageView(page: previewPage, theme: draft)

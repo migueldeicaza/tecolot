@@ -247,7 +247,7 @@ struct ThemeMapView: View {
                 animationProgress = 1
             }
         }
-        .frame(minWidth: 420, minHeight: 300)
+        .frame(minWidth: 420, minHeight: 240)
     }
 
     private func plotArea(
@@ -377,31 +377,19 @@ struct ThemeMapView: View {
         matching: Set<String>,
         in rect: CGRect
     ) -> some View {
-        let inspectedName = hoveredThemeName ?? pinnedThemeName ?? selectedThemeName
-        let isHovering = hoveredThemeName != nil
-        let statusLabel: String = {
-            if isHovering { return "Hovering" }
-            if pinnedThemeName != nil { return "Pinned" }
-            return "Selected"
-        }()
-        if
-            let theme = themes.first(where: { $0.name == inspectedName }),
-            let themeMetrics = metrics[inspectedName] {
-            let nearby = isHovering
-                ? max(coLocatedGroup(around: inspectedName, points: points, matching: matching, in: rect).count - 1, 0)
-                : 0
-            ThemeInspectorPanel(
-                theme: theme,
-                metrics: themeMetrics,
-                catalog: catalog,
-                statusLabel: statusLabel,
-                previewPage: $previewPage,
-                nearbyCount: nearby,
-                canCycleNearby: isHovering
-            )
-        } else {
-            Color.clear.frame(width: 262)
-        }
+        let nearby = hoveredThemeName.map {
+            coLocatedGroup(around: $0, points: points, matching: matching, in: rect).count - 1
+        } ?? 0
+        ThemePlotDockedInspector(
+            themes: themes,
+            metrics: metrics,
+            catalog: catalog,
+            hoveredThemeName: hoveredThemeName,
+            pinnedThemeName: pinnedThemeName,
+            selectedThemeName: selectedThemeName,
+            previewPage: $previewPage,
+            nearbyCount: nearby
+        )
     }
 
     private func resetView() {
@@ -568,18 +556,8 @@ struct ThemeMapView: View {
                     return .handled
                 }
             }
-            let direction: CGVector
-            switch press.key {
-            case .upArrow:
-                direction = CGVector(dx: 0, dy: -1)
-            case .downArrow:
-                direction = CGVector(dx: 0, dy: 1)
-            case .leftArrow:
-                direction = CGVector(dx: -1, dy: 0)
-            default:
-                direction = CGVector(dx: 1, dy: 0)
-            }
             if
+                let direction = ThemePlotInteraction.directionVector(for: press.key),
                 let next = nextTheme(
                     inDirection: direction, points: points, matching: matching, in: rect
                 ) {
@@ -599,34 +577,24 @@ struct ThemeMapView: View {
     ) -> String? {
         let anchorName = pinnedThemeName ?? hoveredThemeName ?? selectedThemeName
         let anchorPosition: CGPoint
-        if
-            let anchor = points.first(where: {
-                $0.id == anchorName
-            }) {
+        if let anchor = points.first(where: { $0.id == anchorName }) {
             anchorPosition = PlotGeometry.viewPoint(for: anchor.position, in: rect, zoom: zoom, pan: pan)
         } else {
             anchorPosition = CGPoint(x: rect.midX, y: rect.midY)
         }
-        var best: (name: String, score: CGFloat)?
-        for point in points where matching.contains(point.id) && point.id != anchorName {
-            let viewPoint = PlotGeometry.viewPoint(for: point.position, in: rect, zoom: zoom, pan: pan)
-            let dx = viewPoint.x - anchorPosition.x
-            let dy = viewPoint.y - anchorPosition.y
-            let along = dx * direction.dx + dy * direction.dy
-            guard along > 0 else {
-                continue
-            }
-            let distance = hypot(dx, dy)
-            guard distance > 0 else {
-                continue
-            }
-            let anglePenalty = 1 - along / distance  // 0 straight ahead, 1 perpendicular
-            let score = distance * (1 + 3 * anglePenalty)
-            if score < (best?.score ?? .infinity) {
-                best = (point.id, score)
-            }
+        let candidates = points.map {
+            ThemePlotInteraction.ScreenCandidate(
+                id: $0.id,
+                screenPoint: PlotGeometry.viewPoint(for: $0.position, in: rect, zoom: zoom, pan: pan)
+            )
         }
-        return best?.name
+        return ThemePlotInteraction.nextTheme(
+            from: anchorName,
+            anchorPoint: anchorPosition,
+            direction: direction,
+            candidates: candidates,
+            matching: matching
+        )
     }
 
     // MARK: - Hover card
@@ -647,13 +615,9 @@ struct ThemeMapView: View {
                 $0.id == cardName
             }) {
             let anchor = PlotGeometry.viewPoint(for: point.position, in: rect, zoom: zoom, pan: pan)
-            let cardHeight: CGFloat = previewPage == nil ? 175 : 295
-            let cardSize = CGSize(width: 260, height: cardHeight)
-            let x = min(max(anchor.x + 18, 4), max(size.width - cardSize.width - 4, 4))
-            let above = anchor.y > size.height * 0.50
-            let y = above
-                ? max(anchor.y - cardSize.height - 14, 4)
-                : min(anchor.y + 14, max(size.height - cardSize.height - 4, 4))
+            let offset = ThemePlotInteraction.hoverCardOffset(
+                around: anchor, in: size, hasPreview: previewPage != nil
+            )
             ThemeHoverCard(
                 theme: theme,
                 metrics: themeMetrics,
@@ -663,7 +627,7 @@ struct ThemeMapView: View {
                     around: cardName, points: points, matching: matching, in: rect
                 ).count - 1
             )
-            .offset(x: x, y: y)
+            .offset(x: offset.x, y: offset.y)
             .allowsHitTesting(false)
             .transition(.opacity)
         }
@@ -673,20 +637,13 @@ struct ThemeMapView: View {
 
     @ViewBuilder
     private func accessibilityPoints(_ points: [ThemePlotPoint]) -> some View {
-        ForEach(points) { point in
-            if let themeMetrics = metrics[point.id] {
-                Color.clear
-                    .accessibilityLabel(ThemeMapView.accessibilityLabel(
-                        name: point.id, metrics: themeMetrics, catalog: catalog
-                    ))
-                    .accessibilityAddTraits(
-                        point.id == selectedThemeName ? [.isButton, .isSelected] : .isButton
-                    )
-                    .accessibilityAction {
-                        selectTheme(named: point.id)
-                    }
-            }
-        }
+        ThemePlotAccessibilityPoints(
+            ids: points.map(\.id),
+            metrics: metrics,
+            catalog: catalog,
+            selectedThemeName: selectedThemeName,
+            onSelect: selectTheme(named:)
+        )
     }
 
     /// "Dracula, dark, cool, strong contrast, colorful" — descriptive bucket

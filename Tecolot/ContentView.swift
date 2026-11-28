@@ -14,7 +14,7 @@ struct ThemePickerPopover: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack {
+        VStack(spacing: 0) {
             ThemeBrowserView(
                 themes: themes,
                 themeIndex: themeIndex,
@@ -23,8 +23,7 @@ struct ThemePickerPopover: View {
             ) { theme in
                 controller.applyThemeOverride(theme.name)
             }
-            .padding(.top)
-            .frame(minWidth: 520, minHeight: 420, maxHeight: 500)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             HStack {
                 Button("Reset to Profile Theme") {
@@ -43,6 +42,7 @@ struct ThemePickerPopover: View {
             }
             .padding(10)
         }
+        .frame(width: 520, height: 500)
         .alert("Could Not Change Profile Theme", isPresented: Binding(
             get: {
                 errorMessage != nil

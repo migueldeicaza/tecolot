@@ -152,11 +152,14 @@ struct WorkingDirectoryTitlebarTests {
             defer: false
         )
         let content = try #require(window.contentView)
+        let coordinator = ThemePickerPopoverCoordinator()
         let visibleControl = ThemeTitlebarControl()
+        visibleControl.popoverCoordinator = coordinator
         visibleControl.frame = NSRect(x: 20, y: 20, width: 35, height: 32)
         let hiddenContainer = NSView(frame: NSRect(x: 80, y: 20, width: 60, height: 40))
         hiddenContainer.isHidden = true
         let hiddenControl = ThemeTitlebarControl()
+        hiddenControl.popoverCoordinator = coordinator
         hiddenControl.frame = NSRect(x: 0, y: 0, width: 35, height: 32)
         hiddenContainer.addSubview(hiddenControl)
         content.addSubview(visibleControl)
@@ -214,5 +217,51 @@ struct WorkingDirectoryTitlebarTests {
         newlyVisibleButton.performClick(nil)
         #expect(pane.showThemePicker)
         #expect(hiddenControl.isPresentingPopover)
+
+        // Switching to a second pane clears the first pane's flag so refocusing
+        // the first pane does not reopen the picker unprompted.
+        let otherPane = TerminalSessionController(startsProcess: false)
+        hiddenControl.configure(
+            controller: otherPane,
+            profiles: SettingsPreviewData.profiles,
+            themes: SettingsPreviewData.themes,
+            themeIndex: SettingsPreviewData.themeIndex
+        )
+        #expect(!pane.showThemePicker)
+        #expect(!hiddenControl.isPresentingPopover)
+
+        // Toggling a hidden control in a live window must not leave the flag stuck true.
+        visibleControl.configure(
+            controller: otherPane,
+            profiles: SettingsPreviewData.profiles,
+            themes: SettingsPreviewData.themes,
+            themeIndex: SettingsPreviewData.themeIndex
+        )
+        visibleControl.presentPicker()
+        #expect(!otherPane.showThemePicker)
+        #expect(!visibleControl.isPresentingPopover)
+
+        // Re-anchoring to the fallback overflow view keeps the popover open for the same pane.
+        let overflow = NSButton(frame: NSRect(x: 160, y: 20, width: 29, height: 26))
+        content.addSubview(overflow)
+        hiddenControl.fallbackAnchorView = overflow
+        newlyVisibleButton.performClick(nil)
+        #expect(otherPane.showThemePicker)
+        #expect(hiddenControl.isPresentingPopover)
+
+        hiddenControl.isHidden = true
+        hiddenControl.configure(
+            controller: otherPane,
+            profiles: SettingsPreviewData.profiles,
+            themes: SettingsPreviewData.themes,
+            themeIndex: SettingsPreviewData.themeIndex
+        )
+        #expect(otherPane.showThemePicker)
+        #expect(hiddenControl.isPresentingPopover)
+
+        // Clicking again closes the popover cleanly rather than reopening it.
+        hiddenControl.presentPicker()
+        #expect(!otherPane.showThemePicker)
+        #expect(!hiddenControl.isPresentingPopover)
     }
 }

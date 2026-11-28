@@ -123,7 +123,7 @@ final class ThemeBrowserSectionsTests {
         #expect(sections.others.map(\.name) == ["Alpha Twin", "Beta Twin"])
     }
 
-    @Test func displayModeDefaultsToStripsAndPreservesExplicitChoices() {
+    @Test func displayModeStoredValueDefaultsToStripsAndReadsAllModes() {
         #expect(ThemeBrowserDisplayMode.storedValue(nil) == .strips)
         #expect(ThemeBrowserDisplayMode.storedValue("unknown") == .strips)
         #expect(ThemeBrowserDisplayMode.storedValue("strips") == .strips)

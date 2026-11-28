@@ -8,7 +8,7 @@ final class ContentHeaderView: NSView {
     let titleField = NSTextField(labelWithString: "")
     let toggle = ChromeIconButton(treatment: .window)
     private let activity = ChromeIconButton(treatment: .window)
-    private let theme = ThemeTitlebarControl()
+    let theme = ThemeTitlebarControl()
     private let zoom = ChromeIconButton(treatment: .window)
     private let add = ChromeIconButton(treatment: .window)
     private let paneBadge = ProgramStatusBadgeView()
@@ -69,8 +69,7 @@ final class ContentHeaderView: NSView {
         }
         zoom.isHidden = !hidden || controller.group.selectedTab?.loadedWorkspace?.zoomedControllerID == nil
         toggle.isHidden = !hidden
-        let model = AppModel.shared
-        theme.configure(controller: pane, profiles: model.profiles, themes: model.themes, themeIndex: model.themeIndex)
+        theme.configure(controller: pane)
         layer?.backgroundColor = nil
         layer?.cornerRadius = 0
         let status = controller.manager.groups.flatMap(\.tabs).map(\.status).filter(\.unseen)

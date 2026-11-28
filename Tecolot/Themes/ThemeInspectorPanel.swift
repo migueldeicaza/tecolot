@@ -73,39 +73,61 @@ struct ThemeArchetypeBadge: View {
 /// deviation ticks under chromatic slots whose fidelity drops below 0.45.
 struct ThemeAnsiSwatchStrip: View {
     let theme: TerminalTheme
-    let metrics: ThemeMetrics
+    let metrics: ThemeMetrics?
     var compact = false
+    /// Optional fixed swatch width (e.g. aligned Strip Wall columns); nil fills available width.
+    var swatchWidth: CGFloat? = nil
+    var swatchHeight: CGFloat? = nil
+    var swatchSpacing: CGFloat? = nil
+    var rowSpacing: CGFloat? = nil
+    var boxPadding: CGFloat? = nil
+    /// Optional fixed height applied inside the background card so the swatch
+    /// box matches an adjacent preview's exact height.
+    var cardHeight: CGFloat? = nil
 
-    private var swatchHeight: CGFloat {
-        compact ? 11 : 14
+    private var resolvedHeight: CGFloat {
+        swatchHeight ?? (compact ? 11 : 14)
+    }
+
+    private var resolvedSpacing: CGFloat {
+        swatchSpacing ?? (compact ? 2 : 3)
+    }
+
+    private var resolvedRowSpacing: CGFloat {
+        rowSpacing ?? (compact ? 2 : 3)
+    }
+
+    private var resolvedPadding: CGFloat {
+        boxPadding ?? (compact ? 4 : 6)
     }
 
     var body: some View {
-        VStack(spacing: compact ? 2 : 3) {
+        VStack(spacing: resolvedRowSpacing) {
             row(range: 0..<8)
             row(range: 8..<16)
         }
-        .padding(compact ? 4 : 6)
+        .padding(resolvedPadding)
+        .frame(height: cardHeight)
         .background(theme.background.swiftUIColor, in: RoundedRectangle(cornerRadius: 6))
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
+                .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
         )
     }
 
     private func row(range: Range<Int>) -> some View {
-        HStack(spacing: compact ? 2 : 3) {
+        HStack(spacing: resolvedSpacing) {
             ForEach(range, id: \.self) { index in
                 let color = index < theme.ansi.count ? theme.ansi[index] : theme.foreground
-                let fidelity = metrics.slotFidelity(forAnsiIndex: index)
+                let fidelity = metrics?.slotFidelity(forAnsiIndex: index)
                 let deviated = fidelity.map { $0 < 0.45 } ?? false
-                VStack(spacing: 1) {
-                    RoundedRectangle(cornerRadius: 2)
+                VStack(spacing: swatchWidth != nil ? 2 : 1) {
+                    RoundedRectangle(cornerRadius: swatchWidth != nil ? 3 : 2)
                         .fill(color.swiftUIColor)
-                        .frame(height: swatchHeight)
+                        .frame(width: swatchWidth, height: resolvedHeight)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 2)
-                                .strokeBorder(theme.foreground.swiftUIColor.opacity(0.16), lineWidth: 0.5)
+                            RoundedRectangle(cornerRadius: swatchWidth != nil ? 3 : 2)
+                                .strokeBorder(theme.foreground.swiftUIColor.opacity(0.18), lineWidth: 0.5)
                         )
                     if !compact {
                         Circle()
@@ -367,17 +389,7 @@ struct ThemeInspectorPanel: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Picker("Preview", selection: $previewPage) {
-                    Text("None").tag(ThemePreviewPage?.none)
-                    Divider()
-                    ForEach(ThemePreviewPage.allCases) { page in
-                        Text(page.title).tag(Optional(page))
-                    }
-                }
-                .pickerStyle(.menu)
-                .controlSize(.small)
-                .labelsHidden()
-                .fixedSize()
+                ThemePreviewMenuPicker(selection: $previewPage, controlSize: .small, hideLabel: true)
             }
             if let previewPage {
                 ThemePreviewPageView(page: previewPage, theme: theme, hover: true)
@@ -430,15 +442,15 @@ struct ThemeInspectorPanel: View {
 
     private var legibilitySection: some View {
         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
-            statRow("Text", "\(ratio(metrics.foregroundContrast)) · \(metrics.contrastBucket)")
-            statRow("git diff", "\(metrics.diffClarityBucket) red/green")
-            statRow("Dimmed (8)", "\(ratio(metrics.dimmedTextContrast)) · \(metrics.dimmedTextBucket.lowercased())")
-            statRow("TUI chrome", ratio(metrics.tuiChromeContrast))
+            ThemeStatRow("Text", "\(ThemeMetricFormatting.contrastRatio(metrics.foregroundContrast)) · \(metrics.contrastBucket)")
+            ThemeStatRow("git diff", "\(metrics.diffClarityBucket) red/green")
+            ThemeStatRow("Dimmed (8)", "\(ThemeMetricFormatting.contrastRatio(metrics.dimmedTextContrast)) · \(metrics.dimmedTextBucket.lowercased())")
+            ThemeStatRow("TUI chrome", ThemeMetricFormatting.contrastRatio(metrics.tuiChromeContrast))
             if let catalog {
-                statRow(
+                ThemeStatRow(
                     "Palette",
-                    "\(percent(metrics.ansiColorfulness, in: catalog.colorfulnessSorted)) vivid, "
-                        + "\(percent(metrics.ansiSeparationP10, in: catalog.distinctnessSorted)) distinct"
+                    "\(ThemeMetricFormatting.percentile(metrics.ansiColorfulness, in: catalog.colorfulnessSorted)) vivid, "
+                        + "\(ThemeMetricFormatting.percentile(metrics.ansiSeparationP10, in: catalog.distinctnessSorted)) distinct"
                 )
             }
         }
@@ -457,24 +469,5 @@ struct ThemeInspectorPanel: View {
         }
         .font(.caption2)
         .foregroundStyle(.secondary)
-    }
-
-    private func statRow(_ label: String, _ value: String) -> some View {
-        GridRow {
-            Text(label)
-                .foregroundStyle(.secondary)
-                .gridColumnAlignment(.leading)
-            Text(value)
-                .lineLimit(1)
-        }
-    }
-
-    private func ratio(_ contrast: Double) -> String {
-        String(format: "%.1f:1", contrast)
-    }
-
-    private func percent(_ value: Double, in sorted: [Double]) -> String {
-        let rank = CatalogStatistics.percentileRank(of: value, in: sorted)
-        return "\(Int((rank * 100).rounded()))%"
     }
 }

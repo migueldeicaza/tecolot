@@ -5,7 +5,7 @@ final class PaneWindowControlsView: NSView {
     weak var controller: TerminalWindowController?
     let toggle = ChromeIconButton(treatment: .window)
     private let activity = ChromeIconButton(treatment: .window)
-    private let theme = ThemeTitlebarControl()
+    let theme = ThemeTitlebarControl()
     private let zoom = ChromeIconButton(treatment: .window)
     private let add = ChromeIconButton(treatment: .window)
     private let badge = ProgramStatusBadgeView()
@@ -45,8 +45,7 @@ final class PaneWindowControlsView: NSView {
 
     func refresh() {
         let pane = controller?.group.selectedTab?.loadedWorkspace?.focusedController
-        let model = AppModel.shared
-        theme.configure(controller: pane, profiles: model.profiles, themes: model.themes, themeIndex: model.themeIndex)
+        theme.configure(controller: pane)
         zoom.isHidden = pane?.workspace?.zoomedControllerID == nil
         trailingWidth = (controller?.sidebarPreferences.style == .right ? 38 : 0) + (zoom.isHidden ? 90 : 120)
         let status = controller?.manager.groups.flatMap(\.tabs).map(\.status).filter(\.unseen).max {

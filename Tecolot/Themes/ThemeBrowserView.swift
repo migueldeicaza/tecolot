@@ -245,7 +245,7 @@ struct ThemeBrowserView: View {
     }
 
     var body: some View {
-        VStack {
+        VStack(spacing: 0) {
             HStack {
                 TextField("Search themes", text: $query)
                     .textFieldStyle(.roundedBorder)
@@ -267,7 +267,9 @@ struct ThemeBrowserView: View {
                 .labelsHidden()
                 .fixedSize()
             }
-            .padding([.horizontal, .top], 10)
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
 
             switch displayMode {
             case .grid:
@@ -286,16 +288,8 @@ struct ThemeBrowserView: View {
                 if displayMode == .grid || displayMode == .strips {
                     sortMenu
                 }
-                Picker("Preview", selection: effectivePreviewSelection) {
-                    Text("None").tag(ThemePreviewPage?.none)
-                    Divider()
-                    ForEach(ThemePreviewPage.allCases) { page in
-                        Text(page.title).tag(Optional(page))
-                    }
-                }
-                .pickerStyle(.menu)
-                .fixedSize()
-                .help("Choose which sample app preview appears on hover and in cards (keys 1–4, 0 for none)")
+                ThemePreviewMenuPicker(selection: effectivePreviewSelection)
+                    .help("Choose which sample app preview appears on hover and in cards (keys 1–4, 0 for none)")
                 Spacer()
                 Link(
                     "Get More Themes…",
@@ -614,20 +608,14 @@ struct ThemeBrowserView: View {
             }
         )
         .contextMenu {
-            Button(themes.isFavorite(theme.name) ? "Remove from Favorites" : "Add to Favorites") {
-                toggleFavorite(theme.name)
-            }
-            Button("Show Similar Themes") {
-                showSimilarThemes(to: theme.name)
-            }
-            Button(theme.isBuiltIn ? "Duplicate & Edit…" : "Edit…") {
-                presentEditor(for: theme)
-            }
-            if !theme.isBuiltIn {
-                Button("Delete User Theme", role: .destructive) {
-                    deleteUserTheme(theme)
-                }
-            }
+            ThemeContextMenuItems(
+                theme: theme,
+                isFavorite: themes.isFavorite(theme.name),
+                onToggleFavorite: { toggleFavorite(theme.name) },
+                onShowSimilar: { showSimilarThemes(to: theme.name) },
+                onEdit: { presentEditor(for: theme) },
+                onDelete: { deleteUserTheme(theme) }
+            )
         }
     }
 

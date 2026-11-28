@@ -40,16 +40,16 @@ struct ThemeHoverCard: View {
             }
             ThemeAnsiSwatchStrip(theme: theme, metrics: metrics, compact: true)
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
-                statRow("Background", metrics.backgroundDescription)
-                statRow("Contrast", "\(ratio(metrics.foregroundContrast)) · git diff \(metrics.diffClarityBucket.lowercased())")
-                statRow("Dimmed text", "\(ratio(metrics.dimmedTextContrast)) (\(metrics.dimmedTextBucket.lowercased()))")
+                ThemeStatRow("Background", metrics.backgroundDescription)
+                ThemeStatRow("Contrast", "\(ThemeMetricFormatting.contrastRatio(metrics.foregroundContrast)) · git diff \(metrics.diffClarityBucket.lowercased())")
+                ThemeStatRow("Dimmed text", "\(ThemeMetricFormatting.contrastRatio(metrics.dimmedTextContrast)) (\(metrics.dimmedTextBucket.lowercased()))")
                 if metrics.hasRepurposedBrights {
-                    statRow("ANSI brights", "Repurposed (Solarized-style)")
+                    ThemeStatRow("ANSI brights", "Repurposed (Solarized-style)")
                 } else if let catalog {
-                    statRow(
+                    ThemeStatRow(
                         "Palette",
-                        "\(percent(metrics.ansiColorfulness, in: catalog.colorfulnessSorted)) colorful, "
-                            + "\(percent(metrics.ansiSeparationP10, in: catalog.distinctnessSorted)) distinct"
+                        "\(ThemeMetricFormatting.percentile(metrics.ansiColorfulness, in: catalog.colorfulnessSorted)) colorful, "
+                            + "\(ThemeMetricFormatting.percentile(metrics.ansiSeparationP10, in: catalog.distinctnessSorted)) distinct"
                     )
                 }
             }
@@ -76,25 +76,6 @@ struct ThemeHoverCard: View {
                 .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
         )
         .shadow(radius: 6, y: 2)
-    }
-
-    private func statRow(_ label: String, _ value: String) -> some View {
-        GridRow {
-            Text(label)
-                .foregroundStyle(.secondary)
-                .gridColumnAlignment(.leading)
-            Text(value)
-                .lineLimit(1)
-        }
-    }
-
-    private func ratio(_ contrast: Double) -> String {
-        String(format: "%.1f:1", contrast)
-    }
-
-    private func percent(_ value: Double, in sorted: [Double]) -> String {
-        let rank = CatalogStatistics.percentileRank(of: value, in: sorted)
-        return "\(Int((rank * 100).rounded()))%"
     }
 }
 

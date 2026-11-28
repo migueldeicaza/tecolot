@@ -15,6 +15,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     let sidebar: SidebarTabBarView
     let contentHeader = ContentHeaderView()
     let paneHeaderControls = PaneWindowControlsView()
+    private let themePopover = ThemePickerPopoverCoordinator()
     private let cardOutlines = PaneCardOutlineOverlay(frame: .zero)
     private weak var outlinedHost: TerminalPaneHostView?
     let chromeBackdrop = TerminalWorkspaceBackdropView(frame: .zero)
@@ -120,6 +121,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         sidebar.controller = self
         contentHeader.controller = self
         resizeHandle.controller = self
+        for control in [tabBar.theme, sidebar.theme, contentHeader.theme, paneHeaderControls.theme] {
+            control.popoverCoordinator = themePopover
+        }
         content.onSwipe = { [weak self] event in
             self?.handleSidebarSwipe(event)
         }
@@ -372,6 +376,13 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         paneHeaderControls.refresh()
         refreshWindowBackdrop()
         tabBar.configure(group: group)
+        if
+            window?.isVisible == true,
+            let focused = group.selectedTab?.loadedWorkspace?.focusedController,
+            focused.showThemePicker,
+            !themePopover.isPresentingPopover {
+            focused.showThemePicker = false
+        }
         tabBar.updateDrawingVisibility()
         sidebar.updateDrawingVisibility()
         content.needsLayout = true

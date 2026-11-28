@@ -11,7 +11,7 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
     let toggle = ChromeIconButton(treatment: .window)
     let activity = ChromeIconButton(treatment: .window)
     let commandPalette = ChromeIconButton(treatment: .window)
-    private let theme = ThemeTitlebarControl()
+    let theme = ThemeTitlebarControl()
     private let zoom = ChromeIconButton(treatment: .window)
     private let add = ChromeIconButton(treatment: .window)
     private let overflow = ChromeIconButton(treatment: .window)
@@ -176,12 +176,7 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
 
     func refreshThemeControl() {
         let pane = controller?.group.selectedTab?.loadedWorkspace?.focusedController
-        theme.configure(
-            controller: pane,
-            profiles: AppModel.shared.profiles,
-            themes: AppModel.shared.themes,
-            themeIndex: AppModel.shared.themeIndex
-        )
+        theme.configure(controller: pane)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -288,7 +283,7 @@ final class SidebarTabBarView: NSView, NSOutlineViewDataSource, NSOutlineViewDel
             cell.setHint(hints ? number(for: cell.tab) : nil)
         }
         let pane = controller.group.selectedTab?.loadedWorkspace?.focusedController
-        theme.configure(controller: pane, profiles: AppModel.shared.profiles, themes: AppModel.shared.themes, themeIndex: AppModel.shared.themeIndex)
+        theme.configure(controller: pane)
         zoom.isHidden = controller.group.selectedTab?.loadedWorkspace?.zoomedControllerID == nil
         let status = controller.manager.groups.flatMap(\.tabs).map(\.status).filter(\.unseen)
             .max {

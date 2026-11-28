@@ -531,14 +531,7 @@ struct ThemeCard: View {
             )
             .overlay(alignment: .topLeading) {
                 if !theme.isBuiltIn {
-                    Text("CUSTOM")
-                        .font(.caption2.bold())
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(.regularMaterial, in: Capsule())
-                        .padding(5)
-                        .accessibilityLabel("Custom theme")
+                    ThemeCustomBadge()
                 }
             }
     }
